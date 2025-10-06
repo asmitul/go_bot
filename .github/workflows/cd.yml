@@ -109,7 +109,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         env:
           IMAGE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          CONTAINER_NAME: ${{ github.repository }}  # ✅ 容器名使用仓库名
+          CONTAINER_NAME: ${{ github.event.repository.name }}  # ✅ 使用无斜杠的容器名，避免 Docker 名称非法
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           BOT_OWNER_IDS: ${{ secrets.BOT_OWNER_IDS }}
@@ -181,11 +181,14 @@ jobs:
 
       - name: Verify deployment  # ✅ 再次确认容器健康
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          CONTAINER_NAME: ${{ github.event.repository.name }}
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           port: ${{ secrets.PROD_PORT }}
+          envs: CONTAINER_NAME
           script: |
             if docker ps | grep -q ${CONTAINER_NAME}; then
               echo "Deployment successful!"
