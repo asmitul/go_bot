@@ -1,0 +1,197 @@
+name: 生产部署
+
+on:
+  push:
+    # ✅ 当代码推送到 main 分支时触发
+    branches:
+      - main
+
+    # ✅ 当推送以 v 开头的标签（tag）时触发
+    tags:
+      - 'v*'
+
+
+env:
+  # 镜像仓库地址，这里使用 GitHub Container Registry
+  REGISTRY: ghcr.io
+
+  # 镜像名称，自动使用 当前仓库名 = <用户名>/<项目名>
+  IMAGE_NAME: ${{ github.repository }}
+
+
+jobs:
+  test:
+    name: 运行测试  # ✅ 任务名称：运行测试
+    runs-on: ubuntu-latest  # ✅ 使用最新的 Ubuntu 作为执行环境
+
+    steps:
+      - name: Checkout code  # ✅ 拉取当前仓库代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go  # ✅ 安装指定版本的 Go 运行环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'  # ✅ 设置 Go 的版本
+
+      - name: Cache Go modules  # ✅ 缓存 Go 依赖，加速后续运行
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod  # ✅ Go 模块缓存目录
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}  # ✅ 缓存唯一标识
+          restore-keys: |
+            ${{ runner.os }}-go-  # ✅ 如果 key 不匹配，尝试使用此前缀恢复缓存
+
+      - name: Download dependencies  # ✅ 下载 Go 依赖
+        run: go mod download
+
+      - name: Run unit tests  # ✅ 运行单元测试，启用 race 检测和覆盖率统计
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+
+  build-and-push:
+    name: 构建并推送 Docker 镜像  # ✅ 任务名称：构建并推送 Docker 镜像
+    needs: test  # ✅ 依赖 test 任务，必须等测试成功后才执行
+    runs-on: ubuntu-latest  # ✅ 在最新的 Ubuntu 环境中运行
+
+    permissions:
+      contents: read  # ✅ 允许读取代码仓库内容
+      packages: write  # ✅ 允许推送镜像到 GitHub Packages（GHCR）
+
+    steps:
+      - name: Checkout code  # ✅ 拉取当前仓库代码
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx  # ✅ 启用 Buildx，用于构建多平台 Docker 镜像
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry  # ✅ 登录 GitHub 容器镜像仓库（GHCR）
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}  # ✅ 登录到 ghcr.io
+          username: ${{ github.actor }}  # ✅ 使用当前 GitHub 用户名
+          password: ${{ secrets.GITHUB_TOKEN }}  # ✅ 使用内置 Token 授权推送
+
+      - name: Extract metadata  # ✅ 自动生成镜像标签和元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}  # ✅ 镜像完整路径
+          tags: |
+            type=ref,event=branch       # ✅ 分支名作为 tag
+            type=ref,event=pr           # ✅ PR 时生成 tag
+            type=semver,pattern={{version}}       # ✅ 例如 v1.2.3
+            type=semver,pattern={{major}}.{{minor}} # ✅ 例如 v1.2
+            type=sha,prefix={{branch}}-  # ✅ 例如 main-<commit-sha>
+
+      - name: Build and push Docker image  # ✅ 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .  # ✅ 构建上下文为当前目录
+          file: ./deployments/docker/Dockerfile  # ✅ 指定 Dockerfile 路径
+          push: true  # ✅ 构建完成后推送镜像
+          tags: ${{ steps.meta.outputs.tags }}  # ✅ 应用自动生成的 tags
+          labels: ${{ steps.meta.outputs.labels }}  # ✅ 应用镜像标签
+          cache-from: type=gha  # ✅ 使用 GitHub Actions 缓存加速构建
+          cache-to: type=gha,mode=max  # ✅ 保存缓存供下次构建复用
+      
+
+  deploy:
+    name: Deploy to Production  # ✅ 部署到生产环境
+    needs: build-and-push       # ✅ 必须等镜像构建 & 推送成功后再执行
+    runs-on: ubuntu-latest      # ✅ 在 GitHub 提供的 Ubuntu 机器上运行
+    if: github.ref == 'refs/heads/main'  # ✅ 仅当 push 到 main 分支才执行部署
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        env:
+          IMAGE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          CONTAINER_NAME: ${{ github.repository }}  # ✅ 容器名使用仓库名
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          BOT_OWNER_IDS: ${{ secrets.BOT_OWNER_IDS }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN
+          script: |
+            # ✅ 登录 GHCR
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            # ✅ 拉取最新镜像
+            docker pull ${IMAGE_TAG}
+
+            # ✅ 停止并重命名旧容器以便回滚
+            if docker ps -a | grep -q ${CONTAINER_NAME}; then
+              docker stop ${CONTAINER_NAME}
+              docker rename ${CONTAINER_NAME} ${CONTAINER_NAME}-old
+            fi
+
+            # ✅ 尝试启动新容器
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --restart unless-stopped \
+              --network bridge \
+              -e TELEGRAM_TOKEN="${TELEGRAM_TOKEN}" \
+              -e MONGO_URI="${MONGO_URI}" \
+              -e DATABASE_NAME=${CONTAINER_NAME} \
+              -e BOT_OWNER_IDS="${BOT_OWNER_IDS}" \
+              --log-driver json-file \
+              --log-opt max-size=10m \
+              --log-opt max-file=3 \
+              ${IMAGE_TAG}
+
+            # ✅ 等待 10 秒检查容器是否启动
+            sleep 10
+
+            # ✅ 检查新容器状态
+            if docker ps | grep -q ${CONTAINER_NAME}; then
+              echo "New container started successfully!"
+
+              # ✅ 删除旧容器
+              if docker ps -a | grep -q ${CONTAINER_NAME}-old; then
+                docker rm ${CONTAINER_NAME}-old
+              fi
+            else
+              echo "New container failed to start, rolling back..."
+
+              # ✅ 停掉失败的新容器
+              docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+
+              # ✅ 恢复旧容器
+              if docker ps -a | grep -q ${CONTAINER_NAME}-old; then
+                docker rename ${CONTAINER_NAME}-old ${CONTAINER_NAME}
+                docker start ${CONTAINER_NAME}
+                echo "Rollback complete, old container restored!"
+              fi
+
+              # ✅ 打印日志
+              docker logs --tail=100 ${CONTAINER_NAME}
+
+              # ✅ 失败退出
+              exit 1
+            fi
+
+      - name: Verify deployment  # ✅ 再次确认容器健康
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_PORT }}
+          script: |
+            if docker ps | grep -q ${CONTAINER_NAME}; then
+              echo "Deployment successful!"
+              exit 0
+            else
+              echo "Deployment failed!"
+              docker logs --tail=100 ${CONTAINER_NAME}
+              exit 1
+            fi
