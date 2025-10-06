@@ -184,10 +184,10 @@ jobs:
         env:
           CONTAINER_NAME: ${{ github.event.repository.name }}
         with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_PORT }}
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
           envs: CONTAINER_NAME
           script: |
             if docker ps | grep -q ${CONTAINER_NAME}; then
