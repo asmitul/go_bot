@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"go_bot/internal/logger"
@@ -14,8 +15,8 @@ func main() {
 
 	// 配置 MongoDB 连接
 	cfg := mongo.Config{
-		URI:      "mongodb://localhost:27017",
-		Database: "mydb",
+		URI:      os.Getenv("MONGO_URI"),
+		Database: os.Getenv("MONGO_DB_NAME"),
 		Timeout:  5 * time.Second,
 	}
 
