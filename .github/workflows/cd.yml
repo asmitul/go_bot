@@ -13,6 +13,8 @@ env:
 
   # 镜像名称，自动使用 当前仓库名 = <用户名>/<项目名>
   IMAGE_NAME: ${{ github.repository }}
+  # 如果没有设置 Repo Variable LOG_LEVEL，则使用 "info" 作为默认值
+  LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
 
 
 jobs:
@@ -87,7 +89,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN
+          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
           script: |
             # ✅ 登录 GHCR
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -101,6 +103,12 @@ jobs:
               docker rename ${CONTAINER_NAME} ${CONTAINER_NAME}-old
             fi
 
+            # ✅ 根据 LOG_LEVEL 动态拼接参数
+            LOG_OPT=""
+            if [ "${LOG_LEVEL}" != "info" ]; then
+              LOG_OPT="-e LOG_LEVEL=${LOG_LEVEL}"
+            fi
+
             # ✅ 尝试启动新容器
             docker run -d \
               --name ${CONTAINER_NAME} \
@@ -110,6 +118,7 @@ jobs:
               -e MONGO_URI="${MONGO_URI}" \
               -e DATABASE_NAME=${CONTAINER_NAME} \
               -e BOT_OWNER_IDS="${BOT_OWNER_IDS}" \
+              ${LOG_OPT} \
               --log-driver json-file \
               --log-opt max-size=10m \
               --log-opt max-file=3 \

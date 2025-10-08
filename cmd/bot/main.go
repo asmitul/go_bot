@@ -1,12 +1,14 @@
 package main
 
 import (
-	"fmt"
-	"time"
+	"go_bot/internal/logger"
 )
 
+// 初始化logger
+func init() { logger.Init() }
+
 func main() {
-	// 打印一些信息，比如启动时间
-	startTime := time.Now()
-	fmt.Println("启动时间:", startTime)
+	logger.L().Info("bot 启动")
+	// 打印logger的级别
+	logger.L().Info("logger的级别是", logger.L().GetLevel())
 }
