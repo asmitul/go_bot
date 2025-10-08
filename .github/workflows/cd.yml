@@ -6,16 +6,15 @@ on:
     branches:
       - main
 
-
 env:
   # 镜像仓库地址，这里使用 GitHub Container Registry
   REGISTRY: ghcr.io
-
   # 镜像名称，自动使用 当前仓库名 = <用户名>/<项目名>
   IMAGE_NAME: ${{ github.repository }}
   # 如果没有设置 Repo Variable LOG_LEVEL，则使用 "info" 作为默认值
   LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
-
+  # 如果没有设置 Repo Variable MONGO_DB_NAME，则使用仓库名
+  MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME || github.event.repository.name }}
 
 jobs:
   build-and-push:
@@ -62,7 +61,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}  # ✅ 应用镜像标签
           cache-from: type=gha  # ✅ 使用 GitHub Actions 缓存加速构建
           cache-to: type=gha,mode=max  # ✅ 保存缓存供下次构建复用
-      
 
   deploy:
     name: 部署到生产环境
@@ -81,6 +79,7 @@ jobs:
           CONTAINER_NAME: ${{ github.event.repository.name }}  # ✅ 使用无斜杠的容器名，避免 Docker 名称非法
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_DB_NAME: ${{ env.MONGO_DB_NAME }}  # ✅ 使用定义的 MONGO_DB_NAME
           BOT_OWNER_IDS: ${{ secrets.BOT_OWNER_IDS }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -89,7 +88,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
+          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,MONGO_DB_NAME,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
           script: |
             # ✅ 登录 GHCR
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -116,7 +115,7 @@ jobs:
               --network bridge \
               -e TELEGRAM_TOKEN="${TELEGRAM_TOKEN}" \
               -e MONGO_URI="${MONGO_URI}" \
-              -e DATABASE_NAME=${CONTAINER_NAME} \
+              -e DATABASE_NAME="${MONGO_DB_NAME}" \
               -e BOT_OWNER_IDS="${BOT_OWNER_IDS}" \
               ${LOG_OPT} \
               --log-driver json-file \
