@@ -43,5 +43,12 @@ cd go_bot
 
 ## 🪵 4. 日志模块
 
-本项目使用 [**logrus**](https://github.com/sirupsen/logrus) 作为日志记录库。
+本项目日志模块位于 `internal/logger/` 目录，使用 [**logrus**](https://github.com/sirupsen/logrus) 作为日志记录库。
 其支持结构化日志输出、日志级别控制、文件输出等特性，适用于开发与生产环境。
+
+
+## 🗄️ 5. 数据库模块
+
+本项目数据库模块位于 `internal/mongo/` 目录，使用 [**MongoDB 官方 Go 驱动**](https://github.com/mongodb/mongo-go-driver) 实现。
+
+- **连接配置**：通过环境变量 `MONGO_URI` 配置数据库连接字符串（如：`mongodb+srv://<user>:<password>@cluster0.mongodb.net/<dbname>?retryWrites=true&w=majority`）
