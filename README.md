@@ -13,3 +13,6 @@
 - `VPS_USER` – 远程服务器用户名
 - `VPS_PORT` – SSH 端口（默认 22）
 - `SSH_KEY` – 用于连接 VPS 的私钥
+
+
+### 日志模块使用 github.com/sirupsen/logrus
