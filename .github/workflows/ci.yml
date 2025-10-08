@@ -1,13 +1,9 @@
 name: Continuous Integration  # ✅ 持续集成
 
 on:
-  pull_request:
-    branches:
-      - main
-      - develop
   push:
     branches:
-      - develop
+      - main
 
 jobs:
   lint:
