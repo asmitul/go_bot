@@ -21,7 +21,7 @@ env:
 
 jobs:
   build-and-push:
-    name: 构建并推送 Docker 镜像  # ✅ 任务名称：构建并推送 Docker 镜像
+    name: 构建并推送Docker镜像
     runs-on: ubuntu-latest  # ✅ 在最新的 Ubuntu 环境中运行
 
     permissions:
@@ -67,7 +67,7 @@ jobs:
       
 
   deploy:
-    name: Deploy to Production  # ✅ 部署到生产环境
+    name: 部署到生产环境
     needs: build-and-push       # ✅ 必须等镜像构建 & 推送成功后再执行
     runs-on: ubuntu-latest      # ✅ 在 GitHub 提供的 Ubuntu 机器上运行
     if: github.ref == 'refs/heads/main'  # ✅ 仅当 push 到 main 分支才执行部署
