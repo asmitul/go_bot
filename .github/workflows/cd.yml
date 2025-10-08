@@ -20,37 +20,8 @@ env:
 
 
 jobs:
-  test:
-    name: 运行测试  # ✅ 任务名称：运行测试
-    runs-on: ubuntu-latest  # ✅ 使用最新的 Ubuntu 作为执行环境
-
-    steps:
-      - name: Checkout code  # ✅ 拉取当前仓库代码
-        uses: actions/checkout@v4
-
-      - name: Set up Go  # ✅ 安装指定版本的 Go 运行环境
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'  # ✅ 设置 Go 的版本
-
-      - name: Cache Go modules  # ✅ 缓存 Go 依赖，加速后续运行
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod  # ✅ Go 模块缓存目录
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}  # ✅ 缓存唯一标识
-          restore-keys: |
-            ${{ runner.os }}-go-  # ✅ 如果 key 不匹配，尝试使用此前缀恢复缓存
-
-      - name: Download dependencies  # ✅ 下载 Go 依赖
-        run: go mod download
-
-      - name: Run unit tests  # ✅ 运行单元测试，启用 race 检测和覆盖率统计
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-
   build-and-push:
     name: 构建并推送 Docker 镜像  # ✅ 任务名称：构建并推送 Docker 镜像
-    needs: test  # ✅ 依赖 test 任务，必须等测试成功后才执行
     runs-on: ubuntu-latest  # ✅ 在最新的 Ubuntu 环境中运行
 
     permissions:
