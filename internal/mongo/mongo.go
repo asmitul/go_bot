@@ -2,53 +2,68 @@ package mongo
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"time"
 
-	mongodriver "go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
-var client *mongodriver.Client
-
-// Init initializes a global MongoDB client using MONGO_URI.
-// Safe to call multiple times; repeated calls are no-ops if already connected.
-func Init() error {
-	if client != nil {
-		return nil
-	}
-
-	uri := os.Getenv("MONGO_URI")
-	if uri == "" {
-		uri = "mongodb://localhost:27017"
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	c, err := mongodriver.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		return err
-	}
-	if err := c.Ping(ctx, readpref.Primary()); err != nil {
-		_ = c.Disconnect(context.Background())
-		return err
-	}
-
-	client = c
-	return nil
+// Client 封装 MongoDB 客户端及其配置
+type Client struct {
+	*mongo.Client
+	dbName string
 }
 
-// Client returns the initialized Mongo client.
-func Client() *mongodriver.Client { return client }
+// Config 定义 MongoDB 连接配置
+type Config struct {
+	URI      string        // MongoDB 连接 URI，例如 "mongodb://localhost:27017"
+	Database string        // 数据库名称
+	Timeout  time.Duration // 连接超时时间
+}
 
-// Close disconnects the global client if present.
-func Close(ctx context.Context) error {
-	if client == nil {
+// NewClient 初始化 MongoDB 客户端
+func NewClient(cfg Config) (*Client, error) {
+	// 设置客户端选项
+	clientOptions := options.Client().ApplyURI(cfg.URI)
+
+	// 设置默认超时时间（如果未提供）
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 10 * time.Second
+	}
+
+	// 创建上下文，设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	// 连接到 MongoDB
+	client, err := mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
+	}
+
+	// 验证连接
+	err = client.Ping(ctx, readpref.Primary())
+	if err != nil {
+		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
+	}
+
+	return &Client{
+		Client: client,
+		dbName: cfg.Database,
+	}, nil
+}
+
+// Close 关闭 MongoDB 客户端连接
+func (c *Client) Close(ctx context.Context) error {
+	if c.Client == nil {
 		return nil
 	}
-	err := client.Disconnect(ctx)
-	client = nil
-	return err
+	return c.Client.Disconnect(ctx)
+}
+
+// Database 返回指定数据库的句柄
+func (c *Client) Database() *mongo.Database {
+	return c.Client.Database(c.dbName)
 }
