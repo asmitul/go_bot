@@ -124,14 +124,14 @@ jobs:
 
             # ✅ 检查新容器状态
             if docker ps | grep -q ${CONTAINER_NAME}; then
-              echo "New container started successfully!"
+              echo "新容器启动成功！"
 
               # ✅ 删除旧容器
               if docker ps -a | grep -q ${CONTAINER_NAME}-old; then
                 docker rm ${CONTAINER_NAME}-old
               fi
             else
-              echo "New container failed to start, rolling back..."
+              echo "新容器启动失败，正在回滚..."
 
               # ✅ 停掉失败的新容器
               docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
@@ -140,7 +140,7 @@ jobs:
               if docker ps -a | grep -q ${CONTAINER_NAME}-old; then
                 docker rename ${CONTAINER_NAME}-old ${CONTAINER_NAME}
                 docker start ${CONTAINER_NAME}
-                echo "Rollback complete, old container restored!"
+                echo "回滚完成，旧容器已恢复！"
               fi
 
               # ✅ 打印日志
@@ -162,10 +162,10 @@ jobs:
           envs: CONTAINER_NAME
           script: |
             if docker ps | grep -q ${CONTAINER_NAME}; then
-              echo "Deployment successful!"
+              echo "部署成功！"
               exit 0
             else
-              echo "Deployment failed!"
+              echo "部署失败！"
               docker logs --tail=100 ${CONTAINER_NAME}
               exit 1
             fi
