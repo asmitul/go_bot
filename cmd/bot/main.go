@@ -2,39 +2,35 @@ package main
 
 import (
 	"context"
-	"os"
-	"time"
 
+	"go_bot/internal/app"
+	"go_bot/internal/config"
 	"go_bot/internal/logger"
-	"go_bot/internal/mongo"
 )
 
 func main() {
-	// 初始化logger
+	// 初始化 logger
 	logger.Init()
 
-	// 配置 MongoDB 连接
-	cfg := mongo.Config{
-		URI:      os.Getenv("MONGO_URI"),
-		Database: os.Getenv("DATABASE_NAME"),
-		Timeout:  5 * time.Second,
-	}
-
-	// 初始化 MongoDB 客户端
-	client, err := mongo.NewClient(cfg)
+	// 加载配置
+	cfg, err := config.Load()
 	if err != nil {
-		logger.L().Fatalf("Failed to create MongoDB client: %v", err)
+		logger.L().Fatalf("Failed to load config: %v", err)
 	}
-	defer client.Close(context.Background())
 
-	// 验证连接
-	if err := client.Ping(context.Background()); err != nil {
-		logger.L().Fatalf("Failed to ping MongoDB: %v", err)
+	// 初始化应用（包含所有服务）
+	application, err := app.New(cfg)
+	if err != nil {
+		logger.L().Fatalf("Failed to initialize app: %v", err)
 	}
-	logger.L().Info("MongoDB connected successfully")
+	defer application.Close(context.Background())
+
+	logger.L().Info("Application started successfully")
 
 	// 使用数据库
-	db := client.Database()
+	db := application.MongoDB.Database()
 	logger.L().Infof("Using database: %s", db.Name())
 
+	// TODO: 启动 Telegram Bot
+	// TODO: 阻塞等待信号（优雅关闭）
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"go_bot/internal/config"
+
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -85,4 +87,15 @@ func (c *Client) Ping(ctx context.Context) error {
 		return fmt.Errorf("MongoDB client is not initialized")
 	}
 	return c.Client.Ping(ctx, readpref.Primary())
+}
+
+// InitFromConfig 从应用配置初始化 MongoDB 客户端
+// 这是一个便捷函数，封装了配置转换和客户端创建逻辑
+func InitFromConfig(cfg *config.Config) (*Client, error) {
+	mongoCfg := Config{
+		URI:      cfg.MongoURI,
+		Database: cfg.MongoDBName,
+		Timeout:  5 * time.Second,
+	}
+	return NewClient(mongoCfg)
 }

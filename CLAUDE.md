@@ -52,8 +52,10 @@ Configure these in Settings → Secrets and variables → Actions → Variables:
 ```
 go_bot/
 ├── cmd/bot/               # Application entry point
-│   └── main.go           # Initializes logger and MongoDB client
+│   └── main.go           # Initializes app and starts services
 ├── internal/             # Private application packages
+│   ├── app/             # Application layer - service initialization & lifecycle
+│   ├── config/          # Configuration management from env variables
 │   ├── logger/          # Logrus-based logging with env config
 │   └── mongo/           # MongoDB client wrapper
 └── deployments/docker/  # Multi-stage Dockerfile
@@ -67,21 +69,39 @@ go_bot/
 - Supports levels: debug, info, warn, error
 - Defaults to `info` level if not configured
 
+### Config Package (`internal/config`)
+
+- Centralized configuration management from environment variables
+- `Load()` function reads and parses all environment variables into `Config` struct
+- Validates and parses `BOT_OWNER_IDS` (supports comma-separated list)
+- Configuration fields: `TelegramToken`, `BotOwnerIDs`, `MongoURI`, `MongoDBName`
+- Use `config.Load()` once in `main.go`, then pass to services
+
 ### MongoDB Package (`internal/mongo`)
 
 - Wraps MongoDB official Go driver
 - `Config` struct validates required fields (URI, Database, Timeout)
 - `NewClient(cfg)` creates client with automatic connection validation
+- `InitFromConfig(appCfg)` convenience function - accepts `*config.Config` and handles conversion
 - `Client.Database()` returns database handle
 - `Client.Ping(ctx)` verifies connection health
 - Connection timeout defaults to 10 seconds if not specified
+
+### App Package (`internal/app`)
+
+- Application layer for unified service initialization and lifecycle management
+- `App` struct holds all service instances (`MongoDB`, future: `TelegramBot`, etc.)
+- `New(cfg)` initializes all services in order, returns error if any service fails
+- `Close(ctx)` gracefully shuts down all services
+- Access services via `app.MongoDB`, `app.TelegramBot`, etc.
+- To add new services: add field to `App`, initialize in `New()`, cleanup in `Close()`
 
 ### Environment Variables
 
 The application is configured entirely through environment variables:
 
 - `MONGO_URI` - MongoDB connection string (required)
-- `DATABASE_NAME` - Database name (required)
+- `MONGO_DB_NAME` - Database name (required)
 - `LOG_LEVEL` - Logging verbosity (optional, default: "info")
 - `TELEGRAM_TOKEN` - Bot token (configured in deployment)
 - `BOT_OWNER_IDS` - Admin user IDs (configured in deployment)
@@ -122,5 +142,6 @@ When modifying code:
 
 - All configuration via environment variables (no config files)
 - Use `logger.L()` for all logging (never `fmt.Print*` or `log.Print*`)
-- MongoDB client initialized once in `main.go`, passed to handlers
+- All services managed by `app` layer, initialized once in `main.go` via `app.New(cfg)`
+- Access services through `app` instance (e.g., `app.MongoDB.Database()`)
 - Error handling: validate early, return descriptive errors with `fmt.Errorf` wrapping
