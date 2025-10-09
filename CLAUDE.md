@@ -29,7 +29,7 @@ Configure these in repository Settings → Secrets and variables → Actions →
 | Secret | Description |
 |--------|-------------|
 | `TELEGRAM_TOKEN` | Telegram bot API token |
-| `MONGO_URI` | MongoDB connection string (e.g., `mongodb+srv://user:pass@cluster.mongodb.net/`) |
+| `MONGO_URI` | MongoDB connection string |
 | `BOT_OWNER_IDS` | Comma-separated list of admin Telegram user IDs |
 | `VPS_HOST` | VPS server hostname/IP |
 | `VPS_USER` | SSH username for VPS |
