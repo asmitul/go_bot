@@ -16,7 +16,7 @@ func main() {
 	// 配置 MongoDB 连接
 	cfg := mongo.Config{
 		URI:      os.Getenv("MONGO_URI"),
-		Database: os.Getenv("MONGO_DB_NAME"),
+		Database: os.Getenv("DATABASE_NAME"),
 		Timeout:  5 * time.Second,
 	}
 
@@ -27,11 +27,14 @@ func main() {
 	}
 	defer client.Close(context.Background())
 
+	// 验证连接
+	if err := client.Ping(context.Background()); err != nil {
+		logger.L().Fatalf("Failed to ping MongoDB: %v", err)
+	}
+	logger.L().Info("MongoDB connected successfully")
+
 	// 使用数据库
 	db := client.Database()
-
-	logger.L().Info("MongoDB 连接状态: ", client.Ping(context.Background(), nil))
-
-	logger.L().Info("MongoDB 数据库: ", db)
+	logger.L().Infof("Using database: %s", db.Name())
 
 }

@@ -25,6 +25,14 @@ type Config struct {
 
 // NewClient 初始化 MongoDB 客户端
 func NewClient(cfg Config) (*Client, error) {
+	// 验证配置参数
+	if cfg.URI == "" {
+		return nil, fmt.Errorf("MongoDB URI cannot be empty")
+	}
+	if cfg.Database == "" {
+		return nil, fmt.Errorf("database name cannot be empty")
+	}
+
 	// 设置客户端选项
 	clientOptions := options.Client().ApplyURI(cfg.URI)
 
@@ -65,5 +73,16 @@ func (c *Client) Close(ctx context.Context) error {
 
 // Database 返回指定数据库的句柄
 func (c *Client) Database() *mongo.Database {
+	if c.Client == nil {
+		return nil
+	}
 	return c.Client.Database(c.dbName)
+}
+
+// Ping 验证与 MongoDB 的连接
+func (c *Client) Ping(ctx context.Context) error {
+	if c.Client == nil {
+		return fmt.Errorf("MongoDB client is not initialized")
+	}
+	return c.Client.Ping(ctx, readpref.Primary())
 }
