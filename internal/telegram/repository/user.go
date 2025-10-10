@@ -12,20 +12,20 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// UserRepository 用户数据访问层
-type UserRepository struct {
+// MongoUserRepository 用户数据访问层（MongoDB 实现）
+type MongoUserRepository struct {
 	collection *mongo.Collection
 }
 
-// NewUserRepository 创建用户 Repository
-func NewUserRepository(db *mongo.Database) *UserRepository {
-	return &UserRepository{
+// NewMongoUserRepository 创建用户 Repository
+func NewMongoUserRepository(db *mongo.Database) UserRepository {
+	return &MongoUserRepository{
 		collection: db.Collection("users"),
 	}
 }
 
 // CreateOrUpdate 创建或更新用户
-func (r *UserRepository) CreateOrUpdate(ctx context.Context, user *models.User) error {
+func (r *MongoUserRepository) CreateOrUpdate(ctx context.Context, user *models.User) error {
 	now := time.Now()
 	user.UpdatedAt = now
 
@@ -70,7 +70,7 @@ func (r *UserRepository) CreateOrUpdate(ctx context.Context, user *models.User) 
 }
 
 // GetByTelegramID 根据 Telegram ID 获取用户
-func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*models.User, error) {
+func (r *MongoUserRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*models.User, error) {
 	var user models.User
 	err := r.collection.FindOne(ctx, bson.M{"telegram_id": telegramID}).Decode(&user)
 	if err != nil {
@@ -83,7 +83,7 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID int64) 
 }
 
 // UpdateLastActive 更新用户最后活跃时间
-func (r *UserRepository) UpdateLastActive(ctx context.Context, telegramID int64) error {
+func (r *MongoUserRepository) UpdateLastActive(ctx context.Context, telegramID int64) error {
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
@@ -99,7 +99,7 @@ func (r *UserRepository) UpdateLastActive(ctx context.Context, telegramID int64)
 }
 
 // GrantAdmin 授予管理员权限
-func (r *UserRepository) GrantAdmin(ctx context.Context, telegramID int64, grantedBy int64) error {
+func (r *MongoUserRepository) GrantAdmin(ctx context.Context, telegramID int64, grantedBy int64) error {
 	now := time.Now()
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
@@ -122,7 +122,7 @@ func (r *UserRepository) GrantAdmin(ctx context.Context, telegramID int64, grant
 }
 
 // RevokeAdmin 撤销管理员权限
-func (r *UserRepository) RevokeAdmin(ctx context.Context, telegramID int64) error {
+func (r *MongoUserRepository) RevokeAdmin(ctx context.Context, telegramID int64) error {
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
@@ -146,7 +146,7 @@ func (r *UserRepository) RevokeAdmin(ctx context.Context, telegramID int64) erro
 }
 
 // ListAdmins 列出所有管理员
-func (r *UserRepository) ListAdmins(ctx context.Context) ([]*models.User, error) {
+func (r *MongoUserRepository) ListAdmins(ctx context.Context) ([]*models.User, error) {
 	filter := bson.M{
 		"role": bson.M{
 			"$in": []string{models.RoleOwner, models.RoleAdmin},
@@ -168,12 +168,12 @@ func (r *UserRepository) ListAdmins(ctx context.Context) ([]*models.User, error)
 }
 
 // GetUserInfo 获取用户完整信息（同 GetByTelegramID，用于语义区分）
-func (r *UserRepository) GetUserInfo(ctx context.Context, telegramID int64) (*models.User, error) {
+func (r *MongoUserRepository) GetUserInfo(ctx context.Context, telegramID int64) (*models.User, error) {
 	return r.GetByTelegramID(ctx, telegramID)
 }
 
 // EnsureIndexes 确保索引存在
-func (r *UserRepository) EnsureIndexes(ctx context.Context) error {
+func (r *MongoUserRepository) EnsureIndexes(ctx context.Context) error {
 	indexes := []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "telegram_id", Value: 1}},

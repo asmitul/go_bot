@@ -12,20 +12,20 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// GroupRepository 群组数据访问层
-type GroupRepository struct {
+// MongoGroupRepository 群组数据访问层（MongoDB 实现）
+type MongoGroupRepository struct {
 	collection *mongo.Collection
 }
 
-// NewGroupRepository 创建群组 Repository
-func NewGroupRepository(db *mongo.Database) *GroupRepository {
-	return &GroupRepository{
+// NewMongoGroupRepository 创建群组 Repository
+func NewMongoGroupRepository(db *mongo.Database) GroupRepository {
+	return &MongoGroupRepository{
 		collection: db.Collection("groups"),
 	}
 }
 
 // CreateOrUpdate 创建或更新群组
-func (r *GroupRepository) CreateOrUpdate(ctx context.Context, group *models.Group) error {
+func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models.Group) error {
 	now := time.Now()
 	group.UpdatedAt = now
 
@@ -79,7 +79,7 @@ func (r *GroupRepository) CreateOrUpdate(ctx context.Context, group *models.Grou
 }
 
 // GetByTelegramID 根据 Telegram ID 获取群组
-func (r *GroupRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*models.Group, error) {
+func (r *MongoGroupRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*models.Group, error) {
 	var group models.Group
 	err := r.collection.FindOne(ctx, bson.M{"telegram_id": telegramID}).Decode(&group)
 	if err != nil {
@@ -92,7 +92,7 @@ func (r *GroupRepository) GetByTelegramID(ctx context.Context, telegramID int64)
 }
 
 // MarkBotLeft 标记 Bot 离开群组
-func (r *GroupRepository) MarkBotLeft(ctx context.Context, telegramID int64) error {
+func (r *MongoGroupRepository) MarkBotLeft(ctx context.Context, telegramID int64) error {
 	now := time.Now()
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
@@ -114,7 +114,7 @@ func (r *GroupRepository) MarkBotLeft(ctx context.Context, telegramID int64) err
 }
 
 // ListActiveGroups 列出所有活跃群组
-func (r *GroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
+func (r *MongoGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
 	filter := bson.M{"bot_status": models.BotStatusActive}
 
 	cursor, err := r.collection.Find(ctx, filter)
@@ -132,7 +132,7 @@ func (r *GroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group
 }
 
 // UpdateSettings 更新群组配置
-func (r *GroupRepository) UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
+func (r *MongoGroupRepository) UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
@@ -152,7 +152,7 @@ func (r *GroupRepository) UpdateSettings(ctx context.Context, telegramID int64, 
 }
 
 // UpdateStats 更新群组统计信息
-func (r *GroupRepository) UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error {
+func (r *MongoGroupRepository) UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error {
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
@@ -172,7 +172,7 @@ func (r *GroupRepository) UpdateStats(ctx context.Context, telegramID int64, sta
 }
 
 // EnsureIndexes 确保索引存在
-func (r *GroupRepository) EnsureIndexes(ctx context.Context) error {
+func (r *MongoGroupRepository) EnsureIndexes(ctx context.Context) error {
 	indexes := []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "telegram_id", Value: 1}},

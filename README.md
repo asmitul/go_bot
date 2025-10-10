@@ -87,12 +87,15 @@ cd go_bot
 
 本项目 Telegram Bot 模块位于 `internal/telegram/` 目录，使用 [**go-telegram/bot**](https://github.com/go-telegram/bot) 库实现。
 
-- **架构设计**：采用 Repository 模式 + 分层架构，包含以下子模块：
+- **架构设计**：采用 Repository + Service 模式的分层架构，包含以下子模块：
   - `models/` - 数据模型（User、Group）
-  - `repository/` - 数据访问层（UserRepository、GroupRepository）
+  - `repository/` - 数据访问层（UserRepository、GroupRepository），负责数据库 CRUD 操作
+  - `service/` - 业务逻辑层（UserService、GroupService），封装业务验证和权限检查逻辑
   - `telegram.go` - Bot 核心服务
-  - `handlers.go` - 命令处理器
+  - `handlers.go` - 命令处理器，调用 service 层处理业务逻辑
   - `middleware.go` - 权限中间件
+  - `worker_pool.go` - Worker Pool 实现，并发处理 handler 任务，带 panic recovery 和队列管理
+  - `helpers.go` - 辅助函数，统一封装消息发送和错误处理
 
 - **权限系统**：三级权限管理
   - **Owner** - 最高权限，由 `BOT_OWNER_IDS` 环境变量配置，可管理 Admin

@@ -1,0 +1,64 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"go_bot/internal/logger"
+	"go_bot/internal/telegram/models"
+	"go_bot/internal/telegram/repository"
+)
+
+// GroupServiceImpl 群组服务实现
+type GroupServiceImpl struct {
+	groupRepo repository.GroupRepository
+}
+
+// NewGroupService 创建群组服务
+func NewGroupService(groupRepo repository.GroupRepository) GroupService {
+	return &GroupServiceImpl{
+		groupRepo: groupRepo,
+	}
+}
+
+// CreateOrUpdateGroup 创建或更新群组
+func (s *GroupServiceImpl) CreateOrUpdateGroup(ctx context.Context, group *models.Group) error {
+	if err := s.groupRepo.CreateOrUpdate(ctx, group); err != nil {
+		logger.L().Errorf("Failed to create/update group %d: %v", group.TelegramID, err)
+		return fmt.Errorf("failed to create/update group: %w", err)
+	}
+
+	logger.L().Infof("Group %d (%s) created/updated", group.TelegramID, group.Title)
+	return nil
+}
+
+// GetGroupInfo 获取群组信息
+func (s *GroupServiceImpl) GetGroupInfo(ctx context.Context, telegramID int64) (*models.Group, error) {
+	group, err := s.groupRepo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		logger.L().Errorf("Failed to get group info for %d: %v", telegramID, err)
+		return nil, fmt.Errorf("获取群组信息失败")
+	}
+	return group, nil
+}
+
+// MarkBotLeft 标记 Bot 离开群组
+func (s *GroupServiceImpl) MarkBotLeft(ctx context.Context, telegramID int64) error {
+	if err := s.groupRepo.MarkBotLeft(ctx, telegramID); err != nil {
+		logger.L().Errorf("Failed to mark bot left for group %d: %v", telegramID, err)
+		return fmt.Errorf("标记失败: %w", err)
+	}
+
+	logger.L().Infof("Bot left group %d", telegramID)
+	return nil
+}
+
+// ListActiveGroups 列出所有活跃群组
+func (s *GroupServiceImpl) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
+	groups, err := s.groupRepo.ListActiveGroups(ctx)
+	if err != nil {
+		logger.L().Errorf("Failed to list active groups: %v", err)
+		return nil, fmt.Errorf("获取活跃群组列表失败")
+	}
+	return groups, nil
+}

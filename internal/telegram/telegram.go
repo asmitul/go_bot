@@ -9,8 +9,10 @@ import (
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
+	"go_bot/internal/telegram/service"
 
 	"github.com/go-telegram/bot"
+	botModels "github.com/go-telegram/bot/models"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -23,11 +25,18 @@ type Config struct {
 
 // Bot Telegram Bot 服务
 type Bot struct {
-	bot       *bot.Bot
-	db        *mongo.Database
-	ownerIDs  []int64
-	userRepo  *repository.UserRepository
-	groupRepo *repository.GroupRepository
+	bot        *bot.Bot
+	db         *mongo.Database
+	ownerIDs   []int64
+	workerPool *WorkerPool
+
+	// Service 层（业务逻辑）
+	userService  service.UserService
+	groupService service.GroupService
+
+	// Repository 层（仅用于初始化）
+	userRepo  repository.UserRepository
+	groupRepo repository.GroupRepository
 }
 
 // New 创建 Telegram Bot 实例
@@ -38,8 +47,15 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	}
 
 	// 创建 repositories
-	userRepo := repository.NewUserRepository(db)
-	groupRepo := repository.NewGroupRepository(db)
+	userRepo := repository.NewMongoUserRepository(db)
+	groupRepo := repository.NewMongoGroupRepository(db)
+
+	// 创建 services
+	userService := service.NewUserService(userRepo)
+	groupService := service.NewGroupService(groupRepo)
+
+	// 创建 worker pool (10 workers, 100 queue size)
+	workerPool := NewWorkerPool(10, 100)
 
 	// 创建 bot 实例
 	opts := []bot.Option{}
@@ -53,11 +69,14 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	}
 
 	telegramBot := &Bot{
-		bot:       b,
-		db:        db,
-		ownerIDs:  cfg.OwnerIDs,
-		userRepo:  userRepo,
-		groupRepo: groupRepo,
+		bot:          b,
+		db:           db,
+		ownerIDs:     cfg.OwnerIDs,
+		workerPool:   workerPool,
+		userService:  userService,
+		groupService: groupService,
+		userRepo:     userRepo,
+		groupRepo:    groupRepo,
 	}
 
 	// 初始化 owners
@@ -75,6 +94,20 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
+}
+
+// asyncHandler 异步 handler 包装器
+// 将 handler 提交到 worker pool 异步执行
+func (b *Bot) asyncHandler(handler bot.HandlerFunc) bot.HandlerFunc {
+	return func(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+		// 提交到 worker pool
+		b.workerPool.Submit(HandlerTask{
+			Ctx:         ctx,
+			BotInstance: botInstance,
+			Update:      update,
+			Handler:     handler,
+		})
+	}
 }
 
 // InitFromConfig 从应用配置初始化 Telegram Bot
@@ -98,7 +131,13 @@ func (b *Bot) Start(ctx context.Context) error {
 // Stop 停止 Bot
 func (b *Bot) Stop(ctx context.Context) error {
 	logger.L().Info("Stopping Telegram bot...")
-	// bot.Stop() 通过 context 取消实现，这里只是记录日志
+
+	// 关闭 worker pool
+	if b.workerPool != nil {
+		b.workerPool.Shutdown()
+	}
+
+	// bot.Stop() 通过 context 取消实现
 	return nil
 }
 

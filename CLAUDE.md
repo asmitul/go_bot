@@ -60,10 +60,19 @@ go_bot/
 │   ├── mongo/           # MongoDB client wrapper
 │   └── telegram/        # Telegram bot service
 │       ├── models/      # Data models (User, Group)
-│       ├── repository/  # Data access layer (UserRepository, GroupRepository)
+│       ├── repository/  # Data access layer with interfaces
+│       │   ├── user.go
+│       │   ├── group.go
+│       │   └── interfaces.go
+│       ├── service/     # Business logic layer
+│       │   ├── interfaces.go
+│       │   ├── user_service.go
+│       │   └── group_service.go
 │       ├── telegram.go  # Bot core service
 │       ├── handlers.go  # Command handlers
-│       └── middleware.go # Permission middlewares
+│       ├── middleware.go # Permission middlewares
+│       ├── worker_pool.go # Concurrent handler execution
+│       └── helpers.go   # Message sending utilities
 └── deployments/docker/  # Multi-stage Dockerfile
 ```
 
@@ -96,7 +105,8 @@ go_bot/
 ### Telegram Package (`internal/telegram`)
 
 - Telegram bot service using [go-telegram/bot](https://github.com/go-telegram/bot) library
-- Implements Repository pattern with layered architecture for clean separation of concerns
+- Implements Repository + Service pattern with layered architecture for clean separation of concerns
+- Uses worker pool for concurrent handler execution with panic recovery
 - Supports long polling mode (bot runs in goroutine, blocking until context cancellation)
 
 **Architecture Components:**
@@ -107,9 +117,33 @@ go_bot/
   - Permission check methods (`IsOwner()`, `IsAdmin()`, `CanManageUsers()`)
 
 - **repository/** - Data access layer (CRUD operations)
-  - `UserRepository`: CreateOrUpdate, GetByTelegramID, GrantAdmin, RevokeAdmin, ListAdmins
-  - `GroupRepository`: CreateOrUpdate, MarkBotLeft, ListActiveGroups, UpdateSettings
+  - Defines repository interfaces in `repository/interfaces.go`
+  - `UserRepository`: CreateOrUpdate, GetByTelegramID, UpdateLastActive, GrantAdmin, RevokeAdmin, ListAdmins, GetUserInfo
+  - `GroupRepository`: CreateOrUpdate, GetByTelegramID, MarkBotLeft, ListActiveGroups, UpdateSettings, UpdateStats
   - All repositories provide `EnsureIndexes()` for automatic index creation
+  - Pure data access layer - no business logic or validation
+
+- **service/** - Business logic layer (Service Layer)
+  - Encapsulates business validation and permission checks, separating business logic from handlers
+  - **Interface definitions** (`service/interfaces.go`):
+    - `UserService`: RegisterOrUpdateUser, GrantAdminPermission, RevokeAdminPermission, GetUserInfo, ListAllAdmins, CheckOwnerPermission, CheckAdminPermission, UpdateUserActivity
+    - `GroupService`: CreateOrUpdateGroup, GetGroupInfo, MarkBotLeft, ListActiveGroups
+    - `TelegramUserInfo`: DTO object for passing Telegram user information
+  - **UserService implementation** (`service/user_service.go`):
+    - `RegisterOrUpdateUser(info)`: Converts DTO to model, calls repository, logs operation
+    - `GrantAdminPermission(targetID, grantedBy)`: Validates granter is Owner → checks target exists → verifies not already admin → executes grant → logs
+    - `RevokeAdminPermission(targetID, revokedBy)`: Validates revoker is Owner → prevents revoking Owner → checks current state → executes revoke → logs
+    - `CheckOwnerPermission(telegramID)`: Queries user and checks Owner role
+    - `CheckAdminPermission(telegramID)`: Queries user and checks Admin+ role
+    - All methods include comprehensive error handling and structured logging (Info for success, Error for failures)
+    - Returns user-friendly Chinese error messages for direct display to users
+  - **GroupService implementation** (`service/group_service.go`):
+    - Wraps repository operations with error handling and logging
+    - Future location for group-specific business rules
+  - **Responsibility separation from repository**:
+    - Repository layer: Pure database CRUD, no business validation
+    - Service layer: Business validation, permission checks, business rules, error handling
+    - Handlers should call service methods, not repository directly
 
 - **telegram.go** - Core bot service
   - `New(cfg, db)` creates bot instance, registers handlers, initializes indexes
@@ -119,13 +153,38 @@ go_bot/
 
 - **handlers.go** - Command handlers
   - All handlers follow `bot.HandlerFunc` signature: `func(ctx, *bot.Bot, *models.Update)`
-  - Auto-update user info and last_active_at on every command
+  - Handlers call service layer for business logic (e.g., `userService.GrantAdminPermission()`, `userService.GetUserInfo()`)
+  - All handlers registered with `asyncHandler()` wrapper for concurrent execution via worker pool
+  - Handler responsibilities: parse command arguments, call service methods, send responses via helpers
   - Commands: /start, /ping, /grant, /revoke, /admins, /userinfo
 
 - **middleware.go** - Permission control
   - `RequireOwner(next)` wraps handlers requiring owner permission
   - `RequireAdmin(next)` wraps handlers requiring admin+ permission
   - Middlewares send error messages and log unauthorized attempts
+
+- **worker_pool.go** - Worker Pool for concurrent handler execution
+  - Implements goroutine pool pattern for processing handler tasks concurrently
+  - **Core components**:
+    - `HandlerTask`: Encapsulates handler execution context (ctx, bot instance, update, handler function)
+    - `WorkerPool`: Manages fixed number of worker goroutines and task queue
+  - **Configuration parameters**:
+    - `workers`: Number of worker goroutines (concurrency level)
+    - `queueSize`: Task queue buffer size (max pending tasks)
+  - **Key features**:
+    - **Panic recovery**: Automatically catches and logs panics in handlers, sends error message to user
+    - **Queue management**: Non-blocking Submit() - drops tasks and logs warning when queue is full
+    - **Graceful shutdown**: `Shutdown()` closes queue, waits for all running tasks to complete
+  - **Usage**: Bot wraps all handlers with `asyncHandler()` which submits tasks to worker pool
+  - **Performance**: Improves bot responsiveness by handling multiple updates concurrently
+
+- **helpers.go** - Message sending utilities
+  - Provides unified message sending helpers to avoid code duplication and ensure consistency
+  - **Functions**:
+    - `sendMessage(ctx, chatID, text)`: Base message sender, automatically logs send failures
+    - `sendErrorMessage(ctx, chatID, message)`: Sends error message with ❌ prefix
+    - `sendSuccessMessage(ctx, chatID, message)`: Sends success message with ✅ prefix
+  - **Benefits**: Consistent error handling, unified UI presentation, simplified handler code
 
 **Permission System:**
 
@@ -167,6 +226,25 @@ go_bot/
 - All repository methods return descriptive errors wrapped with `fmt.Errorf`
 - Database operations use upsert pattern (`$set` + `$setOnInsert`) to handle create/update atomically
 - Bot token and owner IDs must be configured via environment variables
+
+**Service layer conventions:**
+- Handlers should call service methods for business logic, never access repository directly
+- Service methods must include comprehensive business validation (permission checks, parameter validation, state checks)
+- Service methods should return user-friendly Chinese error messages for direct display to users
+- All service operations must include structured logging (Info level for success, Error level for failures)
+- DTOs (like `TelegramUserInfo`) should be used for data transfer between handlers and services
+
+**Worker pool conventions:**
+- All handlers must be registered with `asyncHandler()` wrapper to enable concurrent execution
+- Handlers should avoid long-blocking operations to keep queue flowing smoothly
+- Worker pool is automatically shut down when bot closes, no manual management needed
+- Panic in handlers is automatically recovered by worker pool - handlers don't need explicit panic handling
+
+**Message sending conventions:**
+- Use `sendErrorMessage(ctx, chatID, msg)` for all error responses (ensures ❌ prefix and UI consistency)
+- Use `sendSuccessMessage(ctx, chatID, msg)` for all success confirmations (ensures ✅ prefix)
+- Use `sendMessage(ctx, chatID, text)` for informational messages
+- Never call `bot.SendMessage` directly - always use helpers for consistent error handling
 
 ### App Package (`internal/app`)
 
@@ -232,8 +310,10 @@ When modifying code:
 
 - Bot handlers must follow `bot.HandlerFunc` signature: `func(context.Context, *bot.Bot, *models.Update)`
 - Use middleware wrappers (`RequireOwner`, `RequireAdmin`) for permission control, never inline checks
-- Update user `last_active_at` automatically in handlers via `userRepo.CreateOrUpdate()` or `UpdateLastActive()`
+- Update user `last_active_at` automatically in handlers via `userService.UpdateUserActivity()` (service layer handles repository calls)
+- Handlers should call service methods for business operations, never access repository directly (enforces separation of concerns)
 - Repository methods use MongoDB upsert pattern to atomically handle create/update operations
 - Database indexes are ensured automatically during bot initialization via `EnsureIndexes()`
 - Owner users are auto-created from `BOT_OWNER_IDS` config during bot startup
 - Bot runs in a goroutine with context cancellation for graceful shutdown
+- All handlers execute asynchronously via worker pool for concurrent request handling

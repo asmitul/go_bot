@@ -16,13 +16,11 @@ func (b *Bot) RequireOwner(next bot.HandlerFunc) bot.HandlerFunc {
 			return
 		}
 
-		user, err := b.userRepo.GetByTelegramID(ctx, update.Message.From.ID)
-		if err != nil || !user.IsOwner() {
+		// 使用 Service 检查权限
+		isOwner, err := b.userService.CheckOwnerPermission(ctx, update.Message.From.ID)
+		if err != nil || !isOwner {
 			logger.L().Warnf("Non-owner user %d attempted to use owner command", update.Message.From.ID)
-			_, _ = botInstance.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: update.Message.Chat.ID,
-				Text:   "❌ 此命令仅限 Bot Owner 使用",
-			})
+			b.sendErrorMessage(ctx, update.Message.Chat.ID, "此命令仅限 Bot Owner 使用")
 			return
 		}
 
@@ -37,13 +35,11 @@ func (b *Bot) RequireAdmin(next bot.HandlerFunc) bot.HandlerFunc {
 			return
 		}
 
-		user, err := b.userRepo.GetByTelegramID(ctx, update.Message.From.ID)
-		if err != nil || !user.IsAdmin() {
+		// 使用 Service 检查权限
+		isAdmin, err := b.userService.CheckAdminPermission(ctx, update.Message.From.ID)
+		if err != nil || !isAdmin {
 			logger.L().Warnf("Non-admin user %d attempted to use admin command", update.Message.From.ID)
-			_, _ = botInstance.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: update.Message.Chat.ID,
-				Text:   "❌ 此命令需要管理员权限",
-			})
+			b.sendErrorMessage(ctx, update.Message.Chat.ID, "此命令需要管理员权限")
 			return
 		}
 
