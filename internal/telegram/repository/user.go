@@ -52,12 +52,19 @@ func (r *MongoUserRepository) CreateOrUpdate(ctx context.Context, user *models.U
 		setFields["granted_at"] = user.GrantedAt
 	}
 
+	// 构建 $setOnInsert（仅在插入时设置）
+	setOnInsert := bson.M{
+		"created_at": now,
+	}
+
+	// 如果没有指定 role，则在插入时设置默认 role
+	if user.Role == "" {
+		setOnInsert["role"] = models.RoleUser
+	}
+
 	update := bson.M{
-		"$set": setFields,
-		"$setOnInsert": bson.M{
-			"role":       models.RoleUser, // 默认角色为普通用户
-			"created_at": now,
-		},
+		"$set":         setFields,
+		"$setOnInsert": setOnInsert,
 	}
 
 	opts := options.Update().SetUpsert(true)
