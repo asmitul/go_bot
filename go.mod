@@ -3,6 +3,7 @@ module go_bot
 go 1.25
 
 require (
+	github.com/go-telegram/bot v1.17.0
 	github.com/sirupsen/logrus v1.9.3
 	go.mongodb.org/mongo-driver v1.17.4
 )

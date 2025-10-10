@@ -57,7 +57,13 @@ go_bot/
 │   ├── app/             # Application layer - service initialization & lifecycle
 │   ├── config/          # Configuration management from env variables
 │   ├── logger/          # Logrus-based logging with env config
-│   └── mongo/           # MongoDB client wrapper
+│   ├── mongo/           # MongoDB client wrapper
+│   └── telegram/        # Telegram bot service
+│       ├── models/      # Data models (User, Group)
+│       ├── repository/  # Data access layer (UserRepository, GroupRepository)
+│       ├── telegram.go  # Bot core service
+│       ├── handlers.go  # Command handlers
+│       └── middleware.go # Permission middlewares
 └── deployments/docker/  # Multi-stage Dockerfile
 ```
 
@@ -87,14 +93,90 @@ go_bot/
 - `Client.Ping(ctx)` verifies connection health
 - Connection timeout defaults to 10 seconds if not specified
 
+### Telegram Package (`internal/telegram`)
+
+- Telegram bot service using [go-telegram/bot](https://github.com/go-telegram/bot) library
+- Implements Repository pattern with layered architecture for clean separation of concerns
+- Supports long polling mode (bot runs in goroutine, blocking until context cancellation)
+
+**Architecture Components:**
+
+- **models/** - Data models with business logic
+  - `User` struct with role-based permissions (Owner/Admin/User)
+  - `Group` struct with settings and statistics
+  - Permission check methods (`IsOwner()`, `IsAdmin()`, `CanManageUsers()`)
+
+- **repository/** - Data access layer (CRUD operations)
+  - `UserRepository`: CreateOrUpdate, GetByTelegramID, GrantAdmin, RevokeAdmin, ListAdmins
+  - `GroupRepository`: CreateOrUpdate, MarkBotLeft, ListActiveGroups, UpdateSettings
+  - All repositories provide `EnsureIndexes()` for automatic index creation
+
+- **telegram.go** - Core bot service
+  - `New(cfg, db)` creates bot instance, registers handlers, initializes indexes
+  - `InitFromConfig(appCfg, db)` convenience function
+  - `Start(ctx)` runs bot in blocking mode (call in goroutine)
+  - `initOwners(ctx)` auto-creates owner users from `BOT_OWNER_IDS` config
+
+- **handlers.go** - Command handlers
+  - All handlers follow `bot.HandlerFunc` signature: `func(ctx, *bot.Bot, *models.Update)`
+  - Auto-update user info and last_active_at on every command
+  - Commands: /start, /ping, /grant, /revoke, /admins, /userinfo
+
+- **middleware.go** - Permission control
+  - `RequireOwner(next)` wraps handlers requiring owner permission
+  - `RequireAdmin(next)` wraps handlers requiring admin+ permission
+  - Middlewares send error messages and log unauthorized attempts
+
+**Permission System:**
+
+- **Owner** (highest) - Set via `BOT_OWNER_IDS` env var, can manage admins
+- **Admin** - Can view user info, manage groups, list admins
+- **User** (default) - Can use basic commands (/start, /ping)
+
+**Database Collections:**
+
+- **users** collection
+  - `telegram_id` (int64, unique index) - Telegram user ID
+  - `role` (string, index) - owner/admin/user
+  - `username`, `first_name`, `last_name` - User profile
+  - `granted_by`, `granted_at` - Permission grant tracking
+  - `last_active_at` (time, index) - Last activity timestamp
+
+- **groups** collection
+  - `telegram_id` (int64, unique index) - Telegram chat ID
+  - `type` (string, index) - group/supergroup/channel
+  - `bot_status` (string, index) - active/kicked/left
+  - `settings` (embedded) - WelcomeEnabled, AntiSpam, Language
+  - `stats` (embedded) - TotalMessages, LastMessageAt
+
+**Supported Commands:**
+
+| Command | Permission | Description |
+|---------|------------|-------------|
+| `/start` | All users | Welcome message, auto-register user |
+| `/ping` | All users | Test bot connectivity |
+| `/grant <user_id>` | Owner only | Grant admin permission to user |
+| `/revoke <user_id>` | Owner only | Revoke admin permission from user |
+| `/admins` | Admin+ | List all administrators |
+| `/userinfo <user_id>` | Admin+ | View detailed user information |
+
+**Usage Conventions:**
+
+- Handler functions must match `bot.HandlerFunc` signature from go-telegram/bot
+- Use middlewares for permission checks (never inline permission logic)
+- All repository methods return descriptive errors wrapped with `fmt.Errorf`
+- Database operations use upsert pattern (`$set` + `$setOnInsert`) to handle create/update atomically
+- Bot token and owner IDs must be configured via environment variables
+
 ### App Package (`internal/app`)
 
 - Application layer for unified service initialization and lifecycle management
-- `App` struct holds all service instances (`MongoDB`, future: `TelegramBot`, etc.)
+- `App` struct holds all service instances (`MongoDB`, `TelegramBot`, future: `RedisClient`, etc.)
 - `New(cfg)` initializes all services in order, returns error if any service fails
-- `Close(ctx)` gracefully shuts down all services
+- `Close(ctx)` gracefully shuts down all services (Telegram bot first, then MongoDB)
 - Access services via `app.MongoDB`, `app.TelegramBot`, etc.
 - To add new services: add field to `App`, initialize in `New()`, cleanup in `Close()`
+- Telegram bot is started in a goroutine in `main.go` using `app.TelegramBot.Start(ctx)`
 
 ### Environment Variables
 
@@ -143,5 +225,15 @@ When modifying code:
 - All configuration via environment variables (no config files)
 - Use `logger.L()` for all logging (never `fmt.Print*` or `log.Print*`)
 - All services managed by `app` layer, initialized once in `main.go` via `app.New(cfg)`
-- Access services through `app` instance (e.g., `app.MongoDB.Database()`)
+- Access services through `app` instance (e.g., `app.MongoDB.Database()`, `app.TelegramBot`)
 - Error handling: validate early, return descriptive errors with `fmt.Errorf` wrapping
+
+**Telegram-specific conventions:**
+
+- Bot handlers must follow `bot.HandlerFunc` signature: `func(context.Context, *bot.Bot, *models.Update)`
+- Use middleware wrappers (`RequireOwner`, `RequireAdmin`) for permission control, never inline checks
+- Update user `last_active_at` automatically in handlers via `userRepo.CreateOrUpdate()` or `UpdateLastActive()`
+- Repository methods use MongoDB upsert pattern to atomically handle create/update operations
+- Database indexes are ensured automatically during bot initialization via `EnsureIndexes()`
+- Owner users are auto-created from `BOT_OWNER_IDS` config during bot startup
+- Bot runs in a goroutine with context cancellation for graceful shutdown

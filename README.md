@@ -71,7 +71,7 @@ cd go_bot
 本项目应用层模块位于 `internal/app/` 目录，作为统一的服务初始化和生命周期管理层。
 
 - **核心职责**：
-  - 统一管理所有服务的初始化（MongoDB、未来的 Telegram Bot、Redis 等）
+  - 统一管理所有服务的初始化（MongoDB、Telegram Bot、Redis 等）
   - 提供优雅的资源关闭机制
   - 简化 `main.go` 入口逻辑，保持代码整洁
 
@@ -80,3 +80,58 @@ cd go_bot
   2. 在 `New()` 函数中初始化该服务
   3. 在 `Close()` 函数中添加关闭逻辑
   4. `main.go` 无需任何改动
+
+---
+
+## 🤖 8. Telegram Bot 模块
+
+本项目 Telegram Bot 模块位于 `internal/telegram/` 目录，使用 [**go-telegram/bot**](https://github.com/go-telegram/bot) 库实现。
+
+- **架构设计**：采用 Repository 模式 + 分层架构，包含以下子模块：
+  - `models/` - 数据模型（User、Group）
+  - `repository/` - 数据访问层（UserRepository、GroupRepository）
+  - `telegram.go` - Bot 核心服务
+  - `handlers.go` - 命令处理器
+  - `middleware.go` - 权限中间件
+
+- **权限系统**：三级权限管理
+  - **Owner** - 最高权限，由 `BOT_OWNER_IDS` 环境变量配置，可管理 Admin
+  - **Admin** - 管理员权限，可查看用户信息、管理群组
+  - **User** - 普通用户，可使用基础命令
+
+- **支持的命令**：
+
+| 命令 | 权限要求 | 功能说明 |
+|------|----------|----------|
+| `/start` | 所有用户 | 欢迎消息，自动注册用户到数据库 |
+| `/ping` | 所有用户 | 测试 Bot 连接状态 |
+| `/grant <user_id>` | Owner | 授予指定用户管理员权限 |
+| `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
+| `/admins` | Admin+ | 查看所有管理员列表 |
+| `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
+
+- **数据库设计**：
+
+  **users Collection**（用户信息表）
+  - `telegram_id` - Telegram 用户 ID（唯一索引）
+  - `username` - 用户名
+  - `first_name` / `last_name` - 姓名
+  - `role` - 角色（owner/admin/user）
+  - `permissions` - 自定义权限列表（预留扩展）
+  - `granted_by` / `granted_at` - 权限授予信息
+  - `last_active_at` - 最后活跃时间
+
+  **groups Collection**（群组信息表）
+  - `telegram_id` - Telegram Chat ID（唯一索引）
+  - `type` - 群组类型（group/supergroup/channel）
+  - `title` - 群组名称
+  - `bot_status` - Bot 状态（active/kicked/left）
+  - `settings` - 群组配置（欢迎消息、反垃圾等）
+  - `stats` - 群组统计信息（消息数、最后消息时间等）
+
+- **使用示例**：
+
+  1. **获取 Bot Token**：访问 [@BotFather](https://t.me/BotFather)，发送 `/newbot` 创建机器人，获取 Token
+  2. **获取用户 ID**：向 [@userinfobot](https://t.me/userinfobot) 发送任意消息，即可获取自己的 Telegram ID
+  3. **配置 Owner**：在 GitHub Secrets 中设置 `BOT_OWNER_IDS=123456789`（你的 Telegram ID）
+  4. **授予管理员**：向 Bot 发送 `/grant 987654321` 即可授予其他用户管理员权限
