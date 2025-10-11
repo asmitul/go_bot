@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -33,7 +34,109 @@ func (b *Bot) registerHandlers() {
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/userinfo", bot.MatchTypePrefix,
 		b.asyncHandler(b.RequireAdmin(b.handleUserInfo)))
 
-	logger.L().Debug("All handlers registered with async execution")
+	// ========== 阶段 1: 新增 Handler 注册 ==========
+
+	// CallbackQuery - 内联按钮回调
+	b.bot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "", bot.MatchTypePrefix,
+		b.asyncHandler(b.handleCallback))
+
+	// EditedMessage - 消息编辑事件
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.EditedMessage != nil
+	}, b.asyncHandler(b.handleEditedMessage))
+
+	// MyChatMember - Bot 状态变化事件
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.MyChatMember != nil
+	}, b.asyncHandler(b.handleMyChatMember))
+
+	// MediaMessage - 媒体消息（图片、视频、文件等）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		if update.Message == nil {
+			return false
+		}
+		msg := update.Message
+		return msg.Photo != nil || msg.Video != nil || msg.Document != nil ||
+			msg.Voice != nil || msg.Audio != nil || msg.Sticker != nil || msg.Animation != nil
+	}, b.asyncHandler(b.handleMediaMessage))
+
+	// ChannelPost - 频道消息
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.ChannelPost != nil
+	}, b.asyncHandler(b.handleChannelPost))
+
+	// ========== 阶段 2: 群组管理 Handler 注册 ==========
+
+	// ChatMember - 成员状态变化事件
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.ChatMember != nil
+	}, b.asyncHandler(b.handleChatMember))
+
+	// ChatJoinRequest - 入群申请
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.ChatJoinRequest != nil
+	}, b.asyncHandler(b.handleChatJoinRequest))
+
+	// NewChatMembers - 新成员加入（系统消息）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.NewChatMembers != nil
+	}, b.asyncHandler(b.handleNewChatMembers))
+
+	// LeftChatMember - 成员离开（系统消息）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.LeftChatMember != nil
+	}, b.asyncHandler(b.handleLeftChatMember))
+
+	// 群组管理命令 - Admin+
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/welcome", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleWelcome)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/setwelcome", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleSetWelcome)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/approve", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleApproveJoinRequest)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/reject", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleRejectJoinRequest)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/members", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleMembers)))
+
+	// ========== 阶段 3: 高级特性 Handler 注册 ==========
+
+	// InlineQuery - 内联查询
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.InlineQuery != nil
+	}, b.asyncHandler(b.handleInlineQuery))
+
+	// ChosenInlineResult - 内联结果选择
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.ChosenInlineResult != nil
+	}, b.asyncHandler(b.handleChosenInlineResult))
+
+	// Poll - 新投票
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.Poll != nil
+	}, b.asyncHandler(b.handlePoll))
+
+	// PollAnswer - 投票回答
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.PollAnswer != nil
+	}, b.asyncHandler(b.handlePollAnswer))
+
+	// MessageReaction - 消息反应
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.MessageReaction != nil
+	}, b.asyncHandler(b.handleMessageReaction))
+
+	// MessageReactionCount - 反应统计
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.MessageReactionCount != nil
+	}, b.asyncHandler(b.handleMessageReactionCount))
+
+	// EditedChannelPost - 编辑的频道消息
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.EditedChannelPost != nil
+	}, b.asyncHandler(b.handleEditedChannelPost))
+
+	logger.L().Info("All handlers registered (including Stage 1, Stage 2, and Stage 3 handlers)")
 }
 
 // handleStart 处理 /start 命令
@@ -240,4 +343,346 @@ func (b *Bot) handleUserInfo(ctx context.Context, botInstance *bot.Bot, update *
 	)
 
 	b.sendMessage(ctx, update.Message.Chat.ID, text)
+}
+
+// ========== 阶段 1: 新增 Handler（核心交互功能） ==========
+
+// handleCallback 处理 CallbackQuery（内联按钮回调）
+func (b *Bot) handleCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.CallbackQuery == nil || update.CallbackQuery.From.ID == 0 {
+		return
+	}
+
+	startTime := time.Now()
+	callbackLog := &models.CallbackLog{
+		CallbackQueryID: update.CallbackQuery.ID,
+		UserID:          update.CallbackQuery.From.ID,
+		Username:        update.CallbackQuery.From.Username,
+		Data:            update.CallbackQuery.Data,
+		Answered:        false,
+	}
+
+	// 必须先应答 Telegram，否则会显示加载状态并重试发送
+	_, err := botInstance.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		ShowAlert:       false,
+	})
+	if err != nil {
+		logger.L().Errorf("Failed to answer callback query: %v", err)
+		callbackLog.Error = err.Error()
+		_ = b.callbackService.LogCallback(ctx, callbackLog)
+		return
+	}
+	callbackLog.Answered = true
+
+	// 解析 callback_data
+	callbackData, err := b.callbackService.ParseAndHandle(ctx, update.CallbackQuery.Data)
+	if err != nil {
+		logger.L().Warnf("Invalid callback data: %s, error: %v", update.CallbackQuery.Data, err)
+		callbackLog.Error = err.Error()
+		_ = b.callbackService.LogCallback(ctx, callbackLog)
+		return
+	}
+
+	callbackLog.Action = callbackData.Action
+	callbackLog.Params = callbackData.Params
+
+	// 提取 chatID 和 messageID（如果可用）
+	if update.CallbackQuery.Message.Message != nil {
+		callbackLog.ChatID = update.CallbackQuery.Message.Message.Chat.ID
+		callbackLog.MessageID = int64(update.CallbackQuery.Message.Message.ID)
+	}
+
+	// 路由到具体的处理函数
+	switch callbackData.Action {
+	case models.CallbackActionAdminPage:
+		b.handleAdminListPagination(ctx, botInstance, update, callbackData)
+	case models.CallbackActionConfirmDelete:
+		b.handleConfirmDelete(ctx, botInstance, update, callbackData)
+	case models.CallbackActionGroupSettings:
+		b.handleGroupSettings(ctx, botInstance, update, callbackData)
+	default:
+		logger.L().Warnf("Unhandled callback action: %s", callbackData.Action)
+		callbackLog.Error = "unhandled action"
+	}
+
+	// 记录处理耗时
+	callbackLog.ProcessingTime = time.Since(startTime).Milliseconds()
+	_ = b.callbackService.LogCallback(ctx, callbackLog)
+}
+
+// handleAdminListPagination 处理管理员列表翻页
+func (b *Bot) handleAdminListPagination(ctx context.Context, botInstance *bot.Bot, update *botModels.Update, data *models.CallbackData) {
+	// TODO: 实现分页逻辑（暂时只刷新列表）
+	if update.CallbackQuery.Message.Message == nil {
+		return
+	}
+
+	admins, err := b.userService.ListAllAdmins(ctx)
+	if err != nil {
+		logger.L().Errorf("Failed to get admins for pagination: %v", err)
+		return
+	}
+
+	var text strings.Builder
+	text.WriteString("👥 管理员列表:\n\n")
+	for i, admin := range admins {
+		roleEmoji := "👑"
+		if admin.Role == models.RoleAdmin {
+			roleEmoji = "⭐"
+		}
+		text.WriteString(fmt.Sprintf("%d. %s %s (@%s)\n", i+1, roleEmoji, admin.FirstName, admin.Username))
+	}
+
+	// 更新消息内容
+	_, _ = botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
+		ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+		MessageID: update.CallbackQuery.Message.Message.ID,
+		Text:      text.String(),
+	})
+}
+
+// handleConfirmDelete 处理删除确认对话框
+func (b *Bot) handleConfirmDelete(ctx context.Context, botInstance *bot.Bot, update *botModels.Update, data *models.CallbackData) {
+	// TODO: 实现删除确认逻辑
+	logger.L().Infof("Confirm delete callback: params=%v", data.Params)
+
+	if update.CallbackQuery.Message.Message != nil {
+		botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text:      "✅ 操作已确认",
+		})
+	}
+}
+
+// handleGroupSettings 处理群组设置面板
+func (b *Bot) handleGroupSettings(ctx context.Context, botInstance *bot.Bot, update *botModels.Update, data *models.CallbackData) {
+	// TODO: 实现群组设置面板逻辑
+	logger.L().Infof("Group settings callback: params=%v", data.Params)
+
+	if update.CallbackQuery.Message.Message != nil {
+		botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text:      "⚙️ 群组设置面板（开发中）",
+		})
+	}
+}
+
+// handleEditedMessage 处理消息编辑事件
+func (b *Bot) handleEditedMessage(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.EditedMessage == nil || update.EditedMessage.From == nil {
+		return
+	}
+
+	// 构造消息对象
+	message := &models.Message{
+		TelegramID:  int64(update.EditedMessage.ID),
+		ChatID:      update.EditedMessage.Chat.ID,
+		UserID:      update.EditedMessage.From.ID,
+		Username:    update.EditedMessage.From.Username,
+		MessageType: models.MessageTypeText,
+		Text:        update.EditedMessage.Text,
+		Caption:     update.EditedMessage.Caption,
+	}
+
+	// 记录编辑
+	if err := b.messageService.RecordEdit(ctx, message); err != nil {
+		logger.L().Errorf("Failed to record edited message: %v", err)
+		return
+	}
+
+	logger.L().Infof("Message edited: chat_id=%d, message_id=%d, user_id=%d",
+		message.ChatID, message.TelegramID, message.UserID)
+}
+
+// handleMyChatMember 处理 Bot 在群组中的状态变化
+func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.MyChatMember == nil {
+		return
+	}
+
+	chatID := update.MyChatMember.Chat.ID
+	newMemberType := update.MyChatMember.NewChatMember.Type
+	oldMemberType := update.MyChatMember.OldChatMember.Type
+
+	logger.L().Infof("Bot status changed: chat_id=%d, old_status=%s, new_status=%s",
+		chatID, oldMemberType, newMemberType)
+
+	// Bot 被添加到群组
+	if newMemberType == "member" || newMemberType == "administrator" {
+		group := &models.Group{
+			TelegramID:  chatID,
+			Type:        string(update.MyChatMember.Chat.Type),
+			Title:       update.MyChatMember.Chat.Title,
+			Username:    update.MyChatMember.Chat.Username,
+			BotStatus:   models.BotStatusActive,
+			BotJoinedAt: time.Now(),
+			Settings: models.GroupSettings{
+				WelcomeEnabled: true,
+				Language:       "zh",
+			},
+			Stats: models.GroupStats{
+				TotalMessages: 0,
+				LastMessageAt: time.Now(),
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		if err := b.groupService.CreateOrUpdateGroup(ctx, group); err != nil {
+			logger.L().Errorf("Failed to create/update group: %v", err)
+			return
+		}
+
+		logger.L().Infof("Bot added to group: chat_id=%d, title=%s", chatID, group.Title)
+	}
+
+	// Bot 被踢出或离开群组
+	if newMemberType == "kicked" || newMemberType == "left" {
+		if err := b.groupService.MarkBotLeft(ctx, chatID); err != nil {
+			logger.L().Errorf("Failed to mark bot left: %v", err)
+			return
+		}
+
+		logger.L().Infof("Bot removed from group: chat_id=%d, status=%s", chatID, newMemberType)
+	}
+}
+
+// handleMediaMessage 处理媒体消息（图片、视频、文件等）
+func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil || update.Message.From == nil {
+		return
+	}
+
+	msg := update.Message
+	message := &models.Message{
+		TelegramID: int64(msg.ID),
+		ChatID:     msg.Chat.ID,
+		UserID:     msg.From.ID,
+		Username:   msg.From.Username,
+		Caption:    msg.Caption,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	// 判断消息类型并提取文件信息
+	switch {
+	case msg.Photo != nil && len(msg.Photo) > 0:
+		// 取最大尺寸的图片
+		photo := msg.Photo[len(msg.Photo)-1]
+		message.MessageType = models.MessageTypePhoto
+		message.FileID = photo.FileID
+		message.FileUniqueID = photo.FileUniqueID
+		message.FileSize = int64(photo.FileSize)
+		message.Width = photo.Width
+		message.Height = photo.Height
+
+	case msg.Video != nil:
+		message.MessageType = models.MessageTypeVideo
+		message.FileID = msg.Video.FileID
+		message.FileUniqueID = msg.Video.FileUniqueID
+		message.FileSize = int64(msg.Video.FileSize)
+		message.Width = msg.Video.Width
+		message.Height = msg.Video.Height
+		message.Duration = msg.Video.Duration
+		message.MimeType = msg.Video.MimeType
+
+	case msg.Document != nil:
+		message.MessageType = models.MessageTypeDocument
+		message.FileID = msg.Document.FileID
+		message.FileUniqueID = msg.Document.FileUniqueID
+		message.FileSize = int64(msg.Document.FileSize)
+		message.FileName = msg.Document.FileName
+		message.MimeType = msg.Document.MimeType
+
+	case msg.Voice != nil:
+		message.MessageType = models.MessageTypeVoice
+		message.FileID = msg.Voice.FileID
+		message.FileUniqueID = msg.Voice.FileUniqueID
+		message.FileSize = int64(msg.Voice.FileSize)
+		message.Duration = msg.Voice.Duration
+		message.MimeType = msg.Voice.MimeType
+
+	case msg.Audio != nil:
+		message.MessageType = models.MessageTypeAudio
+		message.FileID = msg.Audio.FileID
+		message.FileUniqueID = msg.Audio.FileUniqueID
+		message.FileSize = int64(msg.Audio.FileSize)
+		message.Duration = msg.Audio.Duration
+		message.MimeType = msg.Audio.MimeType
+		message.FileName = msg.Audio.FileName
+
+	case msg.Sticker != nil:
+		message.MessageType = models.MessageTypeSticker
+		message.FileID = msg.Sticker.FileID
+		message.FileUniqueID = msg.Sticker.FileUniqueID
+		message.FileSize = int64(msg.Sticker.FileSize)
+		message.Width = msg.Sticker.Width
+		message.Height = msg.Sticker.Height
+
+	case msg.Animation != nil:
+		message.MessageType = models.MessageTypeAnimation
+		message.FileID = msg.Animation.FileID
+		message.FileUniqueID = msg.Animation.FileUniqueID
+		message.FileSize = int64(msg.Animation.FileSize)
+		message.Width = msg.Animation.Width
+		message.Height = msg.Animation.Height
+		message.Duration = msg.Animation.Duration
+		message.MimeType = msg.Animation.MimeType
+
+	default:
+		// 不是媒体消息
+		return
+	}
+
+	// 记录媒体消息
+	if err := b.messageService.HandleMediaMessage(ctx, message); err != nil {
+		logger.L().Errorf("Failed to handle media message: %v", err)
+		return
+	}
+
+	logger.L().Infof("Media message handled: type=%s, chat_id=%d, user_id=%d, file_size=%d",
+		message.MessageType, message.ChatID, message.UserID, message.FileSize)
+}
+
+// handleChannelPost 处理频道消息
+func (b *Bot) handleChannelPost(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.ChannelPost == nil {
+		return
+	}
+
+	post := update.ChannelPost
+	message := &models.Message{
+		TelegramID:    int64(post.ID),
+		ChatID:        post.Chat.ID,
+		MessageType:   models.MessageTypeText,
+		Text:          post.Text,
+		Caption:       post.Caption,
+		IsChannelPost: true,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+
+	// 如果是媒体消息，提取文件信息
+	if post.Photo != nil && len(post.Photo) > 0 {
+		photo := post.Photo[len(post.Photo)-1]
+		message.MessageType = models.MessageTypePhoto
+		message.FileID = photo.FileID
+		message.FileUniqueID = photo.FileUniqueID
+	} else if post.Video != nil {
+		message.MessageType = models.MessageTypeVideo
+		message.FileID = post.Video.FileID
+		message.FileUniqueID = post.Video.FileUniqueID
+	}
+
+	// 记录频道消息
+	if err := b.messageService.RecordMessage(ctx, message); err != nil {
+		logger.L().Errorf("Failed to record channel post: %v", err)
+		return
+	}
+
+	logger.L().Infof("Channel post recorded: chat_id=%d, message_id=%d, type=%s",
+		message.ChatID, message.TelegramID, message.MessageType)
 }

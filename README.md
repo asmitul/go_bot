@@ -113,24 +113,67 @@ cd go_bot
 | `/admins` | Admin+ | 查看所有管理员列表 |
 | `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
 
-- **数据库设计**：
+- **群组管理命令**：
 
-  **users Collection**（用户信息表）
-  - `telegram_id` - Telegram 用户 ID（唯一索引）
-  - `username` - 用户名
-  - `first_name` / `last_name` - 姓名
-  - `role` - 角色（owner/admin/user）
-  - `permissions` - 自定义权限列表（预留扩展）
-  - `granted_by` / `granted_at` - 权限授予信息
-  - `last_active_at` - 最后活跃时间
+| 命令 | 权限要求 | 功能说明 |
+|------|----------|----------|
+| `/welcome` | Admin+ | 查看当前群组欢迎消息设置 |
+| `/setwelcome <text>` | Admin+ | 设置群组欢迎消息 |
+| `/approve <user_id>` | Admin+ | 批准入群申请 |
+| `/reject <user_id> [原因]` | Admin+ | 拒绝入群申请 |
+| `/members` | Admin+ | 查看群组成员统计 |
 
-  **groups Collection**（群组信息表）
-  - `telegram_id` - Telegram Chat ID（唯一索引）
-  - `type` - 群组类型（group/supergroup/channel）
-  - `title` - 群组名称
-  - `bot_status` - Bot 状态（active/kicked/left）
-  - `settings` - 群组配置（欢迎消息、反垃圾等）
-  - `stats` - 群组统计信息（消息数、最后消息时间等）
+- **已实现的 Update 处理器**：
+
+| Update 类型 | 功能说明 | 相关数据库集合 |
+|------------|---------|--------------|
+| **基础命令** | | |
+| Message (Text) | 文本命令处理（/start, /ping, /grant 等） | users, groups |
+| **交互功能** | | |
+| CallbackQuery | 内联按钮回调处理 | callback_logs |
+| EditedMessage | 消息编辑追踪 | messages |
+| MyChatMember | Bot 状态变化监控 | groups |
+| Message (Media) | 图片/视频/文件/语音/音频/贴纸/动画 | messages |
+| ChannelPost | 频道消息处理 | messages |
+| **群组管理** | | |
+| ChatMember | 成员状态变化追踪 | member_events |
+| ChatJoinRequest | 入群申请审批 | join_requests |
+| NewChatMembers | 新成员加入欢迎 | member_events |
+| LeftChatMember | 成员离开记录 | member_events |
+| **高级特性** | | |
+| InlineQuery | 内联模式查询 | inline_queries |
+| ChosenInlineResult | 内联结果选择统计 | chosen_inline_results |
+| Poll | 投票状态更新 | polls |
+| PollAnswer | 投票回答收集 | poll_answers |
+| MessageReaction | 消息反应追踪 | message_reactions |
+| MessageReactionCount | 反应统计聚合 | message_reaction_counts |
+| EditedChannelPost | 频道消息编辑 | messages |
+
+  **覆盖率**：17/24 Update 类型（70.8%），详见 [HANDLER_TODO.md](HANDLER_TODO.md)
+
+- **数据库设计**（共 12 个集合）：
+
+  **核心集合**：
+  - **users** - 用户信息（telegram_id, username, role, permissions, last_active_at）
+  - **groups** - 群组信息（telegram_id, type, title, bot_status, settings, stats）
+
+  **消息与交互**：
+  - **messages** - 消息记录（支持文本、媒体、频道消息，带编辑追踪）
+  - **callback_logs** - 内联按钮回调日志
+
+  **群组管理**：
+  - **member_events** - 成员状态变化事件（加入/离开/提升/限制）
+  - **join_requests** - 入群申请记录（待审批/已批准/已拒绝）
+
+  **高级特性**：
+  - **inline_queries** - 内联查询日志（支持热门查询聚合）
+  - **chosen_inline_results** - 内联结果选择统计
+  - **polls** - 投票记录（支持 regular/quiz 类型）
+  - **poll_answers** - 投票回答记录
+  - **message_reactions** - 消息反应记录（emoji/custom_emoji）
+  - **message_reaction_counts** - 反应统计聚合
+
+  **总索引数**：44 个（自动创建）
 
 - **使用示例**：
 
