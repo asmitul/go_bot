@@ -513,12 +513,12 @@ func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, upda
 	// Bot 被添加到群组
 	if newMemberType == "member" || newMemberType == "administrator" {
 		group := &models.Group{
-			TelegramID:  chatID,
-			Type:        string(update.MyChatMember.Chat.Type),
-			Title:       update.MyChatMember.Chat.Title,
-			Username:    update.MyChatMember.Chat.Username,
-			BotStatus:   models.BotStatusActive,
-			BotJoinedAt: time.Now(),
+			TelegramID: chatID,
+			Type:       string(update.MyChatMember.Chat.Type),
+			Title:      update.MyChatMember.Chat.Title,
+			Username:   update.MyChatMember.Chat.Username,
+			BotStatus:  models.BotStatusActive,
+			// BotJoinedAt 由 Repository 的 $setOnInsert 自动设置（仅在首次创建时）
 			Settings: models.GroupSettings{
 				WelcomeEnabled: true,
 				Language:       "zh",
