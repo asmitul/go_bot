@@ -68,12 +68,14 @@ func (r *MongoMemberRepository) CreateJoinRequest(ctx context.Context, request *
 }
 
 // UpdateJoinRequestStatus 更新入群请求状态
-func (r *MongoMemberRepository) UpdateJoinRequestStatus(ctx context.Context, requestID, reviewerID int64, status, note string) error {
+// chatID: 群组 ID, userID: 申请者 ID, reviewerID: 审批者 ID
+func (r *MongoMemberRepository) UpdateJoinRequestStatus(ctx context.Context, chatID, userID, reviewerID int64, status, note string) error {
 	collection := r.db.Collection(joinRequestsCollection)
 
+	// 查找条件：群组ID + 申请者ID + 状态为待审批
 	filter := bson.M{
-		"chat_id": requestID, // 这里简化处理，实际应该用 ObjectID
-		"user_id": reviewerID,
+		"chat_id": chatID,
+		"user_id": userID,
 		"status":  models.JoinRequestStatusPending,
 	}
 
@@ -81,7 +83,7 @@ func (r *MongoMemberRepository) UpdateJoinRequestStatus(ctx context.Context, req
 	update := bson.M{
 		"$set": bson.M{
 			"status":      status,
-			"reviewed_by": reviewerID,
+			"reviewed_by": reviewerID, // 记录审批者ID
 			"reviewed_at": now,
 			"review_note": note,
 			"updated_at":  now,

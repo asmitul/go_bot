@@ -95,9 +95,9 @@ func (s *memberService) ApproveJoinRequest(ctx context.Context, chatID, userID, 
 	}
 
 	// 更新状态
-	if err := s.memberRepo.UpdateJoinRequestStatus(ctx, chatID, userID, models.JoinRequestStatusApproved, ""); err != nil {
-		logger.L().Errorf("Failed to approve join request: chat_id=%d, user_id=%d, error=%v",
-			chatID, userID, err)
+	if err := s.memberRepo.UpdateJoinRequestStatus(ctx, chatID, userID, reviewerID, models.JoinRequestStatusApproved, ""); err != nil {
+		logger.L().Errorf("Failed to approve join request: chat_id=%d, user_id=%d, reviewer_id=%d, error=%v",
+			chatID, userID, reviewerID, err)
 		return fmt.Errorf("批准请求失败")
 	}
 
@@ -123,9 +123,9 @@ func (s *memberService) RejectJoinRequest(ctx context.Context, chatID, userID, r
 	}
 
 	// 更新状态
-	if err := s.memberRepo.UpdateJoinRequestStatus(ctx, chatID, userID, models.JoinRequestStatusRejected, reason); err != nil {
-		logger.L().Errorf("Failed to reject join request: chat_id=%d, user_id=%d, error=%v",
-			chatID, userID, err)
+	if err := s.memberRepo.UpdateJoinRequestStatus(ctx, chatID, userID, reviewerID, models.JoinRequestStatusRejected, reason); err != nil {
+		logger.L().Errorf("Failed to reject join request: chat_id=%d, user_id=%d, reviewer_id=%d, error=%v",
+			chatID, userID, reviewerID, err)
 		return fmt.Errorf("拒绝请求失败")
 	}
 

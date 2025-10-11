@@ -269,11 +269,15 @@ func (b *Bot) handleListAdmins(ctx context.Context, botInstance *bot.Bot, update
 		if admin.Role == models.RoleOwner {
 			roleEmoji = "👑"
 		}
-		text.WriteString(fmt.Sprintf("%d. %s %s (@%s) - ID: %d\n",
+		// 显示用户名或仅显示名字
+		userName := admin.FirstName
+		if admin.Username != "" {
+			userName = admin.FirstName + " (@" + admin.Username + ")"
+		}
+		text.WriteString(fmt.Sprintf("%d. %s %s - ID: %d\n",
 			i+1,
 			roleEmoji,
-			admin.FirstName,
-			admin.Username,
+			userName,
 			admin.TelegramID,
 		))
 	}
@@ -433,7 +437,12 @@ func (b *Bot) handleAdminListPagination(ctx context.Context, botInstance *bot.Bo
 		if admin.Role == models.RoleAdmin {
 			roleEmoji = "⭐"
 		}
-		text.WriteString(fmt.Sprintf("%d. %s %s (@%s)\n", i+1, roleEmoji, admin.FirstName, admin.Username))
+		// 显示用户名或仅显示名字
+		userName := admin.FirstName
+		if admin.Username != "" {
+			userName = admin.FirstName + " (@" + admin.Username + ")"
+		}
+		text.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, roleEmoji, userName))
 	}
 
 	// 更新消息内容

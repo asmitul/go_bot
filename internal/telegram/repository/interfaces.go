@@ -117,7 +117,8 @@ type MemberRepository interface {
 	CreateJoinRequest(ctx context.Context, request *models.JoinRequest) error
 
 	// UpdateJoinRequestStatus 更新入群请求状态
-	UpdateJoinRequestStatus(ctx context.Context, requestID, reviewerID int64, status, note string) error
+	// chatID: 群组 ID, userID: 申请者 ID, reviewerID: 审批者 ID
+	UpdateJoinRequestStatus(ctx context.Context, chatID, userID, reviewerID int64, status, note string) error
 
 	// GetPendingRequests 获取待审批的入群请求
 	GetPendingRequests(ctx context.Context, chatID int64) ([]*models.JoinRequest, error)

@@ -10,6 +10,7 @@ import (
 )
 
 // extractUserAndChatID 从 update 中提取用户 ID 和聊天 ID（支持多种 update 类型）
+// 注意：ChannelPost 和 EditedChannelPost 不包含在此函数中，因为频道消息没有 From 字段
 func extractUserAndChatID(update *models.Update) (userID int64, chatID int64, ok bool) {
 	switch {
 	case update.Message != nil && update.Message.From != nil:
@@ -21,15 +22,12 @@ func extractUserAndChatID(update *models.Update) (userID int64, chatID int64, ok
 			chatID = update.CallbackQuery.Message.Message.Chat.ID
 		}
 		return update.CallbackQuery.From.ID, chatID, true
-	case update.ChannelPost != nil && update.ChannelPost.From != nil:
-		return update.ChannelPost.From.ID, update.ChannelPost.Chat.ID, true
 	case update.EditedMessage != nil && update.EditedMessage.From != nil:
 		return update.EditedMessage.From.ID, update.EditedMessage.Chat.ID, true
-	case update.EditedChannelPost != nil && update.EditedChannelPost.From != nil:
-		return update.EditedChannelPost.From.ID, update.EditedChannelPost.Chat.ID, true
 	case update.InlineQuery != nil:
 		return update.InlineQuery.From.ID, 0, true
 	default:
+		// ChannelPost 和 EditedChannelPost 等频道相关更新不包含用户信息
 		return 0, 0, false
 	}
 }

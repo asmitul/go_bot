@@ -191,6 +191,18 @@ func (r *MongoGroupRepository) UpdateStats(ctx context.Context, telegramID int64
 // fieldName: settings 中的字段名（如 "welcome_enabled", "welcome_text", "anti_spam", "language"）
 // value: 字段的新值
 func (r *MongoGroupRepository) UpdateSettingField(ctx context.Context, telegramID int64, fieldName string, value interface{}) error {
+	// 验证字段名是否在白名单中（防止字段注入）
+	validFields := map[string]bool{
+		"welcome_enabled": true,
+		"welcome_text":    true,
+		"anti_spam":       true,
+		"language":        true,
+	}
+
+	if !validFields[fieldName] {
+		return fmt.Errorf("invalid setting field: %s", fieldName)
+	}
+
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{

@@ -77,8 +77,12 @@ func (b *Bot) handleChatMember(ctx context.Context, botInstance *bot.Bot, update
 		}
 
 		if shouldSend {
-			// 构造欢迎消息（可以使用用户名）
-			message := fmt.Sprintf("%s @%s", welcomeText, event.Username)
+			// 构造欢迎消息（使用用户名或名字）
+			userMention := event.FirstName
+			if event.Username != "" {
+				userMention = "@" + event.Username
+			}
+			message := fmt.Sprintf("%s %s", welcomeText, userMention)
 			b.sendMessage(ctx, event.ChatID, message)
 		}
 	}
@@ -161,7 +165,12 @@ func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, up
 		}
 
 		if shouldSend {
-			message := fmt.Sprintf("%s @%s", welcomeText, newMember.Username)
+			// 使用用户名或名字
+			userMention := newMember.FirstName
+			if newMember.Username != "" {
+				userMention = "@" + newMember.Username
+			}
+			message := fmt.Sprintf("%s %s", welcomeText, userMention)
 			b.sendMessage(ctx, chatID, message)
 		}
 	}
@@ -402,11 +411,16 @@ func (b *Bot) handleMembers(ctx context.Context, botInstance *bot.Bot, update *b
 			eventEmoji = "🚫"
 		}
 
-		text.WriteString(fmt.Sprintf("%d. %s %s (@%s) - %s\n   时间: %s\n\n",
+		// 显示用户名或名字
+		userName := event.FirstName
+		if event.Username != "" {
+			userName = event.FirstName + " (@" + event.Username + ")"
+		}
+
+		text.WriteString(fmt.Sprintf("%d. %s %s - %s\n   时间: %s\n\n",
 			i+1,
 			eventEmoji,
-			event.FirstName,
-			event.Username,
+			userName,
 			event.EventType,
 			event.CreatedAt.Format("2006-01-02 15:04"),
 		))
