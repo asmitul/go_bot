@@ -51,16 +51,26 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 		setFields["bot_left_at"] = group.BotLeftAt
 	}
 
+	// 如果指定了 Settings（非零值），则更新
+	if group.Settings.Language != "" {
+		setFields["settings"] = group.Settings
+	}
+
+	// 如果指定了 Stats，则更新
+	if group.Stats.TotalMessages > 0 || !group.Stats.LastMessageAt.IsZero() {
+		setFields["stats"] = group.Stats
+	}
+
 	update := bson.M{
 		"$set": setFields,
 		"$setOnInsert": bson.M{
 			"bot_joined_at": now,
 			"created_at":    now,
 			"settings": models.GroupSettings{
-				WelcomeEnabled: false,
+				WelcomeEnabled: true,
 				WelcomeText:    "",
 				AntiSpam:       false,
-				Language:       "en",
+				Language:       "zh",
 			},
 			"stats": models.GroupStats{
 				TotalMessages: 0,

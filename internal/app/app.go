@@ -35,7 +35,10 @@ func New(cfg *config.Config) (*App, error) {
 	// 初始化 Telegram Bot
 	app.TelegramBot, err = telegram.InitFromConfig(cfg, app.MongoDB.Database())
 	if err != nil {
-		app.Close(context.Background()) // 清理已初始化的服务
+		// 清理已初始化的服务
+		if closeErr := app.Close(context.Background()); closeErr != nil {
+			logger.L().Errorf("Failed to cleanup resources during initialization error: %v", closeErr)
+		}
 		return nil, fmt.Errorf("init Telegram bot failed: %w", err)
 	}
 	logger.L().Info("Telegram bot initialized successfully")

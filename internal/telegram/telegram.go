@@ -157,10 +157,11 @@ func InitFromConfig(cfg *config.Config, db *mongo.Database) (*Bot, error) {
 }
 
 // Start 启动 Bot（阻塞式，应在 goroutine 中运行）
+// 该方法会阻塞直到 context 被取消
 func (b *Bot) Start(ctx context.Context) error {
 	logger.L().Info("Starting Telegram bot...")
-	b.bot.Start(ctx)
-	logger.L().Info("Telegram bot stopped")
+	b.bot.Start(ctx) // bot.Start() 是阻塞的，通过 context 取消来停止
+	logger.L().Info("Telegram bot stopped gracefully")
 	return nil
 }
 

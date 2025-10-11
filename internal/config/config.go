@@ -23,6 +23,17 @@ func Load() (*Config, error) {
 		MongoDBName:   os.Getenv("MONGO_DB_NAME"),
 	}
 
+	// 验证必填字段
+	if cfg.TelegramToken == "" {
+		return nil, fmt.Errorf("TELEGRAM_TOKEN environment variable is required")
+	}
+	if cfg.MongoURI == "" {
+		return nil, fmt.Errorf("MONGO_URI environment variable is required")
+	}
+	if cfg.MongoDBName == "" {
+		return nil, fmt.Errorf("MONGO_DB_NAME environment variable is required")
+	}
+
 	// 解析BOT_OWNER_IDS
 	ownerIDsStr := os.Getenv("BOT_OWNER_IDS")
 	if ownerIDsStr != "" {

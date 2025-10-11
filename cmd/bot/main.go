@@ -56,10 +56,7 @@ func main() {
 	// 取消 context，通知 bot 停止
 	cancel()
 
-	// 等待 bot 停止（给一些时间让 bot 完成当前处理）
-	time.Sleep(2 * time.Second)
-
-	// 关闭所有服务
+	// 关闭所有服务（Worker Pool 的 Shutdown 会等待所有任务完成）
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 

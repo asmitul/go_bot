@@ -102,8 +102,8 @@ func (b *Bot) handlePoll(ctx context.Context, botInstance *bot.Bot, update *botM
 		}
 	}
 
-	// 如果是测验，记录正确答案
-	if string(poll.Type) == "quiz" && poll.CorrectOptionID != 0 {
+	// 如果是测验，记录正确答案（CorrectOptionID 可以是 0，表示第一个选项）
+	if string(poll.Type) == "quiz" {
 		pollRecord.CorrectOptionID = poll.CorrectOptionID
 	}
 
@@ -163,6 +163,12 @@ func (b *Bot) handlePollAnswer(ctx context.Context, botInstance *bot.Bot, update
 func (b *Bot) handleMessageReaction(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
 	reaction := update.MessageReaction
 	if reaction == nil {
+		return
+	}
+
+	// 检查是否为匿名反应
+	if reaction.User == nil {
+		logger.L().Debug("Received anonymous message reaction, skipping")
 		return
 	}
 
@@ -256,7 +262,6 @@ func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot,
 		TelegramID: int64(msg.ID),
 		ChatID:     msg.Chat.ID,
 		Text:       msg.Text,
-		EditedAt:   &time.Time{},
 		IsEdited:   true,
 	}
 
@@ -266,11 +271,14 @@ func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot,
 		message.Username = msg.From.Username
 	}
 
-	// 如果有编辑时间
+	// 设置编辑时间
+	var editTime time.Time
 	if msg.EditDate != 0 {
-		editTime := time.Unix(int64(msg.EditDate), 0)
-		message.EditedAt = &editTime
+		editTime = time.Unix(int64(msg.EditDate), 0)
+	} else {
+		editTime = time.Now()
 	}
+	message.EditedAt = &editTime
 
 	// 记录消息编辑
 	if err := b.messageService.RecordEdit(ctx, message); err != nil {

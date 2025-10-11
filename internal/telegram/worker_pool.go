@@ -80,8 +80,19 @@ func (p *WorkerPool) Submit(task HandlerTask) {
 	case p.taskQueue <- task:
 		// 任务成功提交
 	default:
-		// 任务队列已满，记录警告
-		logger.L().Warnf("Worker pool queue is full, task dropped")
+		// 任务队列已满，记录详细的警告信息
+		var chatID int64
+		var messageID int
+		if task.Update.Message != nil {
+			chatID = task.Update.Message.Chat.ID
+			messageID = task.Update.Message.ID
+		} else if task.Update.CallbackQuery != nil && task.Update.CallbackQuery.Message.Message != nil {
+			chatID = task.Update.CallbackQuery.Message.Message.Chat.ID
+			messageID = task.Update.CallbackQuery.Message.Message.ID
+		}
+
+		logger.L().Warnf("Worker pool queue is full, task dropped: update_id=%d, chat_id=%d, message_id=%d",
+			task.Update.ID, chatID, messageID)
 	}
 }
 
