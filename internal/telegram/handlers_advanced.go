@@ -276,7 +276,7 @@ func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot,
 	if msg.EditDate != 0 {
 		editTime = time.Unix(int64(msg.EditDate), 0)
 	} else {
-		editTime = time.Now()
+		editTime = time.Now().UTC()
 	}
 	message.EditedAt = &editTime
 

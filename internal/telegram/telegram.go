@@ -187,9 +187,9 @@ func (b *Bot) initOwners(ctx context.Context) error {
 			user = &models.User{
 				TelegramID:   ownerID,
 				Role:         models.RoleOwner,
-				CreatedAt:    time.Now(),
-				UpdatedAt:    time.Now(),
-				LastActiveAt: time.Now(),
+				CreatedAt:    time.Now().UTC(),
+				UpdatedAt:    time.Now().UTC(),
+				LastActiveAt: time.Now().UTC(),
 			}
 			if err := b.userRepo.CreateOrUpdate(ctx, user); err != nil {
 				logger.L().Warnf("Failed to create owner %d: %v", ownerID, err)
@@ -199,7 +199,7 @@ func (b *Bot) initOwners(ctx context.Context) error {
 		} else if user.Role != models.RoleOwner {
 			// 用户存在但角色不是 owner，更新为 owner
 			user.Role = models.RoleOwner
-			user.UpdatedAt = time.Now()
+			user.UpdatedAt = time.Now().UTC()
 			if err := b.userRepo.CreateOrUpdate(ctx, user); err != nil {
 				logger.L().Warnf("Failed to update owner role for %d: %v", ownerID, err)
 				continue

@@ -20,9 +20,11 @@ type Client struct {
 
 // Config 定义 MongoDB 连接配置
 type Config struct {
-	URI      string        // MongoDB 连接 URI，例如 "mongodb://localhost:27017"
-	Database string        // 数据库名称
-	Timeout  time.Duration // 连接超时时间
+	URI         string        // MongoDB 连接 URI，例如 "mongodb://localhost:27017"
+	Database    string        // 数据库名称
+	Timeout     time.Duration // 连接超时时间
+	MaxPoolSize *uint64       // 连接池最大连接数（可选，默认 100）
+	MinPoolSize *uint64       // 连接池最小连接数（可选，默认 0）
 }
 
 // NewClient 初始化 MongoDB 客户端
@@ -37,6 +39,23 @@ func NewClient(cfg Config) (*Client, error) {
 
 	// 设置客户端选项
 	clientOptions := options.Client().ApplyURI(cfg.URI)
+
+	// 设置连接池大小
+	if cfg.MaxPoolSize != nil {
+		clientOptions.SetMaxPoolSize(*cfg.MaxPoolSize)
+	} else {
+		// 默认最大连接数 100（适合中等负载）
+		defaultMaxPoolSize := uint64(100)
+		clientOptions.SetMaxPoolSize(defaultMaxPoolSize)
+	}
+
+	if cfg.MinPoolSize != nil {
+		clientOptions.SetMinPoolSize(*cfg.MinPoolSize)
+	} else {
+		// 默认最小连接数 10（保持一定的预热连接）
+		defaultMinPoolSize := uint64(10)
+		clientOptions.SetMinPoolSize(defaultMinPoolSize)
+	}
 
 	// 设置默认超时时间（如果未提供）
 	if cfg.Timeout == 0 {

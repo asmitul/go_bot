@@ -31,7 +31,7 @@ func (r *MongoMessageRepository) Create(ctx context.Context, message *models.Mes
 	}
 
 	// 设置时间戳
-	now := time.Now()
+	now := time.Now().UTC()
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = now
 	}
@@ -80,7 +80,7 @@ func (r *MongoMessageRepository) RecordEdit(ctx context.Context, message *models
 		"telegram_id": message.TelegramID,
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	update := bson.M{
 		"$set": bson.M{
 			"text":        message.Text,

@@ -33,7 +33,7 @@ func (r *MongoReactionRepository) RecordReaction(ctx context.Context, reaction *
 		return fmt.Errorf("chat_id, message_id and user_id are required")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if reaction.CreatedAt.IsZero() {
 		reaction.CreatedAt = now
 	}
@@ -67,7 +67,7 @@ func (r *MongoReactionRepository) UpdateReactionCount(ctx context.Context, count
 		return fmt.Errorf("chat_id and message_id are required")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if count.CreatedAt.IsZero() {
 		count.CreatedAt = now
 	}

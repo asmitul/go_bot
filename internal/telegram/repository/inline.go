@@ -34,7 +34,7 @@ func (r *MongoInlineRepository) LogQuery(ctx context.Context, query *models.Inli
 	}
 
 	if query.CreatedAt.IsZero() {
-		query.CreatedAt = time.Now()
+		query.CreatedAt = time.Now().UTC()
 	}
 
 	collection := r.db.Collection(inlineQueriesCollection)
@@ -53,7 +53,7 @@ func (r *MongoInlineRepository) LogChosenResult(ctx context.Context, result *mod
 	}
 
 	if result.CreatedAt.IsZero() {
-		result.CreatedAt = time.Now()
+		result.CreatedAt = time.Now().UTC()
 	}
 
 	collection := r.db.Collection(chosenInlineResultsCollection)

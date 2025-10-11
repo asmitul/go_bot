@@ -171,7 +171,7 @@ func (s *memberService) UpdateWelcomeSettings(ctx context.Context, chatID int64,
 	// 更新设置
 	group.Settings.WelcomeEnabled = enabled
 	group.Settings.WelcomeText = text
-	group.UpdatedAt = time.Now()
+	group.UpdatedAt = time.Now().UTC()
 
 	if err := s.groupRepo.UpdateSettings(ctx, chatID, group.Settings); err != nil {
 		logger.L().Errorf("Failed to update welcome settings: chat_id=%d, error=%v", chatID, err)

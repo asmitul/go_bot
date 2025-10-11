@@ -47,8 +47,11 @@ type GroupRepository interface {
 	// ListActiveGroups 列出所有活跃群组
 	ListActiveGroups(ctx context.Context) ([]*models.Group, error)
 
-	// UpdateSettings 更新群组配置
+	// UpdateSettings 更新群组配置（整体更新）
 	UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error
+
+	// UpdateSettingField 更新群组配置的单个字段（字段级更新）
+	UpdateSettingField(ctx context.Context, telegramID int64, fieldName string, value interface{}) error
 
 	// UpdateStats 更新群组统计信息
 	UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error

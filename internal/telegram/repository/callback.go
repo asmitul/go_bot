@@ -32,7 +32,7 @@ func (r *MongoCallbackRepository) Create(ctx context.Context, callbackLog *model
 
 	// 设置时间戳
 	if callbackLog.CreatedAt.IsZero() {
-		callbackLog.CreatedAt = time.Now()
+		callbackLog.CreatedAt = time.Now().UTC()
 	}
 
 	collection := r.db.Collection(callbackLogsCollection)

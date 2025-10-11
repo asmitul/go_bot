@@ -18,6 +18,28 @@ type HandlerTask struct {
 	Handler     bot.HandlerFunc
 }
 
+// extractChatIDForError 从 update 中提取 chatID 用于错误消息发送
+func extractChatIDForError(update *botModels.Update) int64 {
+	switch {
+	case update.Message != nil:
+		return update.Message.Chat.ID
+	case update.CallbackQuery != nil && update.CallbackQuery.Message.Message != nil:
+		return update.CallbackQuery.Message.Message.Chat.ID
+	case update.EditedMessage != nil:
+		return update.EditedMessage.Chat.ID
+	case update.ChannelPost != nil:
+		return update.ChannelPost.Chat.ID
+	case update.EditedChannelPost != nil:
+		return update.EditedChannelPost.Chat.ID
+	case update.MyChatMember != nil:
+		return update.MyChatMember.Chat.ID
+	case update.ChatMember != nil:
+		return update.ChatMember.Chat.ID
+	default:
+		return 0
+	}
+}
+
 // WorkerPool Handler 工作池
 type WorkerPool struct {
 	taskQueue chan HandlerTask
@@ -56,10 +78,12 @@ func (p *WorkerPool) worker(id int) {
 			defer func() {
 				if r := recover(); r != nil {
 					logger.L().Errorf("Worker %d: handler panic recovered: %v", id, r)
-					// 可选：发送错误消息给用户
-					if task.Update.Message != nil {
+
+					// 尝试从不同类型的 update 中提取 chatID，发送错误消息给用户
+					chatID := extractChatIDForError(task.Update)
+					if chatID != 0 {
 						_, _ = task.BotInstance.SendMessage(task.Ctx, &bot.SendMessageParams{
-							ChatID: task.Update.Message.Chat.ID,
+							ChatID: chatID,
 							Text:   "❌ 服务器内部错误，请稍后重试",
 						})
 					}

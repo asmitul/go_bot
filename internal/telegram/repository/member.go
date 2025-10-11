@@ -34,7 +34,7 @@ func (r *MongoMemberRepository) RecordEvent(ctx context.Context, event *models.C
 	}
 
 	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now()
+		event.CreatedAt = time.Now().UTC()
 	}
 
 	collection := r.db.Collection(memberEventsCollection)
@@ -52,7 +52,7 @@ func (r *MongoMemberRepository) CreateJoinRequest(ctx context.Context, request *
 		return fmt.Errorf("chat_id and user_id are required")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if request.CreatedAt.IsZero() {
 		request.CreatedAt = now
 	}
@@ -77,7 +77,7 @@ func (r *MongoMemberRepository) UpdateJoinRequestStatus(ctx context.Context, req
 		"status":  models.JoinRequestStatusPending,
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	update := bson.M{
 		"$set": bson.M{
 			"status":      status,

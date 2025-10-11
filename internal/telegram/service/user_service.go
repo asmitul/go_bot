@@ -31,8 +31,8 @@ func (s *UserServiceImpl) RegisterOrUpdateUser(ctx context.Context, info *Telegr
 		LastName:     info.LastName,
 		LanguageCode: info.LanguageCode,
 		IsPremium:    info.IsPremium,
-		UpdatedAt:    time.Now(),
-		LastActiveAt: time.Now(),
+		UpdatedAt:    time.Now().UTC(),
+		LastActiveAt: time.Now().UTC(),
 	}
 
 	if err := s.userRepo.CreateOrUpdate(ctx, user); err != nil {

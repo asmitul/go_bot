@@ -31,7 +31,7 @@ func (s *callbackService) LogCallback(ctx context.Context, callbackLog *models.C
 
 	// 设置默认值
 	if callbackLog.CreatedAt.IsZero() {
-		callbackLog.CreatedAt = time.Now()
+		callbackLog.CreatedAt = time.Now().UTC()
 	}
 
 	// 保存到数据库

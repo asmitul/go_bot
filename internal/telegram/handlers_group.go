@@ -53,7 +53,7 @@ func (b *Bot) handleChatMember(ctx context.Context, botInstance *bot.Bot, update
 		EventType: eventType,
 		OldStatus: string(oldMemberType),
 		NewStatus: string(newMemberType),
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	}
 
 	// 如果有操作者信息
@@ -105,8 +105,8 @@ func (b *Bot) handleChatJoinRequest(ctx context.Context, botInstance *bot.Bot, u
 		LastName:  joinReq.From.LastName,
 		Bio:       joinReq.Bio,
 		Status:    models.JoinRequestStatusPending,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 
 	if joinReq.InviteLink != nil {
@@ -145,7 +145,7 @@ func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, up
 			EventType: models.MemberEventJoined,
 			OldStatus: models.MemberStatusLeft,
 			NewStatus: models.MemberStatusMember,
-			CreatedAt: time.Now(),
+			CreatedAt: time.Now().UTC(),
 		}
 
 		if err := b.memberService.HandleMemberChange(ctx, event); err != nil {
@@ -190,7 +190,7 @@ func (b *Bot) handleLeftChatMember(ctx context.Context, botInstance *bot.Bot, up
 		EventType: models.MemberEventLeft,
 		OldStatus: models.MemberStatusMember,
 		NewStatus: models.MemberStatusLeft,
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	}
 
 	if err := b.memberService.HandleMemberChange(ctx, event); err != nil {

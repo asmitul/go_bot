@@ -33,7 +33,7 @@ func (r *MongoPollRepository) CreatePoll(ctx context.Context, poll *models.PollR
 		return fmt.Errorf("poll_id is required")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if poll.CreatedAt.IsZero() {
 		poll.CreatedAt = now
 	}
@@ -53,7 +53,7 @@ func (r *MongoPollRepository) UpdatePoll(ctx context.Context, poll *models.PollR
 	collection := r.db.Collection(pollsCollection)
 
 	filter := bson.M{"poll_id": poll.PollID}
-	poll.UpdatedAt = time.Now()
+	poll.UpdatedAt = time.Now().UTC()
 
 	update := bson.M{
 		"$set": poll,
@@ -96,7 +96,7 @@ func (r *MongoPollRepository) RecordAnswer(ctx context.Context, answer *models.P
 	}
 
 	if answer.CreatedAt.IsZero() {
-		answer.CreatedAt = time.Now()
+		answer.CreatedAt = time.Now().UTC()
 	}
 
 	collection := r.db.Collection(pollAnswersCollection)

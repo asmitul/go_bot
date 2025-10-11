@@ -26,7 +26,7 @@ func NewMongoUserRepository(db *mongo.Database) UserRepository {
 
 // CreateOrUpdate 创建或更新用户
 func (r *MongoUserRepository) CreateOrUpdate(ctx context.Context, user *models.User) error {
-	now := time.Now()
+	now := time.Now().UTC()
 	user.UpdatedAt = now
 
 	filter := bson.M{"telegram_id": user.TelegramID}
@@ -94,7 +94,7 @@ func (r *MongoUserRepository) UpdateLastActive(ctx context.Context, telegramID i
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
-			"last_active_at": time.Now(),
+			"last_active_at": time.Now().UTC(),
 		},
 	}
 
@@ -107,7 +107,7 @@ func (r *MongoUserRepository) UpdateLastActive(ctx context.Context, telegramID i
 
 // GrantAdmin 授予管理员权限
 func (r *MongoUserRepository) GrantAdmin(ctx context.Context, telegramID int64, grantedBy int64) error {
-	now := time.Now()
+	now := time.Now().UTC()
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
@@ -134,7 +134,7 @@ func (r *MongoUserRepository) RevokeAdmin(ctx context.Context, telegramID int64)
 	update := bson.M{
 		"$set": bson.M{
 			"role":       models.RoleUser,
-			"updated_at": time.Now(),
+			"updated_at": time.Now().UTC(),
 		},
 		"$unset": bson.M{
 			"granted_by": "",

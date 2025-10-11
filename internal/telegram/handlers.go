@@ -353,7 +353,7 @@ func (b *Bot) handleCallback(ctx context.Context, botInstance *bot.Bot, update *
 		return
 	}
 
-	startTime := time.Now()
+	startTime := time.Now().UTC()
 	callbackLog := &models.CallbackLog{
 		CallbackQueryID: update.CallbackQuery.ID,
 		UserID:          update.CallbackQuery.From.ID,
@@ -388,6 +388,7 @@ func (b *Bot) handleCallback(ctx context.Context, botInstance *bot.Bot, update *
 	callbackLog.Params = callbackData.Params
 
 	// 提取 chatID 和 messageID（如果可用）
+	// 注意：来自 inline message 的 callback 没有 Message 字段
 	if update.CallbackQuery.Message.Message != nil {
 		callbackLog.ChatID = update.CallbackQuery.Message.Message.Chat.ID
 		callbackLog.MessageID = int64(update.CallbackQuery.Message.Message.ID)
@@ -415,6 +416,7 @@ func (b *Bot) handleCallback(ctx context.Context, botInstance *bot.Bot, update *
 func (b *Bot) handleAdminListPagination(ctx context.Context, botInstance *bot.Bot, update *botModels.Update, data *models.CallbackData) {
 	// TODO: 实现分页逻辑（暂时只刷新列表）
 	if update.CallbackQuery.Message.Message == nil {
+		logger.L().Warn("Admin list pagination callback from inline message, skipping")
 		return
 	}
 
@@ -448,11 +450,14 @@ func (b *Bot) handleConfirmDelete(ctx context.Context, botInstance *bot.Bot, upd
 	logger.L().Infof("Confirm delete callback: params=%v", data.Params)
 
 	if update.CallbackQuery.Message.Message != nil {
-		botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
+		_, err := botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
 			MessageID: update.CallbackQuery.Message.Message.ID,
 			Text:      "✅ 操作已确认",
 		})
+		if err != nil {
+			logger.L().Errorf("Failed to edit message for confirm delete: %v", err)
+		}
 	}
 }
 
@@ -462,11 +467,14 @@ func (b *Bot) handleGroupSettings(ctx context.Context, botInstance *bot.Bot, upd
 	logger.L().Infof("Group settings callback: params=%v", data.Params)
 
 	if update.CallbackQuery.Message.Message != nil {
-		botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
+		_, err := botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
 			MessageID: update.CallbackQuery.Message.Message.ID,
 			Text:      "⚙️ 群组设置面板（开发中）",
 		})
+		if err != nil {
+			logger.L().Errorf("Failed to edit message for group settings: %v", err)
+		}
 	}
 }
 
@@ -518,17 +526,17 @@ func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, upda
 			Title:      update.MyChatMember.Chat.Title,
 			Username:   update.MyChatMember.Chat.Username,
 			BotStatus:  models.BotStatusActive,
-			// BotJoinedAt 由 Repository 的 $setOnInsert 自动设置（仅在首次创建时）
+			// BotJoinedAt 由 Repository 的 $setOnInsert 自动设置（记录首次加入时间）
+			// 注意：如果 Bot 被移除后重新加入，BotJoinedAt 保持首次加入的时间不变
+			// 如果需要追踪重新加入，应该在 model 中添加 BotLastJoinedAt 字段
 			Settings: models.GroupSettings{
 				WelcomeEnabled: true,
 				Language:       "zh",
 			},
-			Stats: models.GroupStats{
-				TotalMessages: 0,
-				LastMessageAt: time.Now(),
-			},
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			// Stats 由 Repository 的 $setOnInsert 自动设置默认值
+			// 这里不设置 Stats，让 repository 层处理
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
 		}
 
 		if err := b.groupService.CreateOrUpdateGroup(ctx, group); err != nil {
@@ -563,8 +571,8 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		UserID:     msg.From.ID,
 		Username:   msg.From.Username,
 		Caption:    msg.Caption,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 
 	// 判断消息类型并提取文件信息
@@ -661,8 +669,8 @@ func (b *Bot) handleChannelPost(ctx context.Context, botInstance *bot.Bot, updat
 		Text:          post.Text,
 		Caption:       post.Caption,
 		IsChannelPost: true,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
 	}
 
 	// 如果是媒体消息，提取文件信息
