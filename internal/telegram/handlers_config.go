@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"fmt"
 
 	"go_bot/internal/logger"
 
@@ -12,21 +11,13 @@ import (
 
 // handleConfigs 处理 /configs 命令
 // 显示交互式配置菜单
+// 注意：权限检查由 RequireAdmin 中间件完成
 func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
 	if update.Message == nil {
 		return
 	}
 
 	chatID := update.Message.Chat.ID
-	userID := update.Message.From.ID
-
-	// 权限检查：只有管理员可以使用
-	user, err := b.userService.GetUserInfo(ctx, userID)
-	if err != nil || !user.IsAdmin() {
-		b.sendErrorMessage(ctx, chatID, "⚠️ 只有管理员可以使用此命令")
-		logger.L().Warnf("Non-admin user %d attempted to access /configs in chat %d", userID, chatID)
-		return
-	}
 
 	// 获取配置项定义
 	items := b.getConfigItems()
@@ -34,8 +25,8 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	// 构建菜单
 	keyboard, err := b.configMenuService.BuildMainMenu(ctx, chatID, items)
 	if err != nil {
-		b.sendErrorMessage(ctx, chatID, fmt.Sprintf("❌ 构建配置菜单失败: %v", err))
-		logger.L().Errorf("Failed to build config menu: %v", err)
+		logger.L().Errorf("Failed to build config menu: chat_id=%d, error=%v", chatID, err)
+		b.sendErrorMessage(ctx, chatID, "❌ 构建配置菜单失败，请稍后重试")
 		return
 	}
 
@@ -57,7 +48,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 		logger.L().Errorf("Failed to send config menu: %v", err)
 		b.sendErrorMessage(ctx, chatID, "❌ 发送配置菜单失败")
 	} else {
-		logger.L().Infof("Config menu sent: chat_id=%d, user_id=%d", chatID, userID)
+		logger.L().Infof("Config menu sent: chat_id=%d, user_id=%d", chatID, update.Message.From.ID)
 	}
 }
 

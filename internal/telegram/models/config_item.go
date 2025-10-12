@@ -65,10 +65,11 @@ type SelectOption struct {
 // 当用户点击"编辑文本"等需要输入的配置时，
 // 会设置用户状态，等待用户发送文本消息
 type UserState struct {
-	UserID    int64          // 用户 ID
-	ChatID    int64          // 聊天 ID
-	Action    string         // 动作标识，如 "input:welcome_text"
-	MessageID int            // 菜单消息 ID
-	ExpiresAt int64          // 过期时间（Unix 时间戳）
-	Context   context.Context // 上下文（用于取消操作）
+	UserID     int64           // 用户 ID
+	ChatID     int64           // 聊天 ID
+	Action     string          // 动作标识，如 "input:welcome_text"
+	MessageID  int             // 菜单消息 ID
+	ExpiresAt  int64           // 过期时间（Unix 时间戳）
+	RetryCount int             // 重试次数（用于限制验证失败重试）
+	Context    context.Context // 上下文（用于取消操作）
 }

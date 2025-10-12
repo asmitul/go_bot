@@ -36,7 +36,7 @@ func (b *Bot) registerHandlers() {
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/leave", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireAdmin(b.handleLeave)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/configs", bot.MatchTypeExact,
-		b.asyncHandler(b.handleConfigs))
+		b.asyncHandler(b.RequireAdmin(b.handleConfigs)))
 
 	// 配置菜单回调查询处理器
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {

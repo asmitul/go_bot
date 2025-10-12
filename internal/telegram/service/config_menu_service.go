@@ -13,6 +13,11 @@ import (
 	botModels "github.com/go-telegram/bot/models"
 )
 
+const (
+	// MaxInputRetries 最大输入验证失败重试次数
+	MaxInputRetries = 3
+)
+
 // ConfigMenuService 配置菜单服务
 // 负责构建 InlineKeyboard 菜单和处理用户交互
 type ConfigMenuService struct {
@@ -257,11 +262,12 @@ func (s *ConfigMenuService) handleInput(ctx context.Context, chatID, userID int6
 
 	// 设置用户状态
 	state := &models.UserState{
-		UserID:    userID,
-		ChatID:    chatID,
-		Action:    fmt.Sprintf("input:%s", configID),
-		ExpiresAt: time.Now().Add(5 * time.Minute).Unix(), // 5分钟过期
-		Context:   ctx,
+		UserID:     userID,
+		ChatID:     chatID,
+		Action:     fmt.Sprintf("input:%s", configID),
+		ExpiresAt:  time.Now().Add(5 * time.Minute).Unix(), // 5分钟过期
+		RetryCount: 0,                                       // 初始化重试次数
+		Context:    ctx,
 	}
 	s.SetUserState(chatID, userID, state)
 
@@ -337,8 +343,20 @@ func (s *ConfigMenuService) ProcessUserInput(
 	// 验证输入
 	if item.InputValidator != nil {
 		if err := item.InputValidator(text); err != nil {
-			// 验证失败，不清除状态，允许重新输入
-			return fmt.Sprintf("❌ 输入验证失败: %v\n\n请重新输入：", err), nil
+			// 验证失败，检查重试次数
+			state.RetryCount++
+
+			if state.RetryCount >= MaxInputRetries {
+				// 超过最大重试次数，清除状态
+				s.ClearUserState(chatID, userID)
+				logger.L().Warnf("User exceeded max input retries: chat_id=%d, user_id=%d, config=%s", chatID, userID, configID)
+				return fmt.Sprintf("❌ 输入验证失败次数过多\n\n错误: %v\n\n请重新打开配置菜单", err), fmt.Errorf("max retries exceeded")
+			}
+
+			// 未超过限制，更新状态并允许重新输入
+			s.SetUserState(chatID, userID, state)
+			remainingRetries := MaxInputRetries - state.RetryCount
+			return fmt.Sprintf("❌ 输入验证失败: %v\n\n剩余尝试次数: %d\n请重新输入：", err, remainingRetries), nil
 		}
 	}
 
