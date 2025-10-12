@@ -31,7 +31,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	// 发送菜单
-	menuText := "⚙️ **群组配置菜单**\n\n" +
+	menuText := "⚙️ <b>群组配置菜单</b>\n\n" +
 		"点击下方按钮进行配置：\n" +
 		"• ✅/❌ = 开关状态\n" +
 		"• ✏️ = 点击后输入\n" +
@@ -40,7 +40,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	_, err = botInstance.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        menuText,
-		ParseMode:   botModels.ParseModeMarkdown,
+		ParseMode:   botModels.ParseModeHTML,
 		ReplyMarkup: keyboard,
 	})
 
@@ -105,7 +105,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 			return
 		}
 
-		menuText := "⚙️ **群组配置菜单**\n\n" +
+		menuText := "⚙️ <b>群组配置菜单</b>\n\n" +
 			"点击下方按钮进行配置：\n" +
 			"• ✅/❌ = 开关状态\n" +
 			"• ✏️ = 点击后输入\n" +
@@ -115,7 +115,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 			ChatID:      chatID,
 			MessageID:   messageID,
 			Text:        menuText,
-			ParseMode:   botModels.ParseModeMarkdown,
+			ParseMode:   botModels.ParseModeHTML,
 			ReplyMarkup: keyboard,
 		})
 
