@@ -31,12 +31,15 @@ type Bot struct {
 	workerPool *WorkerPool
 
 	// Service 层（业务逻辑）
-	userService  service.UserService
-	groupService service.GroupService
+	userService       service.UserService
+	groupService      service.GroupService
+	messageService    service.MessageService
+	configMenuService *service.ConfigMenuService
 
 	// Repository 层（仅用于初始化）
-	userRepo  repository.UserRepository
-	groupRepo repository.GroupRepository
+	userRepo    repository.UserRepository
+	groupRepo   repository.GroupRepository
+	messageRepo repository.MessageRepository
 }
 
 // New 创建 Telegram Bot 实例
@@ -49,10 +52,13 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	// 创建 repositories
 	userRepo := repository.NewMongoUserRepository(db)
 	groupRepo := repository.NewMongoGroupRepository(db)
+	messageRepo := repository.NewMongoMessageRepository(db)
 
 	// 创建 services
 	userService := service.NewUserService(userRepo)
 	groupService := service.NewGroupService(groupRepo)
+	messageService := service.NewMessageService(messageRepo, groupRepo)
+	configMenuService := service.NewConfigMenuService(groupService)
 
 	// 创建 worker pool (10 workers, 100 queue size)
 	workerPool := NewWorkerPool(10, 100)
@@ -69,14 +75,17 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	}
 
 	telegramBot := &Bot{
-		bot:          b,
-		db:           db,
-		ownerIDs:     cfg.OwnerIDs,
-		workerPool:   workerPool,
-		userService:  userService,
-		groupService: groupService,
-		userRepo:     userRepo,
-		groupRepo:    groupRepo,
+		bot:               b,
+		db:                db,
+		ownerIDs:          cfg.OwnerIDs,
+		workerPool:        workerPool,
+		userService:       userService,
+		groupService:      groupService,
+		messageService:    messageService,
+		configMenuService: configMenuService,
+		userRepo:          userRepo,
+		groupRepo:         groupRepo,
+		messageRepo:       messageRepo,
 	}
 
 	// 初始化 owners
@@ -184,6 +193,11 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 		return fmt.Errorf("failed to ensure group indexes: %w", err)
 	}
 	logger.L().Debug("Group indexes ensured")
+
+	if err := b.messageRepo.EnsureIndexes(ctx); err != nil {
+		return fmt.Errorf("failed to ensure message indexes: %w", err)
+	}
+	logger.L().Debug("Message indexes ensured")
 
 	return nil
 }

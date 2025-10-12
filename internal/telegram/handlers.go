@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -32,6 +33,69 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireAdmin(b.handleListAdmins)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/userinfo", bot.MatchTypePrefix,
 		b.asyncHandler(b.RequireAdmin(b.handleUserInfo)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/leave", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleLeave)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/configs", bot.MatchTypeExact,
+		b.asyncHandler(b.handleConfigs))
+
+	// 配置菜单回调查询处理器
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "config:")
+	}, b.asyncHandler(b.handleConfigCallback))
+
+	// Bot 状态变化事件 (MyChatMember)
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.MyChatMember != nil
+	}, b.asyncHandler(b.handleMyChatMember))
+
+	// 消息编辑事件
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.EditedMessage != nil
+	}, b.asyncHandler(b.handleEditedMessage))
+
+	// 频道消息
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.ChannelPost != nil
+	}, b.asyncHandler(b.handleChannelPost))
+
+	// 编辑的频道消息
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.EditedChannelPost != nil
+	}, b.asyncHandler(b.handleEditedChannelPost))
+
+	// 媒体消息处理（照片、视频等）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		if update.Message == nil {
+			return false
+		}
+		msg := update.Message
+		return msg.Photo != nil || msg.Video != nil || msg.Document != nil ||
+			msg.Voice != nil || msg.Audio != nil || msg.Sticker != nil || msg.Animation != nil
+	}, b.asyncHandler(b.handleMediaMessage))
+
+	// 新成员加入
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.NewChatMembers != nil
+	}, b.asyncHandler(b.handleNewChatMembers))
+
+	// 成员离开
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.LeftChatMember != nil
+	}, b.asyncHandler(b.handleLeftChatMember))
+
+	// 普通文本消息（放在最后，作为 fallback）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		if update.Message == nil || update.Message.Text == "" {
+			return false
+		}
+		msg := update.Message
+		// 排除命令、系统消息、媒体消息
+		return !strings.HasPrefix(msg.Text, "/") &&
+			msg.NewChatMembers == nil &&
+			msg.LeftChatMember == nil &&
+			msg.Photo == nil && msg.Video == nil && msg.Document == nil &&
+			msg.Voice == nil && msg.Audio == nil && msg.Sticker == nil && msg.Animation == nil
+	}, b.asyncHandler(b.handleTextMessage))
 
 	logger.L().Debug("All handlers registered with async execution")
 }
@@ -240,4 +304,336 @@ func (b *Bot) handleUserInfo(ctx context.Context, botInstance *bot.Bot, update *
 	)
 
 	b.sendMessage(ctx, update.Message.Chat.ID, text)
+}
+
+// handleLeave 处理 /leave 命令（让 Bot 离开群组）
+func (b *Bot) handleLeave(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	chatID := update.Message.Chat.ID
+
+	// 只能在群组中使用
+	if update.Message.Chat.Type != "group" && update.Message.Chat.Type != "supergroup" {
+		b.sendErrorMessage(ctx, chatID, "此命令只能在群组中使用")
+		return
+	}
+
+	// 发送离别消息
+	b.sendMessage(ctx, chatID, "👋 再见！我将离开这个群组。")
+
+	// 标记 Bot 离开并删除群组记录
+	if err := b.groupService.LeaveGroup(ctx, chatID); err != nil {
+		logger.L().Errorf("Failed to mark group as left: chat_id=%d, error=%v", chatID, err)
+	}
+
+	// 让 Bot 离开群组
+	_, err := botInstance.LeaveChat(ctx, &bot.LeaveChatParams{
+		ChatID: chatID,
+	})
+	if err != nil {
+		logger.L().Errorf("Failed to leave chat: chat_id=%d, error=%v", chatID, err)
+	}
+}
+
+// handleMyChatMember 处理 Bot 状态变化（被添加到群组/被踢出群组）
+func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.MyChatMember == nil {
+		return
+	}
+
+	chatMember := update.MyChatMember
+	chat := chatMember.Chat
+	oldStatus := chatMember.OldChatMember.Type
+	newStatus := chatMember.NewChatMember.Type
+
+	logger.L().Infof("Bot status change: chat_id=%d, old=%s, new=%s", chat.ID, oldStatus, newStatus)
+
+	// Bot 被添加到群组
+	if (oldStatus == botModels.ChatMemberTypeLeft || oldStatus == botModels.ChatMemberTypeBanned) &&
+		(newStatus == botModels.ChatMemberTypeMember || newStatus == botModels.ChatMemberTypeAdministrator) {
+		group := &models.Group{
+			TelegramID: chat.ID,
+			Type:       string(chat.Type),
+			Title:      chat.Title,
+			Username:   chat.Username,
+			BotStatus:  models.BotStatusActive,
+		}
+
+		if err := b.groupService.HandleBotAddedToGroup(ctx, group); err != nil {
+			logger.L().Errorf("Failed to handle bot added to group: %v", err)
+			return
+		}
+
+		// 发送欢迎消息
+		welcomeText := fmt.Sprintf(
+			"👋 你好！我是 Bot，感谢邀请我加入 %s！\n\n"+
+				"使用 /help 查看可用命令。",
+			chat.Title,
+		)
+		b.sendMessage(ctx, chat.ID, welcomeText)
+	}
+
+	// Bot 被踢出或离开群组
+	if (oldStatus == botModels.ChatMemberTypeMember || oldStatus == botModels.ChatMemberTypeAdministrator) &&
+		(newStatus == botModels.ChatMemberTypeLeft || newStatus == botModels.ChatMemberTypeBanned) {
+		reason := "left"
+		if newStatus == botModels.ChatMemberTypeBanned {
+			reason = "kicked"
+		}
+
+		if err := b.groupService.HandleBotRemovedFromGroup(ctx, chat.ID, reason); err != nil {
+			logger.L().Errorf("Failed to handle bot removed from group: %v", err)
+		}
+	}
+}
+
+// handleTextMessage 处理普通文本消息
+func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil || update.Message.Text == "" {
+		return
+	}
+
+	msg := update.Message
+
+	// 排除命令消息（以 / 开头）
+	if strings.HasPrefix(msg.Text, "/") {
+		return
+	}
+
+	// 排除系统消息（NewChatMembers、LeftChatMember 等）
+	if msg.NewChatMembers != nil || msg.LeftChatMember != nil {
+		return
+	}
+
+	// 优先检查用户输入状态（用于配置菜单输入）
+	if msg.From != nil && b.configMenuService != nil {
+		items := b.getConfigItems()
+		responseMsg, err := b.configMenuService.ProcessUserInput(ctx, msg.Chat.ID, msg.From.ID, msg.Text, items)
+
+		// 如果有响应消息（无论成功或失败），说明这是配置输入
+		if responseMsg != "" {
+			if err != nil {
+				b.sendErrorMessage(ctx, msg.Chat.ID, responseMsg)
+			} else {
+				b.sendSuccessMessage(ctx, msg.Chat.ID, responseMsg)
+			}
+			return // 处理完配置输入，不再记录为普通消息
+		}
+	}
+
+	// 构造消息信息
+	replyToID := int64(0)
+	if msg.ReplyToMessage != nil {
+		replyToID = int64(msg.ReplyToMessage.ID)
+	}
+
+	textMsg := &service.TextMessageInfo{
+		TelegramMessageID: int64(msg.ID),
+		ChatID:            msg.Chat.ID,
+		UserID:            msg.From.ID,
+		Text:              msg.Text,
+		ReplyToMessageID:  replyToID,
+		SentAt:            time.Unix(int64(msg.Date), 0),
+	}
+
+	// 记录消息
+	if err := b.messageService.HandleTextMessage(ctx, textMsg); err != nil {
+		logger.L().Errorf("Failed to handle text message: %v", err)
+	}
+}
+
+// handleMediaMessage 处理媒体消息
+func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	msg := update.Message
+	var messageType, fileID, mimeType string
+	var fileSize int64
+
+	// 判断媒体类型并提取信息
+	if msg.Photo != nil && len(msg.Photo) > 0 {
+		messageType = models.MessageTypePhoto
+		photo := msg.Photo[len(msg.Photo)-1] // 取最大尺寸
+		fileID = photo.FileID
+		fileSize = int64(photo.FileSize)
+	} else if msg.Video != nil {
+		messageType = models.MessageTypeVideo
+		fileID = msg.Video.FileID
+		fileSize = int64(msg.Video.FileSize)
+		mimeType = msg.Video.MimeType
+	} else if msg.Document != nil {
+		messageType = models.MessageTypeDocument
+		fileID = msg.Document.FileID
+		fileSize = int64(msg.Document.FileSize)
+		mimeType = msg.Document.MimeType
+	} else if msg.Voice != nil {
+		messageType = models.MessageTypeVoice
+		fileID = msg.Voice.FileID
+		fileSize = int64(msg.Voice.FileSize)
+		mimeType = msg.Voice.MimeType
+	} else if msg.Audio != nil {
+		messageType = models.MessageTypeAudio
+		fileID = msg.Audio.FileID
+		fileSize = int64(msg.Audio.FileSize)
+		mimeType = msg.Audio.MimeType
+	} else if msg.Sticker != nil {
+		messageType = models.MessageTypeSticker
+		fileID = msg.Sticker.FileID
+		fileSize = int64(msg.Sticker.FileSize)
+	} else if msg.Animation != nil {
+		messageType = models.MessageTypeAnimation
+		fileID = msg.Animation.FileID
+		fileSize = int64(msg.Animation.FileSize)
+		mimeType = msg.Animation.MimeType
+	} else {
+		return // 不是支持的媒体类型
+	}
+
+	// 构造媒体消息信息
+	mediaMsg := &service.MediaMessageInfo{
+		TelegramMessageID: int64(msg.ID),
+		ChatID:            msg.Chat.ID,
+		UserID:            msg.From.ID,
+		MessageType:       messageType,
+		Caption:           msg.Caption,
+		MediaFileID:       fileID,
+		MediaFileSize:     fileSize,
+		MediaMimeType:     mimeType,
+		SentAt:            time.Unix(int64(msg.Date), 0),
+	}
+
+	// 记录消息
+	if err := b.messageService.HandleMediaMessage(ctx, mediaMsg); err != nil {
+		logger.L().Errorf("Failed to handle media message: %v", err)
+	}
+}
+
+// handleEditedMessage 处理消息编辑事件
+func (b *Bot) handleEditedMessage(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.EditedMessage == nil || update.EditedMessage.Text == "" {
+		return
+	}
+
+	msg := update.EditedMessage
+	editedAt := time.Unix(int64(msg.EditDate), 0)
+
+	// 更新消息编辑信息
+	if err := b.messageService.HandleEditedMessage(ctx, int64(msg.ID), msg.Chat.ID, msg.Text, editedAt); err != nil {
+		logger.L().Errorf("Failed to handle edited message: %v", err)
+	}
+}
+
+// handleChannelPost 处理频道消息
+func (b *Bot) handleChannelPost(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.ChannelPost == nil {
+		return
+	}
+
+	post := update.ChannelPost
+	messageType := models.MessageTypeChannelPost
+	text := post.Text
+	fileID := ""
+
+	// 如果是媒体消息，提取 file_id
+	if post.Photo != nil && len(post.Photo) > 0 {
+		fileID = post.Photo[len(post.Photo)-1].FileID
+	} else if post.Video != nil {
+		fileID = post.Video.FileID
+	} else if post.Document != nil {
+		fileID = post.Document.FileID
+	}
+
+	channelPost := &service.ChannelPostInfo{
+		TelegramMessageID: int64(post.ID),
+		ChatID:            post.Chat.ID,
+		MessageType:       messageType,
+		Text:              text,
+		MediaFileID:       fileID,
+		SentAt:            time.Unix(int64(post.Date), 0),
+	}
+
+	// 记录频道消息
+	if err := b.messageService.RecordChannelPost(ctx, channelPost); err != nil {
+		logger.L().Errorf("Failed to handle channel post: %v", err)
+	}
+}
+
+// handleEditedChannelPost 处理编辑的频道消息
+func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.EditedChannelPost == nil || update.EditedChannelPost.Text == "" {
+		return
+	}
+
+	post := update.EditedChannelPost
+	editedAt := time.Unix(int64(post.EditDate), 0)
+
+	// 更新频道消息编辑信息
+	if err := b.messageService.HandleEditedMessage(ctx, int64(post.ID), post.Chat.ID, post.Text, editedAt); err != nil {
+		logger.L().Errorf("Failed to handle edited channel post: %v", err)
+	}
+}
+
+// handleNewChatMembers 处理新成员加入系统消息
+func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil || update.Message.NewChatMembers == nil {
+		return
+	}
+
+	msg := update.Message
+	chatID := msg.Chat.ID
+
+	// 获取群组设置，检查是否启用欢迎消息
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err != nil {
+		logger.L().Warnf("Failed to get group info for welcome: chat_id=%d", chatID)
+		return
+	}
+
+	// 如果未启用欢迎消息，直接返回
+	if !group.Settings.WelcomeEnabled {
+		return
+	}
+
+	// 发送欢迎消息
+	for _, member := range msg.NewChatMembers {
+		// 跳过 Bot 自己（Bot 加入由 handleMyChatMember 处理）
+		if member.IsBot {
+			continue
+		}
+
+		welcomeText := group.Settings.WelcomeText
+		if welcomeText == "" {
+			welcomeText = fmt.Sprintf("欢迎 %s 加入群组！", member.FirstName)
+		} else {
+			// 替换占位符
+			welcomeText = strings.ReplaceAll(welcomeText, "{name}", member.FirstName)
+			welcomeText = strings.ReplaceAll(welcomeText, "{username}", "@"+member.Username)
+		}
+
+		b.sendMessage(ctx, chatID, welcomeText)
+		logger.L().Infof("Sent welcome message: chat_id=%d, user_id=%d", chatID, member.ID)
+	}
+}
+
+// handleLeftChatMember 处理成员离开系统消息
+func (b *Bot) handleLeftChatMember(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil || update.Message.LeftChatMember == nil {
+		return
+	}
+
+	msg := update.Message
+	leftMember := msg.LeftChatMember
+
+	// 记录日志
+	logger.L().Infof("Member left: chat_id=%d, user_id=%d, username=%s",
+		msg.Chat.ID, leftMember.ID, leftMember.Username)
+
+	// 这里可以添加更多逻辑，例如：
+	// - 发送离别消息
+	// - 更新成员统计
+	// - 记录离开事件到数据库
 }

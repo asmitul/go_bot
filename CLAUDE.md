@@ -59,15 +59,20 @@ go_bot/
 │   ├── logger/          # Logrus-based logging with env config
 │   ├── mongo/           # MongoDB client wrapper
 │   └── telegram/        # Telegram bot service
-│       ├── models/      # Data models (User, Group)
+│       ├── models/      # Data models (User, Group, Message)
+│       │   ├── user.go
+│       │   ├── group.go
+│       │   └── message.go
 │       ├── repository/  # Data access layer with interfaces
 │       │   ├── user.go
 │       │   ├── group.go
+│       │   ├── message.go
 │       │   └── interfaces.go
 │       ├── service/     # Business logic layer
 │       │   ├── interfaces.go
 │       │   ├── user_service.go
-│       │   └── group_service.go
+│       │   ├── group_service.go
+│       │   └── message_service.go
 │       ├── telegram.go  # Bot core service
 │       ├── handlers.go  # Command handlers
 │       ├── middleware.go # Permission middlewares
@@ -114,12 +119,15 @@ go_bot/
 - **models/** - Data models with business logic
   - `User` struct with role-based permissions (Owner/Admin/User)
   - `Group` struct with settings and statistics
+  - `Message` struct for recording all telegram messages (text/media/channel posts)
   - Permission check methods (`IsOwner()`, `IsAdmin()`, `CanManageUsers()`)
+  - Message type constants (MessageTypeText, MessageTypePhoto, MessageTypeVideo, etc.)
 
 - **repository/** - Data access layer (CRUD operations)
   - Defines repository interfaces in `repository/interfaces.go`
   - `UserRepository`: CreateOrUpdate, GetByTelegramID, UpdateLastActive, GrantAdmin, RevokeAdmin, ListAdmins, GetUserInfo
-  - `GroupRepository`: CreateOrUpdate, GetByTelegramID, MarkBotLeft, ListActiveGroups, UpdateSettings, UpdateStats
+  - `GroupRepository`: CreateOrUpdate, GetByTelegramID, MarkBotLeft, DeleteGroup, ListActiveGroups, UpdateSettings, UpdateStats
+  - `MessageRepository`: CreateMessage, GetByTelegramID, UpdateMessageEdit, ListMessagesByChat, CountMessagesByType
   - All repositories provide `EnsureIndexes()` for automatic index creation
   - Pure data access layer - no business logic or validation
 
@@ -127,8 +135,9 @@ go_bot/
   - Encapsulates business validation and permission checks, separating business logic from handlers
   - **Interface definitions** (`service/interfaces.go`):
     - `UserService`: RegisterOrUpdateUser, GrantAdminPermission, RevokeAdminPermission, GetUserInfo, ListAllAdmins, CheckOwnerPermission, CheckAdminPermission, UpdateUserActivity
-    - `GroupService`: CreateOrUpdateGroup, GetGroupInfo, MarkBotLeft, ListActiveGroups
-    - `TelegramUserInfo`: DTO object for passing Telegram user information
+    - `GroupService`: CreateOrUpdateGroup, GetGroupInfo, MarkBotLeft, ListActiveGroups, UpdateGroupSettings, LeaveGroup, HandleBotAddedToGroup, HandleBotRemovedFromGroup
+    - `MessageService`: HandleTextMessage, HandleMediaMessage, HandleEditedMessage, RecordChannelPost, GetChatMessageHistory
+    - DTOs: `TelegramUserInfo`, `TextMessageInfo`, `MediaMessageInfo`, `ChannelPostInfo`
   - **UserService implementation** (`service/user_service.go`):
     - `RegisterOrUpdateUser(info)`: Converts DTO to model, calls repository, logs operation
     - `GrantAdminPermission(targetID, grantedBy)`: Validates granter is Owner → checks target exists → verifies not already admin → executes grant → logs
@@ -139,7 +148,16 @@ go_bot/
     - Returns user-friendly Chinese error messages for direct display to users
   - **GroupService implementation** (`service/group_service.go`):
     - Wraps repository operations with error handling and logging
-    - Future location for group-specific business rules
+    - `UpdateGroupSettings`: Updates group welcome message, anti-spam settings, language
+    - `LeaveGroup`: Validates group exists, deletes group record when bot leaves
+    - `HandleBotAddedToGroup`: Creates/updates group record when bot joins, sets status to active
+    - `HandleBotRemovedFromGroup`: Marks group as kicked/left based on reason
+  - **MessageService implementation** (`service/message_service.go`):
+    - `HandleTextMessage`: Records plain text messages, auto-updates group stats (total messages, last message time)
+    - `HandleMediaMessage`: Records photo/video/document/voice/audio/sticker/animation messages
+    - `HandleEditedMessage`: Updates message edit history with edited_at timestamp
+    - `RecordChannelPost`: Records channel posts (user_id=0 for channel messages)
+    - `GetChatMessageHistory`: Retrieves paginated message history for a chat
   - **Responsibility separation from repository**:
     - Repository layer: Pure database CRUD, no business validation
     - Service layer: Business validation, permission checks, business rules, error handling
@@ -151,12 +169,14 @@ go_bot/
   - `Start(ctx)` runs bot in blocking mode (call in goroutine)
   - `initOwners(ctx)` auto-creates owner users from `BOT_OWNER_IDS` config
 
-- **handlers.go** - Command handlers
+- **handlers.go** - Command and event handlers
   - All handlers follow `bot.HandlerFunc` signature: `func(ctx, *bot.Bot, *models.Update)`
-  - Handlers call service layer for business logic (e.g., `userService.GrantAdminPermission()`, `userService.GetUserInfo()`)
+  - Handlers call service layer for business logic (e.g., `userService.GrantAdminPermission()`, `messageService.HandleTextMessage()`)
   - All handlers registered with `asyncHandler()` wrapper for concurrent execution via worker pool
   - Handler responsibilities: parse command arguments, call service methods, send responses via helpers
-  - Commands: /start, /ping, /grant, /revoke, /admins, /userinfo
+  - **Command handlers**: /start, /ping, /grant, /revoke, /admins, /userinfo, /leave
+  - **Event handlers**: MyChatMember (bot status change), EditedMessage, ChannelPost, NewChatMembers, LeftChatMember
+  - **Message handlers**: TextMessage (plain text), MediaMessage (photo/video/document/voice/audio/sticker/animation)
 
 - **middleware.go** - Permission control
   - `RequireOwner(next)` wraps handlers requiring owner permission
@@ -208,6 +228,17 @@ go_bot/
   - `settings` (embedded) - WelcomeEnabled, AntiSpam, Language
   - `stats` (embedded) - TotalMessages, LastMessageAt
 
+- **messages** collection
+  - `telegram_message_id + chat_id` (composite unique index) - Message identifier
+  - `user_id` (int64, index) - Sender ID (0 for channel posts)
+  - `message_type` (string, index) - text/photo/video/document/voice/audio/sticker/animation/channel_post
+  - `text`, `caption` - Message content
+  - `media_file_id`, `media_file_size`, `media_mime_type` - Media metadata
+  - `reply_to_message_id`, `forward_from_chat_id` - Message relationships
+  - `is_edited`, `edited_at` - Edit tracking
+  - `sent_at` (time, index) - Message timestamp
+  - Indexes: `chat_id + sent_at` (chat history), `user_id + sent_at` (user messages), `message_type` (statistics)
+
 **Supported Commands:**
 
 | Command | Permission | Description |
@@ -218,6 +249,20 @@ go_bot/
 | `/revoke <user_id>` | Owner only | Revoke admin permission from user |
 | `/admins` | Admin+ | List all administrators |
 | `/userinfo <user_id>` | Admin+ | View detailed user information |
+| `/leave` | Admin+ | Bot leaves the group and deletes group record |
+
+**Supported Event Handlers:**
+
+| Event | Description |
+|-------|-------------|
+| MyChatMember | Bot added/removed from group - creates/updates group record, sends welcome/goodbye message |
+| NewChatMembers | New member joins - sends welcome message (if enabled in group settings) |
+| LeftChatMember | Member leaves - logs event |
+| TextMessage | Plain text message - records to database, updates group stats |
+| MediaMessage | Photo/Video/Document/Voice/Audio/Sticker/Animation - records with media metadata |
+| EditedMessage | Message edited - updates edit history with timestamp |
+| ChannelPost | Channel post - records channel message (user_id=0) |
+| EditedChannelPost | Channel post edited - updates channel message edit history |
 
 **Usage Conventions:**
 

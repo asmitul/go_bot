@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"go_bot/internal/telegram/models"
 )
@@ -44,6 +45,9 @@ type GroupRepository interface {
 	// MarkBotLeft 标记 Bot 离开群组
 	MarkBotLeft(ctx context.Context, telegramID int64) error
 
+	// DeleteGroup 删除群组（Bot 离开时）
+	DeleteGroup(ctx context.Context, telegramID int64) error
+
 	// ListActiveGroups 列出所有活跃群组
 	ListActiveGroups(ctx context.Context) ([]*models.Group, error)
 
@@ -52,6 +56,27 @@ type GroupRepository interface {
 
 	// UpdateStats 更新群组统计信息
 	UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error
+
+	// EnsureIndexes 确保索引存在
+	EnsureIndexes(ctx context.Context) error
+}
+
+// MessageRepository 消息数据访问接口
+type MessageRepository interface {
+	// CreateMessage 创建消息记录
+	CreateMessage(ctx context.Context, message *models.Message) error
+
+	// GetByTelegramID 根据 Telegram 消息 ID 和聊天 ID 获取消息
+	GetByTelegramID(ctx context.Context, telegramMessageID, chatID int64) (*models.Message, error)
+
+	// UpdateMessageEdit 更新消息编辑信息
+	UpdateMessageEdit(ctx context.Context, telegramMessageID, chatID int64, newText string, editedAt time.Time) error
+
+	// ListMessagesByChat 列出聊天消息历史（分页）
+	ListMessagesByChat(ctx context.Context, chatID int64, limit, offset int64) ([]*models.Message, error)
+
+	// CountMessagesByType 按类型统计消息数量
+	CountMessagesByType(ctx context.Context, chatID int64) (map[string]int64, error)
 
 	// EnsureIndexes 确保索引存在
 	EnsureIndexes(ctx context.Context) error

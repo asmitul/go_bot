@@ -62,3 +62,65 @@ func (s *GroupServiceImpl) ListActiveGroups(ctx context.Context) ([]*models.Grou
 	}
 	return groups, nil
 }
+
+// UpdateGroupSettings 更新群组配置
+func (s *GroupServiceImpl) UpdateGroupSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
+	if err := s.groupRepo.UpdateSettings(ctx, telegramID, settings); err != nil {
+		logger.L().Errorf("Failed to update group settings for %d: %v", telegramID, err)
+		return fmt.Errorf("更新群组配置失败: %w", err)
+	}
+
+	logger.L().Infof("Group settings updated: group_id=%d", telegramID)
+	return nil
+}
+
+// LeaveGroup Bot 离开群组（删除群组记录）
+func (s *GroupServiceImpl) LeaveGroup(ctx context.Context, telegramID int64) error {
+	// 检查群组是否存在
+	_, err := s.groupRepo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		logger.L().Errorf("Group %d not found for leave: %v", telegramID, err)
+		return fmt.Errorf("群组不存在")
+	}
+
+	// 删除群组记录
+	if err := s.groupRepo.DeleteGroup(ctx, telegramID); err != nil {
+		logger.L().Errorf("Failed to delete group %d: %v", telegramID, err)
+		return fmt.Errorf("离开群组失败: %w", err)
+	}
+
+	logger.L().Infof("Bot left and deleted group %d", telegramID)
+	return nil
+}
+
+// HandleBotAddedToGroup Bot 被添加到群组
+func (s *GroupServiceImpl) HandleBotAddedToGroup(ctx context.Context, group *models.Group) error {
+	// 设置状态为活跃
+	group.BotStatus = models.BotStatusActive
+
+	if err := s.groupRepo.CreateOrUpdate(ctx, group); err != nil {
+		logger.L().Errorf("Failed to handle bot added to group %d: %v", group.TelegramID, err)
+		return fmt.Errorf("记录 Bot 加入群组失败: %w", err)
+	}
+
+	logger.L().Infof("Bot added to group %d (%s)", group.TelegramID, group.Title)
+	return nil
+}
+
+// HandleBotRemovedFromGroup Bot 被移出群组
+func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegramID int64, reason string) error {
+	// 根据原因设置不同的状态
+	status := models.BotStatusKicked
+	if reason == "left" {
+		status = models.BotStatusLeft
+	}
+
+	// 标记 Bot 离开
+	if err := s.groupRepo.MarkBotLeft(ctx, telegramID); err != nil {
+		logger.L().Errorf("Failed to handle bot removed from group %d: %v", telegramID, err)
+		return fmt.Errorf("记录 Bot 离开群组失败: %w", err)
+	}
+
+	logger.L().Infof("Bot removed from group %d, reason=%s, status=%s", telegramID, reason, status)
+	return nil
+}

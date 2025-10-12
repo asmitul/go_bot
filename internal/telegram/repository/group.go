@@ -113,6 +113,21 @@ func (r *MongoGroupRepository) MarkBotLeft(ctx context.Context, telegramID int64
 	return nil
 }
 
+// DeleteGroup 删除群组（Bot 离开时）
+func (r *MongoGroupRepository) DeleteGroup(ctx context.Context, telegramID int64) error {
+	filter := bson.M{"telegram_id": telegramID}
+
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete group: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("group not found: %d", telegramID)
+	}
+
+	return nil
+}
+
 // ListActiveGroups 列出所有活跃群组
 func (r *MongoGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
 	filter := bson.M{"bot_status": models.BotStatusActive}
