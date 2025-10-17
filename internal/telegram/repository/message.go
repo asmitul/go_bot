@@ -183,7 +183,7 @@ func (r *MongoMessageRepository) CountMessagesByType(ctx context.Context, chatID
 }
 
 // EnsureIndexes 确保索引存在
-func (r *MongoMessageRepository) EnsureIndexes(ctx context.Context) error {
+func (r *MongoMessageRepository) EnsureIndexes(ctx context.Context, ttlSeconds int32) error {
 	indexes := []mongo.IndexModel{
 		{
 			Keys: bson.D{
@@ -206,6 +206,11 @@ func (r *MongoMessageRepository) EnsureIndexes(ctx context.Context) error {
 		},
 		{
 			Keys: bson.D{{Key: "message_type", Value: 1}},
+		},
+		{
+			// TTL 索引：消息在 sent_at + ttlSeconds 后自动过期删除
+			Keys:    bson.D{{Key: "sent_at", Value: 1}},
+			Options: options.Index().SetExpireAfterSeconds(ttlSeconds),
 		},
 	}
 

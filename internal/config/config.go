@@ -9,10 +9,11 @@ import (
 
 // Config 应用程序配置
 type Config struct {
-	TelegramToken string  // Telegram Bot API Token
-	BotOwnerIDs   []int64 // Bot管理员ID列表
-	MongoURI      string  // MongoDB连接URI
-	MongoDBName   string  // MongoDB数据库名称
+	TelegramToken       string  // Telegram Bot API Token
+	BotOwnerIDs         []int64 // Bot管理员ID列表
+	MongoURI            string  // MongoDB连接URI
+	MongoDBName         string  // MongoDB数据库名称
+	MessageRetentionDays int     // 消息保留天数（过期自动删除）
 }
 
 // Load 从环境变量加载配置
@@ -31,6 +32,21 @@ func Load() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse BOT_OWNER_IDS: %w", err)
 		}
+	}
+
+	// 解析MESSAGE_RETENTION_DAYS（默认7天）
+	retentionDaysStr := os.Getenv("MESSAGE_RETENTION_DAYS")
+	if retentionDaysStr == "" {
+		cfg.MessageRetentionDays = 7 // 默认保留7天
+	} else {
+		days, err := strconv.Atoi(retentionDaysStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse MESSAGE_RETENTION_DAYS: %w", err)
+		}
+		if days < 1 {
+			return nil, fmt.Errorf("MESSAGE_RETENTION_DAYS must be >= 1, got %d", days)
+		}
+		cfg.MessageRetentionDays = days
 	}
 
 	return cfg, nil

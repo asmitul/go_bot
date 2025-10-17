@@ -44,6 +44,7 @@ Configure these in Settings → Secrets and variables → Actions → Variables:
 |----------|-------------|---------|
 | `LOG_LEVEL` | Logging level: `debug`, `info`, `warn`, `error` | `info` |
 | `MONGO_DB_NAME` | MongoDB database name | Repository name |
+| `MESSAGE_RETENTION_DAYS` | Message retention period (days) before auto-deletion | `7` |
 
 ## Architecture
 
@@ -94,7 +95,8 @@ go_bot/
 - Centralized configuration management from environment variables
 - `Load()` function reads and parses all environment variables into `Config` struct
 - Validates and parses `BOT_OWNER_IDS` (supports comma-separated list)
-- Configuration fields: `TelegramToken`, `BotOwnerIDs`, `MongoURI`, `MongoDBName`
+- Configuration fields: `TelegramToken`, `BotOwnerIDs`, `MongoURI`, `MongoDBName`, `MessageRetentionDays`
+- `MessageRetentionDays` validation: must be >= 1 day (default: 7 days)
 - Use `config.Load()` once in `main.go`, then pass to services
 
 ### MongoDB Package (`internal/mongo`)
@@ -236,8 +238,13 @@ go_bot/
   - `media_file_id`, `media_file_size`, `media_mime_type` - Media metadata
   - `reply_to_message_id`, `forward_from_chat_id` - Message relationships
   - `is_edited`, `edited_at` - Edit tracking
-  - `sent_at` (time, index) - Message timestamp
+  - `sent_at` (time, index with TTL) - Message timestamp
   - Indexes: `chat_id + sent_at` (chat history), `user_id + sent_at` (user messages), `message_type` (statistics)
+  - **TTL Index**: `sent_at` field with `expireAfterSeconds` = `MESSAGE_RETENTION_DAYS * 86400`
+    - Messages automatically deleted by MongoDB after retention period expires
+    - Default: 7 days (604800 seconds)
+    - MongoDB background task checks every 60 seconds for expired documents
+    - Zero maintenance cost - fully automated by database engine
 
 **Supported Commands:**
 
@@ -310,6 +317,7 @@ The application is configured entirely through environment variables:
 - `LOG_LEVEL` - Logging verbosity (optional, default: "info")
 - `TELEGRAM_TOKEN` - Bot token (configured in deployment)
 - `BOT_OWNER_IDS` - Admin user IDs (configured in deployment)
+- `MESSAGE_RETENTION_DAYS` - Message retention period in days (optional, default: 7, minimum: 1)
 
 ## Docker Deployment
 

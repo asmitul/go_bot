@@ -18,17 +18,19 @@ import (
 
 // Config Telegram Bot 配置
 type Config struct {
-	Token    string  // Bot Token
-	OwnerIDs []int64 // Owner 用户 IDs
-	Debug    bool    // 是否开启调试模式
+	Token                string  // Bot Token
+	OwnerIDs             []int64 // Owner 用户 IDs
+	Debug                bool    // 是否开启调试模式
+	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
 }
 
 // Bot Telegram Bot 服务
 type Bot struct {
-	bot        *bot.Bot
-	db         *mongo.Database
-	ownerIDs   []int64
-	workerPool *WorkerPool
+	bot                  *bot.Bot
+	db                   *mongo.Database
+	ownerIDs             []int64
+	messageRetentionDays int // 消息保留天数
+	workerPool           *WorkerPool
 
 	// Service 层（业务逻辑）
 	userService       service.UserService
@@ -75,17 +77,18 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	}
 
 	telegramBot := &Bot{
-		bot:               b,
-		db:                db,
-		ownerIDs:          cfg.OwnerIDs,
-		workerPool:        workerPool,
-		userService:       userService,
-		groupService:      groupService,
-		messageService:    messageService,
-		configMenuService: configMenuService,
-		userRepo:          userRepo,
-		groupRepo:         groupRepo,
-		messageRepo:       messageRepo,
+		bot:                  b,
+		db:                   db,
+		ownerIDs:             cfg.OwnerIDs,
+		messageRetentionDays: cfg.MessageRetentionDays,
+		workerPool:           workerPool,
+		userService:          userService,
+		groupService:         groupService,
+		messageService:       messageService,
+		configMenuService:    configMenuService,
+		userRepo:             userRepo,
+		groupRepo:            groupRepo,
+		messageRepo:          messageRepo,
 	}
 
 	// 初始化 owners
@@ -122,9 +125,10 @@ func (b *Bot) asyncHandler(handler bot.HandlerFunc) bot.HandlerFunc {
 // InitFromConfig 从应用配置初始化 Telegram Bot
 func InitFromConfig(cfg *config.Config, db *mongo.Database) (*Bot, error) {
 	telegramCfg := Config{
-		Token:    cfg.TelegramToken,
-		OwnerIDs: cfg.BotOwnerIDs,
-		Debug:    false, // 可根据需要从环境变量读取
+		Token:                cfg.TelegramToken,
+		OwnerIDs:             cfg.BotOwnerIDs,
+		Debug:                false, // 可根据需要从环境变量读取
+		MessageRetentionDays: cfg.MessageRetentionDays,
 	}
 	return New(telegramCfg, db)
 }
@@ -184,20 +188,23 @@ func (b *Bot) initOwners(ctx context.Context) error {
 
 // ensureIndexes 确保所有数据库索引存在
 func (b *Bot) ensureIndexes(ctx context.Context) error {
-	if err := b.userRepo.EnsureIndexes(ctx); err != nil {
+	// 计算 TTL 秒数（天数 * 24小时 * 3600秒）
+	ttlSeconds := int32(b.messageRetentionDays * 24 * 3600)
+
+	if err := b.userRepo.EnsureIndexes(ctx, ttlSeconds); err != nil {
 		return fmt.Errorf("failed to ensure user indexes: %w", err)
 	}
 	logger.L().Debug("User indexes ensured")
 
-	if err := b.groupRepo.EnsureIndexes(ctx); err != nil {
+	if err := b.groupRepo.EnsureIndexes(ctx, ttlSeconds); err != nil {
 		return fmt.Errorf("failed to ensure group indexes: %w", err)
 	}
 	logger.L().Debug("Group indexes ensured")
 
-	if err := b.messageRepo.EnsureIndexes(ctx); err != nil {
+	if err := b.messageRepo.EnsureIndexes(ctx, ttlSeconds); err != nil {
 		return fmt.Errorf("failed to ensure message indexes: %w", err)
 	}
-	logger.L().Debug("Message indexes ensured")
+	logger.L().Infof("Message indexes ensured (TTL: %d days = %d seconds)", b.messageRetentionDays, ttlSeconds)
 
 	return nil
 }

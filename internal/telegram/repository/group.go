@@ -186,8 +186,8 @@ func (r *MongoGroupRepository) UpdateStats(ctx context.Context, telegramID int64
 	return nil
 }
 
-// EnsureIndexes 确保索引存在
-func (r *MongoGroupRepository) EnsureIndexes(ctx context.Context) error {
+// EnsureIndexes 确保索引存在（ttlSeconds 参数保留用于接口一致性，Group 不需要 TTL）
+func (r *MongoGroupRepository) EnsureIndexes(ctx context.Context, ttlSeconds int32) error {
 	indexes := []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "telegram_id", Value: 1}},

@@ -31,7 +31,7 @@ type UserRepository interface {
 	GetUserInfo(ctx context.Context, telegramID int64) (*models.User, error)
 
 	// EnsureIndexes 确保索引存在
-	EnsureIndexes(ctx context.Context) error
+	EnsureIndexes(ctx context.Context, ttlSeconds int32) error
 }
 
 // GroupRepository 群组数据访问接口
@@ -58,7 +58,7 @@ type GroupRepository interface {
 	UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error
 
 	// EnsureIndexes 确保索引存在
-	EnsureIndexes(ctx context.Context) error
+	EnsureIndexes(ctx context.Context, ttlSeconds int32) error
 }
 
 // MessageRepository 消息数据访问接口
@@ -78,6 +78,6 @@ type MessageRepository interface {
 	// CountMessagesByType 按类型统计消息数量
 	CountMessagesByType(ctx context.Context, chatID int64) (map[string]int64, error)
 
-	// EnsureIndexes 确保索引存在
-	EnsureIndexes(ctx context.Context) error
+	// EnsureIndexes 确保索引存在（ttlSeconds 用于 Message TTL 索引）
+	EnsureIndexes(ctx context.Context, ttlSeconds int32) error
 }
