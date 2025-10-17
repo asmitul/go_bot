@@ -26,9 +26,14 @@ go.work.sum
 
 # env file
 .env
+.env.local
 
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local testing environment
+data/
+docker-compose.override.yml
 
 develop.md

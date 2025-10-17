@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # 本地 MongoDB 服务
+  mongodb:
+    image: mongo:7.0
+    container_name: go_bot_mongodb_local
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    volumes:
+      - ./data/mongodb:/data/db
+    networks:
+      - bot_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Telegram Bot 服务
+  bot:
+    build:
+      context: .
+      dockerfile: deployments/docker/Dockerfile
+    container_name: go_bot_local
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      BOT_OWNER_IDS: ${BOT_OWNER_IDS}
+      MONGO_URI: mongodb://admin:password123@mongodb:27017/
+      MONGO_DB_NAME: go_bot_local
+      LOG_LEVEL: debug
+      MESSAGE_RETENTION_DAYS: ${MESSAGE_RETENTION_DAYS:-7}
+    networks:
+      - bot_network
+
+networks:
+  bot_network:
+    driver: bridge
