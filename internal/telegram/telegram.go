@@ -9,6 +9,7 @@ import (
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/features"
 	"go_bot/internal/telegram/features/calculator"
+	"go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/translator"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
@@ -227,8 +228,11 @@ func (b *Bot) registerFeatures() {
 	// 注册计算器功能
 	b.featureManager.Register(calculator.New())
 
-	// 注册翻译功能（需要先在 models.GroupSettings 中添加 TranslatorEnabled 字段）
+	// 注册翻译功能
 	b.featureManager.Register(translator.New())
+
+	// 注册加密货币价格查询功能
+	b.featureManager.Register(crypto.New())
 
 	// 后续可添加更多功能:
 	// b.featureManager.Register(weather.New())

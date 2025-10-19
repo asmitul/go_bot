@@ -44,6 +44,7 @@ type Feature interface {
 	// 参数:
 	//   - ctx: 上下文
 	//   - msg: Telegram 消息
+	//   - group: 群组信息（包含配置）
 	// 返回:
 	//   - responseText: 响应文本(发送给用户的消息)
 	//   - handled: 是否已完成处理(true 则停止后续功能的执行)
@@ -53,7 +54,7 @@ type Feature interface {
 	//   - (response, true, nil): 成功处理,发送响应,停止后续功能
 	//   - ("", false, nil): 不处理,继续执行下一个功能
 	//   - (errMsg, true, nil): 处理失败,发送错误消息,停止后续功能
-	Process(ctx context.Context, msg *botModels.Message) (responseText string, handled bool, err error)
+	Process(ctx context.Context, msg *botModels.Message, group *models.Group) (responseText string, handled bool, err error)
 
 	// Priority 返回功能优先级(1-100)
 	// 数值越小优先级越高,功能按优先级顺序执行

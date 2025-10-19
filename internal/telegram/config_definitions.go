@@ -1,6 +1,9 @@
 package telegram
 
 import (
+	"fmt"
+	"strconv"
+
 	"go_bot/internal/telegram/models"
 )
 
@@ -15,20 +18,20 @@ import (
 //
 // 在下方数组中添加新的 ConfigItem 即可：
 //
-// {
-//     ID:       "feature_enabled",              // 唯一标识
-//     Name:     "功能名称",                      // 显示在菜单中的名称
-//     Icon:     "🎯",                            // 功能图标
-//     Type:     models.ConfigTypeToggle,        // 类型：开关
-//     Category: "功能管理",                      // 分类（可用于分组）
-//     ToggleGetter: func(g *models.Group) bool {
-//         return g.Settings.FeatureEnabled      // 从 GroupSettings 读取当前状态
-//     },
-//     ToggleSetter: func(s *models.GroupSettings, val bool) {
-//         s.FeatureEnabled = val                // 更新 GroupSettings
-//     },
-//     RequireAdmin: true,                       // 需要管理员权限
-// }
+//	{
+//	    ID:       "feature_enabled",              // 唯一标识
+//	    Name:     "功能名称",                      // 显示在菜单中的名称
+//	    Icon:     "🎯",                            // 功能图标
+//	    Type:     models.ConfigTypeToggle,        // 类型：开关
+//	    Category: "功能管理",                      // 分类（可用于分组）
+//	    ToggleGetter: func(g *models.Group) bool {
+//	        return g.Settings.FeatureEnabled      // 从 GroupSettings 读取当前状态
+//	    },
+//	    ToggleSetter: func(s *models.GroupSettings, val bool) {
+//	        s.FeatureEnabled = val                // 更新 GroupSettings
+//	    },
+//	    RequireAdmin: true,                       // 需要管理员权限
+//	}
 //
 // ==================== 高级配置类型（已支持，按需启用）====================
 //
@@ -46,7 +49,6 @@ import (
 // 1. 如果需要持久化新配置，先在 models/group.go 的 GroupSettings 结构中添加字段
 // 2. 在下方数组中添加配置项定义
 // 3. 测试功能（发送 /configs 命令查看菜单）
-//
 func (b *Bot) getConfigItems() []models.ConfigItem {
 	return []models.ConfigItem{
 		// ========== 功能管理 ==========
@@ -79,6 +81,50 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			},
 			ToggleSetter: func(s *models.GroupSettings, val bool) {
 				s.TranslatorEnabled = val
+			},
+			RequireAdmin: true,
+		},
+
+		// 加密货币价格查询功能开关
+		{
+			ID:       "crypto_enabled",
+			Name:     "USDT价格查询",
+			Icon:     "💰",
+			Type:     models.ConfigTypeToggle,
+			Category: "功能管理",
+			ToggleGetter: func(g *models.Group) bool {
+				return g.Settings.CryptoEnabled
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.CryptoEnabled = val
+			},
+			RequireAdmin: true,
+		},
+
+		// 加密货币浮动费率选择
+		{
+			ID:       "crypto_float_rate",
+			Name:     "USDT浮动费率",
+			Icon:     "📊",
+			Type:     models.ConfigTypeSelect,
+			Category: "功能管理",
+			SelectGetter: func(g *models.Group) string {
+				// 将 float64 转换为字符串
+				return fmt.Sprintf("%.2f", g.Settings.CryptoFloatRate)
+			},
+			SelectOptions: []models.SelectOption{
+				{Value: "0.00", Label: "无浮动", Icon: "⭕"},
+				{Value: "0.08", Label: "0.08", Icon: "0️⃣·0️⃣8️⃣"},
+				{Value: "0.09", Label: "0.09", Icon: "0️⃣·0️⃣9️⃣"},
+				{Value: "0.10", Label: "0.10", Icon: "0️⃣·1️⃣0️⃣"},
+				{Value: "0.11", Label: "0.11", Icon: "0️⃣·1️⃣1️⃣"},
+				{Value: "0.12", Label: "0.12", Icon: "0️⃣·1️⃣2️⃣"},
+				{Value: "0.13", Label: "0.13", Icon: "0️⃣·1️⃣3️⃣"},
+			},
+			SelectSetter: func(s *models.GroupSettings, val string) {
+				// 将字符串转换为 float64
+				rate, _ := strconv.ParseFloat(val, 64)
+				s.CryptoFloatRate = rate
 			},
 			RequireAdmin: true,
 		},

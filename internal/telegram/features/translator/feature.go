@@ -32,7 +32,7 @@ func (f *TranslatorFeature) Match(ctx context.Context, msg *botModels.Message) b
 	return strings.HasPrefix(text, "翻译 ") || strings.HasPrefix(text, "/translate ")
 }
 
-func (f *TranslatorFeature) Process(ctx context.Context, msg *botModels.Message) (string, bool, error) {
+func (f *TranslatorFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
 	// 提取待翻译文本
 	text := strings.TrimSpace(msg.Text)
 	text = strings.TrimPrefix(text, "翻译 ")

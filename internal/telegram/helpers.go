@@ -4,15 +4,17 @@ import (
 	"context"
 
 	"github.com/go-telegram/bot"
+	botModels "github.com/go-telegram/bot/models"
 
 	"go_bot/internal/logger"
 )
 
-// sendMessage 发送消息（统一错误处理）
+// sendMessage 发送消息（统一错误处理，使用 HTML 格式）
 func (b *Bot) sendMessage(ctx context.Context, chatID int64, text string) {
 	if _, err := b.bot.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
-		Text:   text,
+		ChatID:    chatID,
+		Text:      text,
+		ParseMode: botModels.ParseModeHTML,
 	}); err != nil {
 		logger.L().Errorf("Failed to send message to chat %d: %v", chatID, err)
 	}

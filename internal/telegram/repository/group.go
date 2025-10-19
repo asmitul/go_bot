@@ -58,6 +58,9 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 			"created_at":    now,
 			"settings": models.GroupSettings{
 				CalculatorEnabled: false, // 新群组默认禁用计算器功能
+				TranslatorEnabled: false, // 新群组默认禁用翻译功能
+				CryptoEnabled:     false, // 新群组默认禁用加密货币功能
+				CryptoFloatRate:   0.12,  // 新群组默认浮动费率 0.12
 			},
 			"stats": models.GroupStats{
 				TotalMessages: 0,

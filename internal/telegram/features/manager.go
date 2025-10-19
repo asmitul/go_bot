@@ -67,8 +67,8 @@ func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response
 
 		logger.L().Debugf("Feature %s matched message, processing...", feature.Name())
 
-		// 3. 执行功能处理
-		response, handled, err := feature.Process(ctx, msg)
+		// 3. 执行功能处理（传递 group 参数）
+		response, handled, err := feature.Process(ctx, msg, group)
 
 		// 4. 如果功能已处理(handled=true)或发生错误,停止后续功能执行
 		if handled || err != nil {

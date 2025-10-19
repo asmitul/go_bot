@@ -39,7 +39,7 @@ func (f *CalculatorFeature) Match(ctx context.Context, msg *botModels.Message) b
 }
 
 // Process 处理计算请求
-func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message) (string, bool, error) {
+func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
 	// 执行计算
 	result, err := Calculate(msg.Text)
 	if err != nil {
