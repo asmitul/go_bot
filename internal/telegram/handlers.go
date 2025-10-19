@@ -265,11 +265,14 @@ func (b *Bot) handleUserInfo(ctx context.Context, botInstance *bot.Bot, update *
 		return
 	}
 
-	roleEmoji := "👤"
-	if user.Role == models.RoleOwner {
+	var roleEmoji string
+	switch user.Role {
+	case models.RoleOwner:
 		roleEmoji = "👑"
-	} else if user.Role == models.RoleAdmin {
+	case models.RoleAdmin:
 		roleEmoji = "⭐"
+	default:
+		roleEmoji = "👤"
 	}
 
 	premiumBadge := ""
@@ -462,7 +465,7 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	var fileSize int64
 
 	// 判断媒体类型并提取信息
-	if msg.Photo != nil && len(msg.Photo) > 0 {
+	if len(msg.Photo) > 0 {
 		messageType = models.MessageTypePhoto
 		photo := msg.Photo[len(msg.Photo)-1] // 取最大尺寸
 		fileID = photo.FileID
@@ -546,7 +549,7 @@ func (b *Bot) handleChannelPost(ctx context.Context, botInstance *bot.Bot, updat
 	fileID := ""
 
 	// 如果是媒体消息，提取 file_id
-	if post.Photo != nil && len(post.Photo) > 0 {
+	if len(post.Photo) > 0 {
 		fileID = post.Photo[len(post.Photo)-1].FileID
 	} else if post.Video != nil {
 		fileID = post.Video.FileID
