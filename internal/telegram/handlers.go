@@ -375,13 +375,15 @@ func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, upda
 			return
 		}
 
-		// 发送欢迎消息
-		welcomeText := fmt.Sprintf(
-			"👋 你好！我是 Bot，感谢邀请我加入 %s！\n\n"+
-				"使用 /help 查看可用命令。",
-			chat.Title,
-		)
-		b.sendMessage(ctx, chat.ID, welcomeText)
+		// 发送欢迎消息（频道除外）
+		if chat.Type != "channel" {
+			welcomeText := fmt.Sprintf(
+				"👋 你好！我是 Bot，感谢邀请我加入 %s！\n\n"+
+					"使用 /help 查看可用命令。",
+				chat.Title,
+			)
+			b.sendMessage(ctx, chat.ID, welcomeText)
+		}
 	}
 
 	// Bot 被踢出或离开群组
