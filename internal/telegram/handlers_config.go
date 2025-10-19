@@ -19,6 +19,12 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 
 	chatID := update.Message.Chat.ID
 
+	// 检查聊天类型：只能在群组中使用
+	if update.Message.Chat.Type != "group" && update.Message.Chat.Type != "supergroup" {
+		b.sendErrorMessage(ctx, chatID, "此命令只能在群组中使用")
+		return
+	}
+
 	// 获取配置项定义
 	items := b.getConfigItems()
 
@@ -31,11 +37,8 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	// 发送菜单
-	menuText := "⚙️ <b>群组配置菜单</b>\n\n" +
-		"点击下方按钮进行配置：\n" +
-		"• ✅/❌ = 开关状态\n" +
-		"• ✏️ = 点击后输入\n" +
-		"• ▶️ = 执行操作"
+	menuText := "⚙️ <b>群组配置</b>\n\n" +
+		"点击按钮切换功能开关："
 
 	_, err = botInstance.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:      chatID,
@@ -105,11 +108,8 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 			return
 		}
 
-		menuText := "⚙️ <b>群组配置菜单</b>\n\n" +
-			"点击下方按钮进行配置：\n" +
-			"• ✅/❌ = 开关状态\n" +
-			"• ✏️ = 点击后输入\n" +
-			"• ▶️ = 执行操作"
+		menuText := "⚙️ <b>群组配置</b>\n\n" +
+			"点击按钮切换功能开关："
 
 		_, err = botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:      chatID,

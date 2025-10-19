@@ -40,10 +40,7 @@ type Group struct {
 
 // GroupSettings 群组配置
 type GroupSettings struct {
-	WelcomeEnabled bool   `bson:"welcome_enabled"`       // 是否启用欢迎消息
-	WelcomeText    string `bson:"welcome_text,omitempty"` // 自定义欢迎文本
-	AntiSpam       bool   `bson:"anti_spam"`             // 是否启用反垃圾
-	Language       string `bson:"language"`              // 群组语言偏好（en/zh等）
+	CalculatorEnabled bool `bson:"calculator_enabled"` // 是否启用计算器功能
 }
 
 // GroupStats 群组统计信息

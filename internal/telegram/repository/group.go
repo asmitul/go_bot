@@ -57,10 +57,7 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 			"bot_joined_at": now,
 			"created_at":    now,
 			"settings": models.GroupSettings{
-				WelcomeEnabled: false,
-				WelcomeText:    "",
-				AntiSpam:       false,
-				Language:       "en",
+				CalculatorEnabled: false, // 新群组默认禁用计算器功能
 			},
 			"stats": models.GroupStats{
 				TotalMessages: 0,

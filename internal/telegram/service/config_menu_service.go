@@ -42,34 +42,12 @@ func (s *ConfigMenuService) BuildMainMenu(ctx context.Context, chatID int64, ite
 		return nil, fmt.Errorf("获取群组信息失败: %w", err)
 	}
 
-	// 按分类分组配置项
-	categories := groupItemsByCategory(items)
-	categoryOrder := []string{"消息管理", "安全管理", "基础设置"} // 控制分类显示顺序
-
 	var keyboard [][]botModels.InlineKeyboardButton
 
-	// 为每个分类添加标题和配置项
-	for _, category := range categoryOrder {
-		categoryItems, exists := categories[category]
-		if !exists || len(categoryItems) == 0 {
-			continue
-		}
-
-		// 添加分类标题（不可点击）
-		keyboard = append(keyboard, []botModels.InlineKeyboardButton{
-			{Text: fmt.Sprintf("【 %s 】", category), CallbackData: "noop"},
-		})
-
-		// 添加该分类下的配置项
-		for _, item := range categoryItems {
-			button := s.buildButtonForItem(item, group)
-			keyboard = append(keyboard, []botModels.InlineKeyboardButton{button})
-		}
-
-		// 添加分隔行（空行）
-		keyboard = append(keyboard, []botModels.InlineKeyboardButton{
-			{Text: " ", CallbackData: "noop"},
-		})
+	// 直接添加所有配置项按钮（不分类、不分组，简洁平铺）
+	for _, item := range items {
+		button := s.buildButtonForItem(item, group)
+		keyboard = append(keyboard, []botModels.InlineKeyboardButton{button})
 	}
 
 	// 添加底部操作按钮

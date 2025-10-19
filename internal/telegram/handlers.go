@@ -73,11 +73,6 @@ func (b *Bot) registerHandlers() {
 			msg.Voice != nil || msg.Audio != nil || msg.Sticker != nil || msg.Animation != nil
 	}, b.asyncHandler(b.handleMediaMessage))
 
-	// 新成员加入
-	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
-		return update.Message != nil && update.Message.NewChatMembers != nil
-	}, b.asyncHandler(b.handleNewChatMembers))
-
 	// 成员离开
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.Message != nil && update.Message.LeftChatMember != nil
@@ -423,6 +418,30 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		}
 	}
 
+	// 检查计算器功能（仅群组）
+	if msg.Chat.Type == "group" || msg.Chat.Type == "supergroup" {
+		// 获取群组配置
+		group, err := b.groupService.GetGroupInfo(ctx, msg.Chat.ID)
+		if err == nil && group.Settings.CalculatorEnabled {
+			// 判断是否为数学表达式
+			if IsMathExpression(msg.Text) {
+				// 尝试计算
+				result, err := Calculate(msg.Text)
+				if err != nil {
+					// 计算失败，发送错误提示
+					logger.L().Warnf("Calculator failed: chat_id=%d, text=%s, error=%v", msg.Chat.ID, msg.Text, err)
+					b.sendErrorMessage(ctx, msg.Chat.ID, fmt.Sprintf("计算错误: %v", err))
+				} else {
+					// 计算成功，发送结果
+					logger.L().Infof("Calculator: %s = %g (chat_id=%d)", msg.Text, result, msg.Chat.ID)
+					resultText := fmt.Sprintf("🧮 %s = %g", msg.Text, result)
+					b.sendMessage(ctx, msg.Chat.ID, resultText)
+				}
+				return // 已处理，不再记录为普通消息
+			}
+		}
+	}
+
 	// 构造消息信息
 	replyToID := int64(0)
 	if msg.ReplyToMessage != nil {
@@ -574,48 +593,6 @@ func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot,
 	// 更新频道消息编辑信息
 	if err := b.messageService.HandleEditedMessage(ctx, int64(post.ID), post.Chat.ID, post.Text, editedAt); err != nil {
 		logger.L().Errorf("Failed to handle edited channel post: %v", err)
-	}
-}
-
-// handleNewChatMembers 处理新成员加入系统消息
-func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
-	if update.Message == nil || update.Message.NewChatMembers == nil {
-		return
-	}
-
-	msg := update.Message
-	chatID := msg.Chat.ID
-
-	// 获取群组设置，检查是否启用欢迎消息
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
-	if err != nil {
-		logger.L().Warnf("Failed to get group info for welcome: chat_id=%d", chatID)
-		return
-	}
-
-	// 如果未启用欢迎消息，直接返回
-	if !group.Settings.WelcomeEnabled {
-		return
-	}
-
-	// 发送欢迎消息
-	for _, member := range msg.NewChatMembers {
-		// 跳过 Bot 自己（Bot 加入由 handleMyChatMember 处理）
-		if member.IsBot {
-			continue
-		}
-
-		welcomeText := group.Settings.WelcomeText
-		if welcomeText == "" {
-			welcomeText = fmt.Sprintf("欢迎 %s 加入群组！", member.FirstName)
-		} else {
-			// 替换占位符
-			welcomeText = strings.ReplaceAll(welcomeText, "{name}", member.FirstName)
-			welcomeText = strings.ReplaceAll(welcomeText, "{username}", "@"+member.Username)
-		}
-
-		b.sendMessage(ctx, chatID, welcomeText)
-		logger.L().Infof("Sent welcome message: chat_id=%d, user_id=%d", chatID, member.ID)
 	}
 }
 
