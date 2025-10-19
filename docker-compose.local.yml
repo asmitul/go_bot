@@ -38,6 +38,7 @@ services:
       MONGO_DB_NAME: go_bot_local
       LOG_LEVEL: debug
       MESSAGE_RETENTION_DAYS: ${MESSAGE_RETENTION_DAYS:-7}
+      CHANNEL_ID: ${CHANNEL_ID}
     networks:
       - bot_network
 

@@ -121,3 +121,12 @@ type ChannelPostInfo struct {
 	MediaFileID       string
 	SentAt            time.Time
 }
+
+// ForwardService 转发功能业务逻辑接口
+type ForwardService interface {
+	// HandleChannelMessage 处理频道消息并启动转发任务
+	HandleChannelMessage(ctx context.Context, bot interface{}, update interface{}) error
+
+	// RecallForwardedMessages 撤回转发消息
+	RecallForwardedMessages(ctx context.Context, bot interface{}, taskID string, requesterID int64) (successCount, failedCount int, err error)
+}

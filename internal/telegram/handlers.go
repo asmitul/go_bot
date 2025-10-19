@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
 
@@ -42,6 +43,16 @@ func (b *Bot) registerHandlers() {
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "config:")
 	}, b.asyncHandler(b.handleConfigCallback))
+
+	// 转发撤回回调处理器（如果转发服务已启用）
+	if b.forwardService != nil {
+		b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+			return update.CallbackQuery != nil &&
+				(strings.HasPrefix(update.CallbackQuery.Data, "recall:") ||
+					strings.HasPrefix(update.CallbackQuery.Data, "recall_confirm:") ||
+					update.CallbackQuery.Data == "recall_cancel")
+		}, b.asyncHandler(b.handleRecallCallback))
+	}
 
 	// Bot 状态变化事件 (MyChatMember)
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
@@ -570,6 +581,13 @@ func (b *Bot) handleChannelPost(ctx context.Context, botInstance *bot.Bot, updat
 	if err := b.messageService.RecordChannelPost(ctx, channelPost); err != nil {
 		logger.L().Errorf("Failed to handle channel post: %v", err)
 	}
+
+	// 触发转发功能
+	if b.forwardService != nil {
+		if err := b.forwardService.HandleChannelMessage(ctx, botInstance, update); err != nil {
+			logger.L().Errorf("Failed to handle channel message for forwarding: %v", err)
+		}
+	}
 }
 
 // handleEditedChannelPost 处理编辑的频道消息
@@ -604,4 +622,30 @@ func (b *Bot) handleLeftChatMember(ctx context.Context, botInstance *bot.Bot, up
 	// - 发送离别消息
 	// - 更新成员统计
 	// - 记录离开事件到数据库
+}
+
+// handleRecallCallback 处理转发撤回回调
+func (b *Bot) handleRecallCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	query := update.CallbackQuery
+	data := query.Data
+
+	// 获取 forwardService（类型断言为具体类型以访问 Handler 方法）
+	forwardSvc, ok := b.forwardService.(*forward.Service)
+	if !ok {
+		logger.L().Error("Failed to cast forwardService to *forward.Service")
+		return
+	}
+
+	// 根据 callback data 调用相应的处理方法
+	if strings.HasPrefix(data, "recall_confirm:") {
+		forwardSvc.HandleRecallConfirmCallback(ctx, botInstance, query)
+	} else if data == "recall_cancel" {
+		forwardSvc.HandleRecallCancelCallback(ctx, botInstance, query)
+	} else if strings.HasPrefix(data, "recall:") {
+		forwardSvc.HandleRecallCallback(ctx, botInstance, query)
+	}
 }

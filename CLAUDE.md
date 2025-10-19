@@ -45,6 +45,7 @@ Configure these in Settings → Secrets and variables → Actions → Variables:
 | `LOG_LEVEL` | Logging level: `debug`, `info`, `warn`, `error` | `info` |
 | `MONGO_DB_NAME` | MongoDB database name | Repository name |
 | `MESSAGE_RETENTION_DAYS` | Message retention period (days) before auto-deletion | `7` |
+| `CHANNEL_ID` | Source channel ID for automatic message forwarding (format: `-100` prefix) | Not set (forwarding disabled) |
 
 ## Architecture
 
@@ -83,6 +84,10 @@ go_bot/
 │       │   │   └── calculator_test.go
 │       │   └── translator/       # Translator feature plugin
 │       │       └── feature.go
+│       ├── forward/      # Channel message forwarding module
+│       │   ├── service.go        # Forward service implementation
+│       │   ├── rate_limiter.go   # Rate limiter (30 msg/sec)
+│       │   └── handlers.go       # Recall callback handlers
 │       ├── telegram.go  # Bot core service
 │       ├── handlers.go  # Command handlers
 │       ├── middleware.go # Permission middlewares

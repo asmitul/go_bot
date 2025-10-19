@@ -10,7 +10,9 @@ import (
 	"go_bot/internal/telegram/features"
 	"go_bot/internal/telegram/features/calculator"
 	"go_bot/internal/telegram/features/crypto"
+	"go_bot/internal/telegram/features/merchant"
 	"go_bot/internal/telegram/features/translator"
+	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
 	"go_bot/internal/telegram/service"
@@ -26,6 +28,7 @@ type Config struct {
 	OwnerIDs             []int64 // Owner 用户 IDs
 	Debug                bool    // 是否开启调试模式
 	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
+	ChannelID            int64   // 源频道 ID（用于转发功能）
 }
 
 // Bot Telegram Bot 服务
@@ -41,14 +44,16 @@ type Bot struct {
 	groupService      service.GroupService
 	messageService    service.MessageService
 	configMenuService *service.ConfigMenuService
+	forwardService    service.ForwardService // 转发服务
 
 	// 功能管理器
 	featureManager *features.Manager
 
 	// Repository 层（仅用于初始化）
-	userRepo    repository.UserRepository
-	groupRepo   repository.GroupRepository
-	messageRepo repository.MessageRepository
+	userRepo          repository.UserRepository
+	groupRepo         repository.GroupRepository
+	messageRepo       repository.MessageRepository
+	forwardRecordRepo repository.ForwardRecordRepository
 }
 
 // New 创建 Telegram Bot 实例
@@ -62,12 +67,27 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	userRepo := repository.NewMongoUserRepository(db)
 	groupRepo := repository.NewMongoGroupRepository(db)
 	messageRepo := repository.NewMongoMessageRepository(db)
+	forwardRecordRepo := repository.NewForwardRecordRepository(db)
 
 	// 创建 services
 	userService := service.NewUserService(userRepo)
 	groupService := service.NewGroupService(groupRepo)
 	messageService := service.NewMessageService(messageRepo, groupRepo)
 	configMenuService := service.NewConfigMenuService(groupService)
+
+	// 创建转发服务（如果配置了频道 ID）
+	var forwardService service.ForwardService
+	if cfg.ChannelID != 0 {
+		forwardService = forward.NewService(
+			cfg.ChannelID,
+			groupService,
+			userService,
+			forwardRecordRepo,
+		)
+		logger.L().Infof("Forward service initialized: channel_id=%d", cfg.ChannelID)
+	} else {
+		logger.L().Warn("Forward service not initialized: CHANNEL_ID not configured or is 0")
+	}
 
 	// 创建功能管理器
 	featureManager := features.NewManager(groupService)
@@ -96,10 +116,12 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 		groupService:         groupService,
 		messageService:       messageService,
 		configMenuService:    configMenuService,
+		forwardService:       forwardService,
 		featureManager:       featureManager,
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
 		messageRepo:          messageRepo,
+		forwardRecordRepo:    forwardRecordRepo,
 	}
 
 	// 初始化 owners
@@ -143,6 +165,7 @@ func InitFromConfig(cfg *config.Config, db *mongo.Database) (*Bot, error) {
 		OwnerIDs:             cfg.BotOwnerIDs,
 		Debug:                false, // 可根据需要从环境变量读取
 		MessageRetentionDays: cfg.MessageRetentionDays,
+		ChannelID:            cfg.ChannelID,
 	}
 	return New(telegramCfg, db)
 }
@@ -220,6 +243,14 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 	}
 	logger.L().Infof("Message indexes ensured (TTL: %d days = %d seconds)", b.messageRetentionDays, ttlSeconds)
 
+	// 确保转发记录索引（如果转发服务已启用）
+	if b.forwardRecordRepo != nil {
+		if err := b.forwardRecordRepo.EnsureIndexes(ctx); err != nil {
+			return fmt.Errorf("failed to ensure forward_records indexes: %w", err)
+		}
+		logger.L().Info("Forward records indexes ensured (TTL: 48 hours)")
+	}
+
 	return nil
 }
 
@@ -227,6 +258,9 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 func (b *Bot) registerFeatures() {
 	// 注册计算器功能
 	b.featureManager.Register(calculator.New())
+
+	// 注册商户号绑定功能
+	b.featureManager.Register(merchant.New(b.groupService, b.userService))
 
 	// 注册翻译功能
 	b.featureManager.Register(translator.New())

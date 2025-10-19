@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 
 	"go_bot/internal/logger"
 
@@ -37,8 +38,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	// 发送菜单
-	menuText := "⚙️ <b>群组配置</b>\n\n" +
-		"点击按钮切换功能开关："
+	menuText := b.buildConfigMenuText(ctx, chatID)
 
 	_, err = botInstance.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:      chatID,
@@ -108,8 +108,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 			return
 		}
 
-		menuText := "⚙️ <b>群组配置</b>\n\n" +
-			"点击按钮切换功能开关："
+		menuText := b.buildConfigMenuText(ctx, chatID)
 
 		_, err = botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:      chatID,
@@ -146,4 +145,18 @@ func (b *Bot) answerCallback(ctx context.Context, botInstance *bot.Bot, callback
 	if err != nil {
 		logger.L().Errorf("Failed to answer callback query: %v", err)
 	}
+}
+
+// buildConfigMenuText 构建配置菜单文本（包含商户号状态）
+func (b *Bot) buildConfigMenuText(ctx context.Context, chatID int64) string {
+	menuText := "⚙️ <b>群组配置</b>\n\n"
+
+	// 获取群组信息以显示商户号
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err == nil && group.Settings.MerchantID != "" {
+		menuText += fmt.Sprintf("🏪 商户号: <code>%s</code>\n\n", group.Settings.MerchantID)
+	}
+
+	menuText += "点击按钮切换功能开关："
+	return menuText
 }

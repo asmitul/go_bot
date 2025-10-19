@@ -81,3 +81,21 @@ type MessageRepository interface {
 	// EnsureIndexes 确保索引存在（ttlSeconds 用于 Message TTL 索引）
 	EnsureIndexes(ctx context.Context, ttlSeconds int32) error
 }
+
+// ForwardRecordRepository 转发记录数据访问接口
+type ForwardRecordRepository interface {
+	// CreateRecord 创建转发记录
+	CreateRecord(ctx context.Context, record *models.ForwardRecord) error
+
+	// BulkCreateRecords 批量创建转发记录（性能优化）
+	BulkCreateRecords(ctx context.Context, records []*models.ForwardRecord) error
+
+	// GetSuccessRecordsByTaskID 根据任务ID查询所有成功的转发记录
+	GetSuccessRecordsByTaskID(ctx context.Context, taskID string) ([]*models.ForwardRecord, error)
+
+	// DeleteRecordsByTaskID 删除转发记录（撤回后清理）
+	DeleteRecordsByTaskID(ctx context.Context, taskID string) error
+
+	// EnsureIndexes 确保索引存在
+	EnsureIndexes(ctx context.Context) error
+}

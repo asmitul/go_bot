@@ -44,6 +44,8 @@ type GroupSettings struct {
 	TranslatorEnabled bool    `bson:"translator_enabled"` // 是否启用翻译功能
 	CryptoEnabled     bool    `bson:"crypto_enabled"`     // 是否启用加密货币价格查询功能
 	CryptoFloatRate   float64 `bson:"crypto_float_rate"`  // 加密货币价格浮动费率（默认 0.12）
+	ForwardEnabled    bool    `bson:"forward_enabled"`    // 是否接收频道转发消息
+	MerchantID        string  `bson:"merchant_id"`        // 商户号（预留字段）
 }
 
 // GroupStats 群组统计信息

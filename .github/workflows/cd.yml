@@ -81,6 +81,7 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           MONGO_DB_NAME: ${{ env.MONGO_DB_NAME }}  # ✅ 使用定义的 MONGO_DB_NAME
           BOT_OWNER_IDS: ${{ secrets.BOT_OWNER_IDS }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}  # ✅ 频道 ID（可选，用于转发功能）
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -88,7 +89,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,MONGO_DB_NAME,BOT_OWNER_IDS,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
+          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,MONGO_DB_NAME,BOT_OWNER_IDS,CHANNEL_ID,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
           script: |
             # ✅ 登录 GHCR
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -108,6 +109,12 @@ jobs:
               LOG_OPT="-e LOG_LEVEL=${LOG_LEVEL}"
             fi
 
+            # ✅ 根据 CHANNEL_ID 动态拼接参数（可选）
+            CHANNEL_OPT=""
+            if [ -n "${CHANNEL_ID}" ]; then
+              CHANNEL_OPT="-e CHANNEL_ID=${CHANNEL_ID}"
+            fi
+
             # ✅ 尝试启动新容器
             docker run -d \
               --name ${CONTAINER_NAME} \
@@ -118,6 +125,7 @@ jobs:
               -e MONGO_DB_NAME="${MONGO_DB_NAME}" \
               -e BOT_OWNER_IDS="${BOT_OWNER_IDS}" \
               ${LOG_OPT} \
+              ${CHANNEL_OPT} \
               --log-driver json-file \
               --log-opt max-size=10m \
               --log-opt max-file=3 \

@@ -9,11 +9,12 @@ import (
 
 // Config 应用程序配置
 type Config struct {
-	TelegramToken       string  // Telegram Bot API Token
-	BotOwnerIDs         []int64 // Bot管理员ID列表
-	MongoURI            string  // MongoDB连接URI
-	MongoDBName         string  // MongoDB数据库名称
+	TelegramToken        string  // Telegram Bot API Token
+	BotOwnerIDs          []int64 // Bot管理员ID列表
+	MongoURI             string  // MongoDB连接URI
+	MongoDBName          string  // MongoDB数据库名称
 	MessageRetentionDays int     // 消息保留天数（过期自动删除）
+	ChannelID            int64   // 源频道 ID（用于转发功能）
 }
 
 // Load 从环境变量加载配置
@@ -47,6 +48,16 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("MESSAGE_RETENTION_DAYS must be >= 1, got %d", days)
 		}
 		cfg.MessageRetentionDays = days
+	}
+
+	// 解析CHANNEL_ID（可选，用于转发功能）
+	channelIDStr := os.Getenv("CHANNEL_ID")
+	if channelIDStr != "" {
+		channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CHANNEL_ID: %w", err)
+		}
+		cfg.ChannelID = channelID
 	}
 
 	return cfg, nil

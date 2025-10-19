@@ -115,6 +115,22 @@ func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegr
 		status = models.BotStatusLeft
 	}
 
+	// 获取群组信息以检查商户号绑定
+	group, err := s.groupRepo.GetByTelegramID(ctx, telegramID)
+	if err == nil && group.Settings.MerchantID != "" {
+		// 自动解绑商户号
+		oldMerchantID := group.Settings.MerchantID
+		settings := group.Settings
+		settings.MerchantID = ""
+
+		if err := s.groupRepo.UpdateSettings(ctx, telegramID, settings); err != nil {
+			logger.L().Warnf("Failed to auto-unbind merchant ID when bot removed: group_id=%d, merchant_id=%s, err=%v",
+				telegramID, oldMerchantID, err)
+		} else {
+			logger.L().Infof("Auto-unbound merchant ID: group_id=%d, merchant_id=%s", telegramID, oldMerchantID)
+		}
+	}
+
 	// 标记 Bot 离开
 	if err := s.groupRepo.MarkBotLeft(ctx, telegramID); err != nil {
 		logger.L().Errorf("Failed to handle bot removed from group %d: %v", telegramID, err)

@@ -15,6 +15,9 @@ cd go_bot
 
 在项目的 **GitHub 仓库** 中，依次进入：
 `Settings` → `Secrets and variables` → `Actions` → `New repository secret`
+
+### 必需 Secrets
+
 添加以下密钥信息（Secrets）：
 
 | 名称               | 说明                         |
@@ -26,6 +29,17 @@ cd go_bot
 | `VPS_USER`       | 远程服务器用户名                   |
 | `VPS_PORT`       | SSH 端口（默认：`22`）            |
 | `SSH_KEY`        | 用于连接 VPS 的私钥               |
+
+### 可选 Secrets
+
+| 名称 | 说明 |
+| ---- | ---- |
+| `CHANNEL_ID` | 源频道 ID，用于自动转发消息到群组。格式：`-100` 开头的 13 位数字（例如 `-1001234567890`）。不设置时转发功能不启用 |
+
+**如何获取频道 ID**：
+1. 在频道中转发一条消息到 [@userinfobot](https://t.me/userinfobot)
+2. Bot 会返回频道的 ID（显示为 Origin Chat）
+3. 复制该 ID 并配置到 GitHub Secrets
 
 ---
 
