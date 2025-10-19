@@ -418,28 +418,16 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		}
 	}
 
-	// 检查计算器功能（仅群组）
-	if msg.Chat.Type == "group" || msg.Chat.Type == "supergroup" {
-		// 获取群组配置
-		group, err := b.groupService.GetGroupInfo(ctx, msg.Chat.ID)
-		if err == nil && group.Settings.CalculatorEnabled {
-			// 判断是否为数学表达式
-			if IsMathExpression(msg.Text) {
-				// 尝试计算
-				result, err := Calculate(msg.Text)
-				if err != nil {
-					// 计算失败，发送错误提示
-					logger.L().Warnf("Calculator failed: chat_id=%d, text=%s, error=%v", msg.Chat.ID, msg.Text, err)
-					b.sendErrorMessage(ctx, msg.Chat.ID, fmt.Sprintf("计算错误: %v", err))
-				} else {
-					// 计算成功，发送结果
-					logger.L().Infof("Calculator: %s = %g (chat_id=%d)", msg.Text, result, msg.Chat.ID)
-					resultText := fmt.Sprintf("🧮 %s = %g", msg.Text, result)
-					b.sendMessage(ctx, msg.Chat.ID, resultText)
-				}
-				return // 已处理，不再记录为普通消息
-			}
+	// 使用 Feature Manager 处理功能插件
+	// 这里替代了原来硬编码的计算器功能检测
+	responseText, handled, err := b.featureManager.Process(ctx, msg)
+	if handled {
+		if err != nil {
+			b.sendErrorMessage(ctx, msg.Chat.ID, responseText)
+		} else if responseText != "" {
+			b.sendMessage(ctx, msg.Chat.ID, responseText)
 		}
+		return // 功能已处理，不再记录为普通消息
 	}
 
 	// 构造消息信息

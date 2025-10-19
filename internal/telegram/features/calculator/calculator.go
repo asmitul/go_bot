@@ -1,4 +1,4 @@
-package telegram
+package calculator
 
 import (
 	"fmt"
@@ -179,7 +179,7 @@ func (c *Calculator) parseNumber() (float64, error) {
 }
 
 // IsMathExpression 判断字符串是否为数学表达式
-// 只包含数字、运算符和括号，且不以运算符结尾
+// 只包含数字、运算符和括号,且不以运算符结尾
 func IsMathExpression(text string) bool {
 	// 移除空格
 	text = strings.TrimSpace(text)
@@ -221,7 +221,7 @@ func IsMathExpression(text string) bool {
 		return false
 	}
 
-	// 不应该以运算符结尾（除了括号）
+	// 不应该以运算符结尾(除了括号)
 	lastChar := rune(cleaned[len(cleaned)-1])
 	if lastChar == '+' || lastChar == '-' || lastChar == '*' || lastChar == '/' {
 		return false

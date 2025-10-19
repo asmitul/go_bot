@@ -74,6 +74,15 @@ go_bot/
 │       │   ├── user_service.go
 │       │   ├── group_service.go
 │       │   └── message_service.go
+│       ├── features/    # Feature plugin system
+│       │   ├── feature.go        # Feature interface definition
+│       │   ├── manager.go        # Feature Manager
+│       │   ├── calculator/       # Calculator feature plugin
+│       │   │   ├── feature.go
+│       │   │   ├── calculator.go
+│       │   │   └── calculator_test.go
+│       │   └── translator/       # Translator feature plugin
+│       │       └── feature.go
 │       ├── telegram.go  # Bot core service
 │       ├── handlers.go  # Command handlers
 │       ├── middleware.go # Permission middlewares
@@ -166,19 +175,22 @@ go_bot/
     - Handlers should call service methods, not repository directly
 
 - **telegram.go** - Core bot service
-  - `New(cfg, db)` creates bot instance, registers handlers, initializes indexes
+  - `New(cfg, db)` creates bot instance, registers features and handlers, initializes indexes
   - `InitFromConfig(appCfg, db)` convenience function
   - `Start(ctx)` runs bot in blocking mode (call in goroutine)
   - `initOwners(ctx)` auto-creates owner users from `BOT_OWNER_IDS` config
+  - `registerFeatures()` registers all feature plugins to Feature Manager (called before registerHandlers)
 
 - **handlers.go** - Command and event handlers
   - All handlers follow `bot.HandlerFunc` signature: `func(ctx, *bot.Bot, *models.Update)`
   - Handlers call service layer for business logic (e.g., `userService.GrantAdminPermission()`, `messageService.HandleTextMessage()`)
   - All handlers registered with `asyncHandler()` wrapper for concurrent execution via worker pool
   - Handler responsibilities: parse command arguments, call service methods, send responses via helpers
-  - **Command handlers**: /start, /ping, /grant, /revoke, /admins, /userinfo, /leave
+  - **Message processing flow**: ConfigMenuInput → Feature Manager → Message recording
+  - Feature Manager processes message-based features (calculator, translator, etc.) before recording to database
+  - **Command handlers**: /start, /ping, /grant, /revoke, /admins, /userinfo, /leave, /configs
   - **Event handlers**: MyChatMember (bot status change), EditedMessage, ChannelPost, NewChatMembers, LeftChatMember
-  - **Message handlers**: TextMessage (plain text), MediaMessage (photo/video/document/voice/audio/sticker/animation)
+  - **Message handlers**: TextMessage (plain text, processed by Feature Manager), MediaMessage (photo/video/document/voice/audio/sticker/animation)
 
 - **middleware.go** - Permission control
   - `RequireOwner(next)` wraps handlers requiring owner permission
@@ -207,6 +219,40 @@ go_bot/
     - `sendErrorMessage(ctx, chatID, message)`: Sends error message with ❌ prefix
     - `sendSuccessMessage(ctx, chatID, message)`: Sends success message with ✅ prefix
   - **Benefits**: Consistent error handling, unified UI presentation, simplified handler code
+
+- **features/** - Feature plugin system (插件化功能系统)
+  - Adopts plugin architecture for modular feature development and maintenance
+  - Features are independent, testable, and can be enabled/disabled without code changes
+  - **Feature interface** (`features/feature.go`):
+    - `Name() string`: Returns feature name for logging and debugging
+    - `Enabled(ctx, group) bool`: Checks if feature is enabled based on group settings
+    - `Match(ctx, msg) bool`: Checks if message matches this feature (e.g., detects math expressions)
+    - `Process(ctx, msg) (responseText, handled, error)`: Processes message and returns response
+    - `Priority() int`: Returns feature priority (1-100, lower numbers = higher priority)
+  - **Feature Manager** (`features/manager.go`):
+    - `Register(feature)`: Registers feature plugin, auto-sorts by priority
+    - `Process(ctx, msg)`: Executes all enabled and matched features in priority order
+    - `ListFeatures()`: Lists all registered features for debugging
+    - Stops processing when a feature returns `handled=true`
+  - **Implemented feature plugins**:
+    - `calculator/`: Calculator feature (priority 20) - Detects math expressions and calculates results
+      - `IsMathExpression(text)`: Validates if text is a math expression
+      - `Calculate(expression)`: Evaluates math expression using recursive descent parser
+      - Supports: +, -, *, /, (), negative numbers, decimals
+    - `translator/`: Translator feature (priority 30) - Detects "翻译 xxx" and calls translation API (demo implementation)
+      - Currently uses demo translation (needs real API integration)
+      - Detects Chinese/English and provides bidirectional translation
+  - **Adding new features** (step-by-step):
+    1. Create new feature package (e.g., `features/weather/`)
+    2. Implement Feature interface in `feature.go`
+    3. Register in `telegram.go`'s `registerFeatures()` function
+    4. (Optional) Add configuration field to `models.GroupSettings`
+    5. (Optional) Add configuration toggle to `config_definitions.go`
+  - **Removing features**: Comment out registration line in `registerFeatures()`
+  - **Priority guidelines**:
+    - 1-20: High priority (calculator, command parsers)
+    - 21-50: Medium priority (translator, weather query)
+    - 51-100: Low priority (AI chat, keyword replies)
 
 **Permission System:**
 
@@ -297,6 +343,27 @@ go_bot/
 - Use `sendSuccessMessage(ctx, chatID, msg)` for all success confirmations (ensures ✅ prefix)
 - Use `sendMessage(ctx, chatID, text)` for informational messages
 - Never call `bot.SendMessage` directly - always use helpers for consistent error handling
+
+**Feature plugin conventions:**
+- All features must implement the `Feature` interface defined in `features/feature.go`
+- Feature plugins should be self-contained in their own package under `features/`
+- Features are executed in priority order (1-100, lower numbers = higher priority)
+- Priority ranges:
+  - 1-20: High priority (calculator, command parsers)
+  - 21-50: Medium priority (translator, weather query)
+  - 51-100: Low priority (AI chat, keyword replies)
+- Features must check `group.Settings.{FeatureName}Enabled` in `Enabled()` method before processing
+- To add a new feature:
+  1. Create feature package under `features/` (e.g., `features/weather/`)
+  2. Implement Feature interface in `feature.go`
+  3. Add feature registration in `telegram.go`'s `registerFeatures()` function
+  4. (Optional) Add configuration field to `models.GroupSettings`
+  5. (Optional) Add configuration toggle to `config_definitions.go`
+- To remove a feature: Comment out registration line in `registerFeatures()`
+- Feature plugins should return `(responseText, handled=true, nil)` on successful processing
+- Feature Manager stops processing subsequent features when `handled=true` is returned
+- Features should use `logger.L()` for all logging operations
+- Features should be independently testable (each feature has its own test file)
 
 ### App Package (`internal/app`)
 

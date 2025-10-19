@@ -41,6 +41,7 @@ type Group struct {
 // GroupSettings 群组配置
 type GroupSettings struct {
 	CalculatorEnabled bool `bson:"calculator_enabled"` // 是否启用计算器功能
+	TranslatorEnabled bool `bson:"translator_enabled"` // 是否启用翻译功能
 }
 
 // GroupStats 群组统计信息

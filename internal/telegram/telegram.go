@@ -7,6 +7,9 @@ import (
 
 	"go_bot/internal/config"
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features"
+	"go_bot/internal/telegram/features/calculator"
+	"go_bot/internal/telegram/features/translator"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
 	"go_bot/internal/telegram/service"
@@ -38,6 +41,9 @@ type Bot struct {
 	messageService    service.MessageService
 	configMenuService *service.ConfigMenuService
 
+	// 功能管理器
+	featureManager *features.Manager
+
 	// Repository 层（仅用于初始化）
 	userRepo    repository.UserRepository
 	groupRepo   repository.GroupRepository
@@ -61,6 +67,9 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	groupService := service.NewGroupService(groupRepo)
 	messageService := service.NewMessageService(messageRepo, groupRepo)
 	configMenuService := service.NewConfigMenuService(groupService)
+
+	// 创建功能管理器
+	featureManager := features.NewManager(groupService)
 
 	// 创建 worker pool (10 workers, 100 queue size)
 	workerPool := NewWorkerPool(10, 100)
@@ -86,6 +95,7 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 		groupService:         groupService,
 		messageService:       messageService,
 		configMenuService:    configMenuService,
+		featureManager:       featureManager,
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
 		messageRepo:          messageRepo,
@@ -95,6 +105,9 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	if err := telegramBot.initOwners(context.Background()); err != nil {
 		logger.L().Warnf("Failed to initialize owners: %v", err)
 	}
+
+	// 注册功能插件
+	telegramBot.registerFeatures()
 
 	// 注册 handlers
 	telegramBot.registerHandlers()
@@ -207,4 +220,20 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 	logger.L().Infof("Message indexes ensured (TTL: %d days = %d seconds)", b.messageRetentionDays, ttlSeconds)
 
 	return nil
+}
+
+// registerFeatures 注册所有功能插件
+func (b *Bot) registerFeatures() {
+	// 注册计算器功能
+	b.featureManager.Register(calculator.New())
+
+	// 注册翻译功能（需要先在 models.GroupSettings 中添加 TranslatorEnabled 字段）
+	b.featureManager.Register(translator.New())
+
+	// 后续可添加更多功能:
+	// b.featureManager.Register(weather.New())
+	// b.featureManager.Register(aichat.New())
+	// b.featureManager.Register(reminder.New())
+
+	logger.L().Infof("Registered %d features: %v", len(b.featureManager.ListFeatures()), b.featureManager.ListFeatures())
 }

@@ -239,16 +239,33 @@
   - 排除以 `/` 开头的命令消息
   - 排除 NewChatMembers/LeftChatMember 系统消息
   - 排除媒体消息（Photo/Video/Document/Voice/Audio/Sticker/Animation）
-- **主要功能**:
-  - **优先处理配置输入**：检查用户是否处于配置菜单的输入模式
-    - 如果是，调用 ConfigMenuService.ProcessUserInput 处理输入
-    - 显示成功/失败消息后直接返回，不记录为普通消息
-  - **记录普通消息**：
-    - 提取消息文本、reply_to_message_id、发送时间
-    - 调用 MessageService.HandleTextMessage 记录消息
-    - 自动更新群组统计（total_messages, last_message_at）
-- **Service**: MessageService, ConfigMenuService
+- **主要功能**（按优先级顺序）:
+  1. **配置输入处理**：检查用户是否处于配置菜单的输入模式
+     - 如果是，调用 ConfigMenuService.ProcessUserInput 处理输入
+     - 显示成功/失败消息后直接返回，不记录为普通消息
+  2. **功能插件处理** (Feature Manager)：
+     - 调用 FeatureManager.Process() 按优先级执行所有已启用的功能插件
+     - 已实现的功能：
+       - **计算器**（优先级 20）：检测数学表达式（如 "1+2*3"）并计算结果
+       - **翻译**（优先级 30）：检测 "翻译 xxx" 并调用翻译 API
+     - 如果任何功能返回 `handled=true`，停止后续处理，不记录为普通消息
+     - 功能插件可通过 `/configs` 菜单在群组中启用/禁用
+  3. **记录普通消息**：
+     - 提取消息文本、reply_to_message_id、发送时间
+     - 调用 MessageService.HandleTextMessage 记录消息
+     - 自动更新群组统计（total_messages, last_message_at）
+- **Service**: ConfigMenuService → FeatureManager → MessageService
 - **数据库**: 写入 `messages` 集合，更新 `groups.stats`
+- **处理流程**:
+  ```
+  TextMessage
+      ↓
+  ConfigMenuInput 检查 → 如果是输入模式 → 处理并返回
+      ↓
+  Feature Manager → 按优先级执行功能插件 → 如果 handled=true → 返回
+      ↓
+  记录普通消息到数据库
+  ```
 
 ### 3.8 EditedMessage - 消息编辑事件
 
@@ -302,6 +319,11 @@ Worker Pool (asyncHandler 包装)
     ↓
 Handler 函数
     ↓
+Feature Manager (仅 TextMessage handler - 可选)
+    ├── Calculator Feature (检测数学表达式)
+    ├── Translator Feature (检测翻译请求)
+    └── ... 其他功能插件
+    ↓
 Service 层业务逻辑
     ↓
 Repository 层数据访问
@@ -310,6 +332,12 @@ MongoDB 数据库
     ↓
 统一响应 (sendMessage/sendErrorMessage/sendSuccessMessage)
 ```
+
+**说明**：
+- Feature Manager 仅在 TextMessage handler 中使用
+- 按优先级顺序执行功能插件（优先级低的数字先执行）
+- 如果任何功能返回 `handled=true`，停止后续流程
+- 功能插件可通过配置系统在群组中启用/禁用
 
 ### 执行特点
 
@@ -329,6 +357,12 @@ MongoDB 数据库
 ```
 Handler Layer (handlers.go, handlers_config.go)
     ↓
+Feature Plugin Layer (features/) [仅 TextMessage handler]
+    ├── Feature Manager
+    ├── Calculator Feature
+    ├── Translator Feature
+    └── ... 更多功能插件
+    ↓
 Service Layer (service/)
     ↓
 Repository Layer (repository/)
@@ -338,6 +372,10 @@ MongoDB
 
 **职责分离:**
 - **Handler**: 解析命令参数、提取 Update 数据、调用 Service、发送响应
+- **Feature Plugin**: 处理基于消息的功能（计算器、翻译等），独立可插拔
+  - 每个功能实现 Feature 接口（Name, Enabled, Match, Process, Priority）
+  - Feature Manager 按优先级顺序执行所有已启用且匹配的功能
+  - 功能可通过群组配置动态启用/禁用
 - **Service**: 业务验证、权限检查、业务规则、错误处理、返回用户友好的错误消息
 - **Repository**: 纯数据库 CRUD 操作，不包含业务逻辑
 
@@ -490,6 +528,172 @@ func (s *SomeService) DoSomething(ctx context.Context, params ...) error {
 #### 5. 更新本文档
 
 在对应的 Handler 部分添加新 handler 的详细信息。
+
+---
+
+### 添加新的 Feature Plugin
+
+Feature Plugin 系统允许你添加基于消息的功能（如计算器、翻译、天气查询等），无需修改 handler 代码。
+
+#### 1. 创建 Feature 包
+
+在 `internal/telegram/features/` 下创建新功能目录：
+```bash
+mkdir -p internal/telegram/features/weather
+```
+
+#### 2. 实现 Feature 接口
+
+创建 `feature.go` 并实现 Feature 接口：
+
+```go
+// internal/telegram/features/weather/feature.go
+package weather
+
+import (
+    "context"
+    "fmt"
+    "strings"
+
+    "go_bot/internal/logger"
+    "go_bot/internal/telegram/models"
+    botModels "github.com/go-telegram/bot/models"
+)
+
+type WeatherFeature struct{}
+
+func New() *WeatherFeature {
+    return &WeatherFeature{}
+}
+
+// Name 返回功能名称
+func (f *WeatherFeature) Name() string {
+    return "weather"
+}
+
+// Enabled 检查功能是否启用（根据群组配置）
+func (f *WeatherFeature) Enabled(ctx context.Context, group *models.Group) bool {
+    return group.Settings.WeatherEnabled
+}
+
+// Match 检查消息是否匹配该功能
+func (f *WeatherFeature) Match(ctx context.Context, msg *botModels.Message) bool {
+    return strings.HasPrefix(msg.Text, "天气 ")
+}
+
+// Process 处理消息
+func (f *WeatherFeature) Process(ctx context.Context, msg *botModels.Message) (string, bool, error) {
+    city := strings.TrimPrefix(msg.Text, "天气 ")
+    weather := getWeather(city) // 调用天气 API
+
+    logger.L().Infof("Weather query: city=%s (chat_id=%d)", city, msg.Chat.ID)
+    return fmt.Sprintf("🌤️ %s 天气: %s", city, weather), true, nil
+}
+
+// Priority 返回优先级（40 = 中等优先级）
+func (f *WeatherFeature) Priority() int {
+    return 40
+}
+
+func getWeather(city string) string {
+    // TODO: 调用真实的天气 API
+    return "晴天 25°C"
+}
+```
+
+#### 3. 注册 Feature
+
+在 `internal/telegram/telegram.go` 的 `registerFeatures()` 中注册：
+
+```go
+func (b *Bot) registerFeatures() {
+    b.featureManager.Register(calculator.New())
+    b.featureManager.Register(translator.New())
+    b.featureManager.Register(weather.New())  // ✨ 新增
+
+    logger.L().Infof("Registered %d features: %v", len(b.featureManager.ListFeatures()), b.featureManager.ListFeatures())
+}
+```
+
+并在文件顶部添加 import：
+```go
+import (
+    "go_bot/internal/telegram/features/weather"
+)
+```
+
+#### 4. 添加配置字段（可选）
+
+**在 `models/group.go` 添加配置字段**：
+```go
+type GroupSettings struct {
+    CalculatorEnabled bool `bson:"calculator_enabled"`
+    TranslatorEnabled bool `bson:"translator_enabled"`
+    WeatherEnabled    bool `bson:"weather_enabled"`  // ✨ 新增
+}
+```
+
+**在 `config_definitions.go` 添加配置开关**：
+```go
+{
+    ID:   "weather_enabled",
+    Name: "天气查询",
+    Icon: "🌤️",
+    Type: models.ConfigTypeToggle,
+    Category: "功能管理",
+    ToggleGetter: func(g *models.Group) bool {
+        return g.Settings.WeatherEnabled
+    },
+    ToggleSetter: func(s *models.GroupSettings, val bool) {
+        s.WeatherEnabled = val
+    },
+    RequireAdmin: true,
+},
+```
+
+#### 5. 添加测试（推荐）
+
+创建 `weather_test.go` 测试功能逻辑：
+```go
+package weather
+
+import "testing"
+
+func TestMatch(t *testing.T) {
+    feature := New()
+
+    tests := []struct {
+        text  string
+        match bool
+    }{
+        {"天气 北京", true},
+        {"天气 上海", true},
+        {"hello", false},
+    }
+
+    for _, tt := range tests {
+        msg := &botModels.Message{Text: tt.text}
+        if feature.Match(context.Background(), msg) != tt.match {
+            t.Errorf("Match(%q) = %v, want %v", tt.text, !tt.match, tt.match)
+        }
+    }
+}
+```
+
+#### 6. 删除 Feature
+
+只需注释掉注册行：
+```go
+// b.featureManager.Register(weather.New())  // ❌ 注释掉即可删除
+```
+
+#### Feature 优先级指南
+
+- **1-20**: 高优先级（计算器、命令解析）
+- **21-50**: 中优先级（翻译、天气查询）
+- **51-100**: 低优先级（AI 对话、关键词回复）
+
+优先级低的数字先执行，避免低优先级功能抢占高优先级功能的消息。
 
 ---
 
