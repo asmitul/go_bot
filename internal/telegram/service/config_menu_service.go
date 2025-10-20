@@ -35,13 +35,8 @@ func NewConfigMenuService(groupService GroupService) *ConfigMenuService {
 
 // BuildMainMenu 构建主配置菜单
 // 根据 ConfigItem 定义生成 InlineKeyboard
-func (s *ConfigMenuService) BuildMainMenu(ctx context.Context, chatID int64, items []models.ConfigItem) (*botModels.InlineKeyboardMarkup, error) {
-	// 获取群组信息以显示当前配置值
-	group, err := s.groupService.GetGroupInfo(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("获取群组信息失败: %w", err)
-	}
-
+// 注意：调用方需要先调用 GetOrCreateGroup 确保群组存在
+func (s *ConfigMenuService) BuildMainMenu(ctx context.Context, group *models.Group, items []models.ConfigItem) (*botModels.InlineKeyboardMarkup, error) {
 	var keyboard [][]botModels.InlineKeyboardButton
 
 	// 直接添加所有配置项按钮（不分类、不分组，简洁平铺）
@@ -103,13 +98,15 @@ func (s *ConfigMenuService) buildButtonForItem(item models.ConfigItem, group *mo
 }
 
 // HandleCallback 处理回调查询（用户点击按钮）
+// 注意：调用方需要先调用 GetOrCreateGroup 确保群组存在
 func (s *ConfigMenuService) HandleCallback(
 	ctx context.Context,
-	chatID int64,
+	group *models.Group,
 	userID int64,
 	data string,
 	items []models.ConfigItem,
 ) (message string, shouldUpdateMenu bool, err error) {
+	chatID := group.TelegramID
 	// 解析 callback data: "config:type:id" 或 "config:action"
 	parts := strings.Split(data, ":")
 	if len(parts) < 2 {
@@ -133,13 +130,13 @@ func (s *ConfigMenuService) HandleCallback(
 		if len(parts) < 3 {
 			return "❌ 缺少配置项 ID", false, fmt.Errorf("missing config ID")
 		}
-		return s.handleToggle(ctx, chatID, parts[2], items)
+		return s.handleToggle(ctx, group, parts[2], items)
 
 	case string(models.ConfigTypeSelect):
 		if len(parts) < 3 {
 			return "❌ 缺少配置项 ID", false, fmt.Errorf("missing config ID")
 		}
-		return s.handleSelect(ctx, chatID, userID, parts[2], items)
+		return s.handleSelect(ctx, group, userID, parts[2], items)
 
 	case string(models.ConfigTypeInput):
 		if len(parts) < 3 {
@@ -159,17 +156,11 @@ func (s *ConfigMenuService) HandleCallback(
 }
 
 // handleToggle 处理开关型配置
-func (s *ConfigMenuService) handleToggle(ctx context.Context, chatID int64, configID string, items []models.ConfigItem) (string, bool, error) {
+func (s *ConfigMenuService) handleToggle(ctx context.Context, group *models.Group, configID string, items []models.ConfigItem) (string, bool, error) {
 	// 查找配置项
 	item := findItemByID(items, configID)
 	if item == nil {
 		return "❌ 配置项不存在", false, fmt.Errorf("config item not found: %s", configID)
-	}
-
-	// 获取群组信息
-	group, err := s.groupService.GetGroupInfo(ctx, chatID)
-	if err != nil {
-		return "❌ 获取群组信息失败", false, err
 	}
 
 	// 切换状态
@@ -178,7 +169,7 @@ func (s *ConfigMenuService) handleToggle(ctx context.Context, chatID int64, conf
 
 	// 更新配置
 	item.ToggleSetter(&group.Settings, newValue)
-	if err := s.groupService.UpdateGroupSettings(ctx, chatID, group.Settings); err != nil {
+	if err := s.groupService.UpdateGroupSettings(ctx, group.TelegramID, group.Settings); err != nil {
 		return "❌ 更新配置失败", false, err
 	}
 
@@ -187,22 +178,16 @@ func (s *ConfigMenuService) handleToggle(ctx context.Context, chatID int64, conf
 		statusText = "开启"
 	}
 
-	logger.L().Infof("Config toggle updated: chat_id=%d, config=%s, value=%v", chatID, configID, newValue)
+	logger.L().Infof("Config toggle updated: chat_id=%d, config=%s, value=%v", group.TelegramID, configID, newValue)
 	return fmt.Sprintf("✅ %s 已%s", item.Name, statusText), true, nil
 }
 
 // handleSelect 处理选择型配置（暂不实现多选框，直接切换到下一个选项）
-func (s *ConfigMenuService) handleSelect(ctx context.Context, chatID, userID int64, configID string, items []models.ConfigItem) (string, bool, error) {
+func (s *ConfigMenuService) handleSelect(ctx context.Context, group *models.Group, userID int64, configID string, items []models.ConfigItem) (string, bool, error) {
 	// 查找配置项
 	item := findItemByID(items, configID)
 	if item == nil {
 		return "❌ 配置项不存在", false, fmt.Errorf("config item not found: %s", configID)
-	}
-
-	// 获取群组信息
-	group, err := s.groupService.GetGroupInfo(ctx, chatID)
-	if err != nil {
-		return "❌ 获取群组信息失败", false, err
 	}
 
 	// 获取当前选项
@@ -222,11 +207,11 @@ func (s *ConfigMenuService) handleSelect(ctx context.Context, chatID, userID int
 
 	// 更新配置
 	item.SelectSetter(&group.Settings, nextOption.Value)
-	if err := s.groupService.UpdateGroupSettings(ctx, chatID, group.Settings); err != nil {
+	if err := s.groupService.UpdateGroupSettings(ctx, group.TelegramID, group.Settings); err != nil {
 		return "❌ 更新配置失败", false, err
 	}
 
-	logger.L().Infof("Config select updated: chat_id=%d, config=%s, value=%s", chatID, configID, nextOption.Value)
+	logger.L().Infof("Config select updated: chat_id=%d, config=%s, value=%s", group.TelegramID, configID, nextOption.Value)
 	return fmt.Sprintf("✅ %s 已设置为：%s %s", item.Name, nextOption.Icon, nextOption.Label), true, nil
 }
 
@@ -283,13 +268,15 @@ func (s *ConfigMenuService) handleAction(ctx context.Context, chatID, userID int
 }
 
 // ProcessUserInput 处理用户输入（当用户处于输入状态时）
+// 注意：调用方需要先调用 GetOrCreateGroup 确保群组存在
 func (s *ConfigMenuService) ProcessUserInput(
 	ctx context.Context,
-	chatID int64,
+	group *models.Group,
 	userID int64,
 	text string,
 	items []models.ConfigItem,
 ) (message string, err error) {
+	chatID := group.TelegramID
 	// 获取用户状态
 	state := s.GetUserState(chatID, userID)
 	if state == nil {
@@ -336,13 +323,6 @@ func (s *ConfigMenuService) ProcessUserInput(
 			remainingRetries := MaxInputRetries - state.RetryCount
 			return fmt.Sprintf("❌ 输入验证失败: %v\n\n剩余尝试次数: %d\n请重新输入：", err, remainingRetries), nil
 		}
-	}
-
-	// 获取群组信息
-	group, err := s.groupService.GetGroupInfo(ctx, chatID)
-	if err != nil {
-		s.ClearUserState(chatID, userID)
-		return "❌ 获取群组信息失败", err
 	}
 
 	// 更新配置

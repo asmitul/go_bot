@@ -433,17 +433,34 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 
 	// 优先检查用户输入状态（用于配置菜单输入）
 	if msg.From != nil && b.configMenuService != nil {
-		items := b.getConfigItems()
-		responseMsg, err := b.configMenuService.ProcessUserInput(ctx, msg.Chat.ID, msg.From.ID, msg.Text, items)
-
-		// 如果有响应消息（无论成功或失败），说明这是配置输入
-		if responseMsg != "" {
-			if err != nil {
-				b.sendErrorMessage(ctx, msg.Chat.ID, responseMsg)
-			} else {
-				b.sendSuccessMessage(ctx, msg.Chat.ID, responseMsg)
+		// 先检查是否有待处理状态
+		state := b.configMenuService.GetUserState(msg.Chat.ID, msg.From.ID)
+		if state != nil {
+			// 有状态，获取或创建群组记录
+			chatInfo := &service.TelegramChatInfo{
+				ChatID:   msg.Chat.ID,
+				Type:     string(msg.Chat.Type),
+				Title:    msg.Chat.Title,
+				Username: msg.Chat.Username,
 			}
-			return // 处理完配置输入，不再记录为普通消息
+			group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
+			if err != nil {
+				b.sendErrorMessage(ctx, msg.Chat.ID, "获取群组信息失败")
+				return
+			}
+
+			items := b.getConfigItems()
+			responseMsg, err := b.configMenuService.ProcessUserInput(ctx, group, msg.From.ID, msg.Text, items)
+
+			// 如果有响应消息（无论成功或失败），说明这是配置输入
+			if responseMsg != "" {
+				if err != nil {
+					b.sendErrorMessage(ctx, msg.Chat.ID, responseMsg)
+				} else {
+					b.sendSuccessMessage(ctx, msg.Chat.ID, responseMsg)
+				}
+				return // 处理完配置输入，不再记录为普通消息
+			}
 		}
 	}
 
@@ -679,11 +696,18 @@ func (b *Bot) handleAccountingInput(ctx context.Context, botInstance *bot.Bot, u
 	}
 
 	chatID := update.Message.Chat.ID
+	chat := update.Message.Chat
 	userID := update.Message.From.ID
 	text := strings.TrimSpace(update.Message.Text)
 
-	// 检查群组是否启用记账功能
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	// 获取或创建群组记录
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
 	if err != nil || !group.Settings.AccountingEnabled {
 		return false
 	}
@@ -723,9 +747,16 @@ func (b *Bot) handleQueryAccounting(ctx context.Context, botInstance *bot.Bot, u
 	}
 
 	chatID := update.Message.Chat.ID
+	chat := update.Message.Chat
 
-	// 检查群组是否启用记账功能
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	// 获取或创建群组记录
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
 	if err != nil {
 		b.sendErrorMessage(ctx, chatID, "查询失败")
 		return
@@ -753,9 +784,16 @@ func (b *Bot) handleDeleteAccounting(ctx context.Context, botInstance *bot.Bot, 
 	}
 
 	chatID := update.Message.Chat.ID
+	chat := update.Message.Chat
 
-	// 检查群组是否启用记账功能
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	// 获取或创建群组记录
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
 	if err != nil {
 		b.sendErrorMessage(ctx, chatID, "查询失败")
 		return
@@ -885,9 +923,16 @@ func (b *Bot) handleClearAccounting(ctx context.Context, botInstance *bot.Bot, u
 	}
 
 	chatID := update.Message.Chat.ID
+	chat := update.Message.Chat
 
-	// 检查群组是否启用记账功能
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	// 获取或创建群组记录
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
 	if err != nil {
 		b.sendErrorMessage(ctx, chatID, "查询失败")
 		return

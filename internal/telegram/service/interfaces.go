@@ -42,6 +42,9 @@ type GroupService interface {
 	// GetGroupInfo 获取群组信息
 	GetGroupInfo(ctx context.Context, telegramID int64) (*models.Group, error)
 
+	// GetOrCreateGroup 获取或创建群组记录（智能处理，群组不存在时自动创建）
+	GetOrCreateGroup(ctx context.Context, chatInfo *TelegramChatInfo) (*models.Group, error)
+
 	// MarkBotLeft 标记 Bot 离开群组
 	MarkBotLeft(ctx context.Context, telegramID int64) error
 
@@ -87,6 +90,14 @@ type TelegramUserInfo struct {
 	LastName     string
 	LanguageCode string
 	IsPremium    bool
+}
+
+// TelegramChatInfo Telegram 群组信息 DTO
+type TelegramChatInfo struct {
+	ChatID   int64
+	Type     string
+	Title    string
+	Username string
 }
 
 // TextMessageInfo 文本消息信息 DTO

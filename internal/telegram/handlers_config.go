@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/models"
+	"go_bot/internal/telegram/service"
 
 	"github.com/go-telegram/bot"
 	botModels "github.com/go-telegram/bot/models"
@@ -19,10 +21,25 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	chatID := update.Message.Chat.ID
+	chat := update.Message.Chat
 
 	// 检查聊天类型：只能在群组中使用
-	if update.Message.Chat.Type != "group" && update.Message.Chat.Type != "supergroup" {
+	if chat.Type != "group" && chat.Type != "supergroup" {
 		b.sendErrorMessage(ctx, chatID, "此命令只能在群组中使用")
+		return
+	}
+
+	// 获取或创建群组记录（智能处理不存在的群组）
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
+	if err != nil {
+		logger.L().Errorf("Failed to get/create group: chat_id=%d, error=%v", chatID, err)
+		b.sendErrorMessage(ctx, chatID, "❌ 获取群组信息失败，请稍后重试")
 		return
 	}
 
@@ -30,7 +47,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	items := b.getConfigItems()
 
 	// 构建菜单
-	keyboard, err := b.configMenuService.BuildMainMenu(ctx, chatID, items)
+	keyboard, err := b.configMenuService.BuildMainMenu(ctx, group, items)
 	if err != nil {
 		logger.L().Errorf("Failed to build config menu: chat_id=%d, error=%v", chatID, err)
 		b.sendErrorMessage(ctx, chatID, "❌ 构建配置菜单失败，请稍后重试")
@@ -38,7 +55,7 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	// 发送菜单
-	menuText := b.buildConfigMenuText(ctx, chatID)
+	menuText := b.buildConfigMenuText(ctx, group)
 
 	_, err = botInstance.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:      chatID,
@@ -71,6 +88,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 	}
 
 	chatID := query.Message.Message.Chat.ID
+	chat := query.Message.Message.Chat
 	userID := query.From.ID
 	messageID := query.Message.Message.ID
 	callbackData := query.Data
@@ -83,11 +101,25 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 		return
 	}
 
+	// 获取或创建群组记录（智能处理不存在的群组）
+	chatInfo := &service.TelegramChatInfo{
+		ChatID:   chat.ID,
+		Type:     string(chat.Type),
+		Title:    chat.Title,
+		Username: chat.Username,
+	}
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
+	if err != nil {
+		logger.L().Errorf("Failed to get/create group: chat_id=%d, error=%v", chatID, err)
+		b.answerCallback(ctx, botInstance, query.ID, "❌ 获取群组信息失败")
+		return
+	}
+
 	// 获取配置项定义
 	items := b.getConfigItems()
 
 	// 处理回调
-	message, shouldUpdateMenu, err := b.configMenuService.HandleCallback(ctx, chatID, userID, callbackData, items)
+	message, shouldUpdateMenu, err := b.configMenuService.HandleCallback(ctx, group, userID, callbackData, items)
 
 	if err != nil {
 		logger.L().Errorf("Failed to handle config callback: data=%s, error=%v", callbackData, err)
@@ -102,13 +134,13 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 
 	// 如果需要更新菜单，重新构建并编辑消息
 	if shouldUpdateMenu {
-		keyboard, err := b.configMenuService.BuildMainMenu(ctx, chatID, items)
+		keyboard, err := b.configMenuService.BuildMainMenu(ctx, group, items)
 		if err != nil {
 			logger.L().Errorf("Failed to rebuild config menu: %v", err)
 			return
 		}
 
-		menuText := b.buildConfigMenuText(ctx, chatID)
+		menuText := b.buildConfigMenuText(ctx, group)
 
 		_, err = botInstance.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:      chatID,
@@ -127,7 +159,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 	if callbackData == "config:close" {
 		_, err := botInstance.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    chatID,
-			MessageID: messageID,
+			MessageID:   messageID,
 		})
 		if err != nil {
 			logger.L().Errorf("Failed to delete config menu: %v", err)
@@ -148,12 +180,11 @@ func (b *Bot) answerCallback(ctx context.Context, botInstance *bot.Bot, callback
 }
 
 // buildConfigMenuText 构建配置菜单文本（包含商户号状态）
-func (b *Bot) buildConfigMenuText(ctx context.Context, chatID int64) string {
+func (b *Bot) buildConfigMenuText(ctx context.Context, group *models.Group) string {
 	menuText := "⚙️ <b>群组配置</b>\n\n"
 
-	// 获取群组信息以显示商户号
-	group, err := b.groupService.GetGroupInfo(ctx, chatID)
-	if err == nil && group.Settings.MerchantID != "" {
+	// 显示商户号（如果已绑定）
+	if group.Settings.MerchantID != "" {
 		menuText += fmt.Sprintf("🏪 商户号: <code>%s</code>\n\n", group.Settings.MerchantID)
 	}
 

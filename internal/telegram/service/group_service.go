@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -40,6 +41,39 @@ func (s *GroupServiceImpl) GetGroupInfo(ctx context.Context, telegramID int64) (
 		return nil, fmt.Errorf("获取群组信息失败")
 	}
 	return group, nil
+}
+
+// GetOrCreateGroup 获取或创建群组记录（智能处理，群组不存在时自动创建）
+func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *TelegramChatInfo) (*models.Group, error) {
+	// 先尝试获取
+	group, err := s.groupRepo.GetByTelegramID(ctx, chatInfo.ChatID)
+	if err == nil {
+		return group, nil
+	}
+
+	// 不存在则创建默认群组记录
+	logger.L().Infof("Group %d not found, auto-creating...", chatInfo.ChatID)
+
+	newGroup := &models.Group{
+		TelegramID:  chatInfo.ChatID,
+		Type:        chatInfo.Type,
+		Title:       chatInfo.Title,
+		Username:    chatInfo.Username,
+		BotStatus:   models.BotStatusActive,
+		BotJoinedAt: time.Now(),
+		Settings:    models.GroupSettings{}, // 默认配置（所有功能关闭）
+		Stats:       models.GroupStats{},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := s.groupRepo.CreateOrUpdate(ctx, newGroup); err != nil {
+		logger.L().Errorf("Failed to auto-create group %d: %v", chatInfo.ChatID, err)
+		return nil, fmt.Errorf("自动创建群组失败")
+	}
+
+	logger.L().Infof("Auto-created group record: chat_id=%d, title=%s", chatInfo.ChatID, chatInfo.Title)
+	return newGroup, nil
 }
 
 // MarkBotLeft 标记 Bot 离开群组
