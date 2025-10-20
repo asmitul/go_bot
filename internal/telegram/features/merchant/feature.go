@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"go_bot/internal/logger"
@@ -98,11 +99,17 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 		return "❌ 绑定格式错误，请使用: 绑定 [商户号]\n例如: 绑定 2025100", true, nil
 	}
 
-	merchantID := parts[1]
+	merchantIDStr := parts[1]
 
 	// 验证商户号格式 (纯数字)
-	if !regexp.MustCompile(`^\d+$`).MatchString(merchantID) {
+	if !regexp.MustCompile(`^\d+$`).MatchString(merchantIDStr) {
 		return "❌ 商户号必须为纯数字", true, nil
+	}
+
+	// 解析为数字
+	merchantID, err := strconv.Atoi(merchantIDStr)
+	if err != nil || merchantID <= 0 {
+		return "❌ 商户号格式错误", true, nil
 	}
 
 	// 获取当前群组信息
@@ -113,26 +120,26 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 	}
 
 	// 检查是否已绑定其他商户号
-	if group.Settings.MerchantID != "" && group.Settings.MerchantID != merchantID {
-		return fmt.Sprintf("❌ 当前已绑定商户号: %s\n请先使用「解绑」命令解绑后再绑定新的商户号", group.Settings.MerchantID), true, nil
+	if group.Settings.MerchantID != 0 && group.Settings.MerchantID != int32(merchantID) {
+		return fmt.Sprintf("❌ 当前已绑定商户号: %d\n请先使用「解绑」命令解绑后再绑定新的商户号", group.Settings.MerchantID), true, nil
 	}
 
 	// 检查是否已绑定相同商户号
-	if group.Settings.MerchantID == merchantID {
-		return fmt.Sprintf("✅ 当前群组已绑定商户号: %s", merchantID), true, nil
+	if group.Settings.MerchantID == int32(merchantID) {
+		return fmt.Sprintf("✅ 当前群组已绑定商户号: %d", merchantID), true, nil
 	}
 
 	// 执行绑定
 	settings := group.Settings
-	settings.MerchantID = merchantID
+	settings.MerchantID = int32(merchantID)
 
 	if err := f.groupService.UpdateGroupSettings(ctx, msg.Chat.ID, settings); err != nil {
-		logger.L().Errorf("Failed to bind merchant ID: chat_id=%d, merchant_id=%s, err=%v", msg.Chat.ID, merchantID, err)
+		logger.L().Errorf("Failed to bind merchant ID: chat_id=%d, merchant_id=%d, err=%v", msg.Chat.ID, merchantID, err)
 		return "❌ 绑定失败，请稍后重试", true, nil
 	}
 
-	logger.L().Infof("Merchant ID bound: chat_id=%d, merchant_id=%s, operator=%d", msg.Chat.ID, merchantID, msg.From.ID)
-	return fmt.Sprintf("✅ 商户号绑定成功: %s", merchantID), true, nil
+	logger.L().Infof("Merchant ID bound: chat_id=%d, merchant_id=%d, operator=%d", msg.Chat.ID, merchantID, msg.From.ID)
+	return fmt.Sprintf("✅ 商户号绑定成功: %d", merchantID), true, nil
 }
 
 // handleUnbind 处理解绑命令
@@ -145,7 +152,7 @@ func (f *Feature) handleUnbind(ctx context.Context, msg *botModels.Message) (str
 	}
 
 	// 检查是否已绑定
-	if group.Settings.MerchantID == "" {
+	if group.Settings.MerchantID == 0 {
 		return "ℹ️ 当前群组未绑定任何商户号", true, nil
 	}
 
@@ -153,15 +160,15 @@ func (f *Feature) handleUnbind(ctx context.Context, msg *botModels.Message) (str
 
 	// 执行解绑
 	settings := group.Settings
-	settings.MerchantID = ""
+	settings.MerchantID = 0
 
 	if err := f.groupService.UpdateGroupSettings(ctx, msg.Chat.ID, settings); err != nil {
 		logger.L().Errorf("Failed to unbind merchant ID: chat_id=%d, err=%v", msg.Chat.ID, err)
 		return "❌ 解绑失败，请稍后重试", true, nil
 	}
 
-	logger.L().Infof("Merchant ID unbound: chat_id=%d, old_merchant_id=%s, operator=%d", msg.Chat.ID, oldMerchantID, msg.From.ID)
-	return fmt.Sprintf("✅ 已解绑商户号: %s", oldMerchantID), true, nil
+	logger.L().Infof("Merchant ID unbound: chat_id=%d, old_merchant_id=%d, operator=%d", msg.Chat.ID, oldMerchantID, msg.From.ID)
+	return fmt.Sprintf("✅ 已解绑商户号: %d", oldMerchantID), true, nil
 }
 
 // handleQuery 处理查询命令
@@ -174,9 +181,9 @@ func (f *Feature) handleQuery(ctx context.Context, msg *botModels.Message) (stri
 	}
 
 	// 返回绑定状态
-	if group.Settings.MerchantID == "" {
+	if group.Settings.MerchantID == 0 {
 		return "ℹ️ 当前群组未绑定商户号\n\n使用「绑定 [商户号]」进行绑定\n例如: 绑定 2025100", true, nil
 	}
 
-	return fmt.Sprintf("✅ 当前绑定商户号: %s\n\n使用「解绑」可以解除绑定", group.Settings.MerchantID), true, nil
+	return fmt.Sprintf("✅ 当前绑定商户号: %d\n\n使用「解绑」可以解除绑定", group.Settings.MerchantID), true, nil
 }

@@ -184,8 +184,8 @@ func (b *Bot) buildConfigMenuText(ctx context.Context, group *models.Group) stri
 	menuText := "⚙️ <b>群组配置</b>\n\n"
 
 	// 显示商户号（如果已绑定）
-	if group.Settings.MerchantID != "" {
-		menuText += fmt.Sprintf("🏪 商户号: <code>%s</code>\n\n", group.Settings.MerchantID)
+	if group.Settings.MerchantID != 0 {
+		menuText += fmt.Sprintf("🏪 商户号: <code>%d</code>\n\n", group.Settings.MerchantID)
 	}
 
 	menuText += "点击按钮切换功能开关："
