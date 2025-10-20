@@ -18,10 +18,12 @@ import (
 
 // Service 转发服务实现
 type Service struct {
-	channelID         int64
-	groupService      service.GroupService
-	userService       service.UserService
-	forwardRecordRepo repository.ForwardRecordRepository
+	channelID            int64
+	groupService         service.GroupService
+	userService          service.UserService
+	forwardRecordRepo    repository.ForwardRecordRepository
+	mediaGroupCollectors map[string]*MediaGroupCollector // 媒体组收集器（key: mediaGroupID）
+	collectorMutex       sync.RWMutex
 }
 
 // NewService 创建转发服务实例
@@ -32,10 +34,11 @@ func NewService(
 	forwardRecordRepo repository.ForwardRecordRepository,
 ) *Service {
 	return &Service{
-		channelID:         channelID,
-		groupService:      groupService,
-		userService:       userService,
-		forwardRecordRepo: forwardRecordRepo,
+		channelID:            channelID,
+		groupService:         groupService,
+		userService:          userService,
+		forwardRecordRepo:    forwardRecordRepo,
+		mediaGroupCollectors: make(map[string]*MediaGroupCollector),
 	}
 }
 
@@ -62,9 +65,6 @@ func (s *Service) HandleChannelMessage(ctx context.Context, botInterface interfa
 		return nil
 	}
 
-	// 生成任务 ID
-	taskID := uuid.New().String()
-
 	// 查询所有符合条件的群组
 	groups, err := s.groupService.ListActiveGroups(ctx)
 	if err != nil {
@@ -84,6 +84,16 @@ func (s *Service) HandleChannelMessage(ctx context.Context, botInterface interfa
 		return nil
 	}
 
+	// 检查是否为媒体组
+	if update.ChannelPost.MediaGroupID != "" {
+		// 媒体组消息，使用收集器
+		logger.L().Debugf("Media group message detected: media_group_id=%s, message_id=%d",
+			update.ChannelPost.MediaGroupID, update.ChannelPost.ID)
+		return s.handleMediaGroupMessage(ctx, botInstance, update.ChannelPost, targetGroups)
+	}
+
+	// 单条消息，直接转发
+	taskID := uuid.New().String()
 	logger.L().Infof("Starting forward task: task_id=%s, channel_message_id=%d, target_groups=%d",
 		taskID, update.ChannelPost.ID, len(targetGroups))
 
@@ -292,4 +302,136 @@ func (s *Service) sendReportToAdmins(ctx context.Context, botInstance *bot.Bot, 
 			logger.L().Infof("Sent forward report to admin %d", admin.TelegramID)
 		}
 	}
+}
+
+// handleMediaGroupMessage 处理媒体组消息
+func (s *Service) handleMediaGroupMessage(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groups []*models.Group) error {
+	mediaGroupID := message.MediaGroupID
+
+	s.collectorMutex.Lock()
+	collector, exists := s.mediaGroupCollectors[mediaGroupID]
+	if !exists {
+		// 创建新的收集器
+		collector = NewMediaGroupCollector(1500*time.Millisecond, func(messages []*botModels.Message) {
+			taskID := uuid.New().String()
+			logger.L().Infof("Starting media group forward task: task_id=%s, media_group_id=%s, message_count=%d, target_groups=%d",
+				taskID, mediaGroupID, len(messages), len(groups))
+
+			// 异步转发媒体组
+			go s.forwardMediaGroup(context.Background(), botInstance, messages, groups, taskID)
+
+			// 清理收集器
+			s.collectorMutex.Lock()
+			delete(s.mediaGroupCollectors, mediaGroupID)
+			s.collectorMutex.Unlock()
+		})
+		s.mediaGroupCollectors[mediaGroupID] = collector
+	}
+	s.collectorMutex.Unlock()
+
+	// 添加消息到收集器
+	collector.Add(message)
+	return nil
+}
+
+// forwardMediaGroup 批量转发媒体组
+func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, messages []*botModels.Message, groups []*models.Group, taskID string) {
+	startTime := time.Now()
+	limiter := NewRateLimiter(30)
+	defer limiter.Close()
+
+	// 提取消息 ID 列表
+	messageIDs := make([]int, len(messages))
+	for i, msg := range messages {
+		messageIDs[i] = msg.ID
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successCount := 0
+	failedCount := 0
+	records := make([]*models.ForwardRecord, 0)
+
+	// 并发转发到所有群组
+	for _, group := range groups {
+		wg.Add(1)
+		go func(g *models.Group) {
+			defer wg.Done()
+
+			forwardedMsgIDs, err := s.forwardMediaGroupToGroup(ctx, botInstance, messages[0].Chat.ID, messageIDs, g.TelegramID, limiter)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err == nil {
+				successCount++
+				// 记录每条转发的消息
+				for i, fwdID := range forwardedMsgIDs {
+					records = append(records, &models.ForwardRecord{
+						TaskID:             taskID,
+						ChannelMessageID:   int64(messageIDs[i]),
+						TargetGroupID:      g.TelegramID,
+						ForwardedMessageID: int64(fwdID),
+						Status:             models.ForwardStatusSuccess,
+						CreatedAt:          time.Now(),
+					})
+				}
+				logger.L().Debugf("Forwarded media group to group %d: %d messages", g.TelegramID, len(forwardedMsgIDs))
+			} else {
+				failedCount++
+				logger.L().Errorf("Failed to forward media group to group %d: %v", g.TelegramID, err)
+			}
+		}(group)
+	}
+
+	// 等待所有转发完成
+	wg.Wait()
+
+	// 批量插入记录
+	if len(records) > 0 {
+		if err := s.forwardRecordRepo.BulkCreateRecords(ctx, records); err != nil {
+			logger.L().Errorf("Failed to save forward records: %v", err)
+		}
+	}
+
+	duration := time.Since(startTime)
+	logger.L().Infof("Media group forward task completed: task_id=%s, media_count=%d, success=%d, failed=%d, duration=%v",
+		taskID, len(messages), successCount, failedCount, duration)
+
+	// 发送报告给管理员
+	s.sendReportToAdmins(ctx, botInstance, taskID, successCount, failedCount, duration)
+}
+
+// forwardMediaGroupToGroup 转发媒体组到单个群组（带重试）
+func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot.Bot, fromChatID int64, messageIDs []int, groupID int64, limiter *RateLimiter) ([]int, error) {
+	for i := 0; i < 3; i++ {
+		// 等待速率限制
+		if err := limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limiter wait error: %w", err)
+		}
+
+		// 使用 ForwardMessages API 批量转发
+		result, err := botInstance.ForwardMessages(ctx, &bot.ForwardMessagesParams{
+			ChatID:     groupID,
+			FromChatID: fromChatID,
+			MessageIDs: messageIDs,
+		})
+
+		if err == nil {
+			// 提取转发后的消息 ID
+			ids := make([]int, len(result))
+			for j, msgID := range result {
+				ids[j] = msgID.ID
+			}
+			return ids, nil
+		}
+
+		// 如果不是最后一次重试，等待2秒后重试
+		if i < 2 {
+			logger.L().Warnf("Media group forward attempt %d failed for group %d: %v, retrying in 2s", i+1, groupID, err)
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	return nil, fmt.Errorf("failed after 3 retries")
 }
