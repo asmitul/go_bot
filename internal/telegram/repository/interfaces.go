@@ -99,3 +99,24 @@ type ForwardRecordRepository interface {
 	// EnsureIndexes 确保索引存在
 	EnsureIndexes(ctx context.Context) error
 }
+
+// AccountingRepository 收支记账数据访问接口
+type AccountingRepository interface {
+	// CreateRecord 创建记账记录
+	CreateRecord(ctx context.Context, record *models.AccountingRecord) error
+
+	// GetRecordsByDateRange 按日期范围查询记录
+	GetRecordsByDateRange(ctx context.Context, chatID int64, startTime, endTime time.Time, currency string) ([]*models.AccountingRecord, error)
+
+	// GetRecentRecords 获取最近N天的记录（用于删除界面）
+	GetRecentRecords(ctx context.Context, chatID int64, days int) ([]*models.AccountingRecord, error)
+
+	// DeleteRecord 删除单条记录
+	DeleteRecord(ctx context.Context, recordID string) error
+
+	// DeleteAllByChatID 清空群组所有记录
+	DeleteAllByChatID(ctx context.Context, chatID int64) (int64, error)
+
+	// EnsureIndexes 确保索引存在
+	EnsureIndexes(ctx context.Context) error
+}

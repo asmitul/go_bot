@@ -44,7 +44,8 @@ type Bot struct {
 	groupService      service.GroupService
 	messageService    service.MessageService
 	configMenuService *service.ConfigMenuService
-	forwardService    service.ForwardService // 转发服务
+	forwardService    service.ForwardService    // 转发服务
+	accountingService service.AccountingService // 收支记账服务
 
 	// 功能管理器
 	featureManager *features.Manager
@@ -54,6 +55,7 @@ type Bot struct {
 	groupRepo         repository.GroupRepository
 	messageRepo       repository.MessageRepository
 	forwardRecordRepo repository.ForwardRecordRepository
+	accountingRepo    repository.AccountingRepository
 }
 
 // New 创建 Telegram Bot 实例
@@ -68,12 +70,14 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 	groupRepo := repository.NewMongoGroupRepository(db)
 	messageRepo := repository.NewMongoMessageRepository(db)
 	forwardRecordRepo := repository.NewForwardRecordRepository(db)
+	accountingRepo := repository.NewMongoAccountingRepository(db)
 
 	// 创建 services
 	userService := service.NewUserService(userRepo)
 	groupService := service.NewGroupService(groupRepo)
 	messageService := service.NewMessageService(messageRepo, groupRepo)
 	configMenuService := service.NewConfigMenuService(groupService)
+	accountingService := service.NewAccountingService(accountingRepo, groupRepo)
 
 	// 创建转发服务（如果配置了频道 ID）
 	var forwardService service.ForwardService
@@ -117,11 +121,13 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 		messageService:       messageService,
 		configMenuService:    configMenuService,
 		forwardService:       forwardService,
+		accountingService:    accountingService,
 		featureManager:       featureManager,
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
 		messageRepo:          messageRepo,
 		forwardRecordRepo:    forwardRecordRepo,
+		accountingRepo:       accountingRepo,
 	}
 
 	// 初始化 owners
@@ -250,6 +256,12 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 		}
 		logger.L().Info("Forward records indexes ensured (TTL: 48 hours)")
 	}
+
+	// 确保收支记账索引
+	if err := b.accountingRepo.EnsureIndexes(ctx); err != nil {
+		return fmt.Errorf("failed to ensure accounting indexes: %w", err)
+	}
+	logger.L().Debug("Accounting indexes ensured")
 
 	return nil
 }

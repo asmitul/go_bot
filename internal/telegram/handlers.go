@@ -54,6 +54,19 @@ func (b *Bot) registerHandlers() {
 		}, b.asyncHandler(b.handleRecallCallback))
 	}
 
+	// 收支记账命令
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "查询记账", bot.MatchTypeExact,
+		b.asyncHandler(b.handleQueryAccounting))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "删除记账记录", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleDeleteAccounting)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "清零记账", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleClearAccounting)))
+
+	// 收支记账删除回调处理器
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "acc_del:")
+	}, b.asyncHandler(b.handleAccountingDeleteCallback))
+
 	// Bot 状态变化事件 (MyChatMember)
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.MyChatMember != nil
@@ -434,6 +447,11 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		}
 	}
 
+	// 尝试处理记账输入
+	if b.handleAccountingInput(ctx, botInstance, update) {
+		return // 记账已处理，不再记录为普通消息
+	}
+
 	// 使用 Feature Manager 处理功能插件
 	// 这里替代了原来硬编码的计算器功能检测
 	responseText, handled, err := b.featureManager.Process(ctx, msg)
@@ -650,4 +668,242 @@ func (b *Bot) handleRecallCallback(ctx context.Context, botInstance *bot.Bot, up
 	} else if strings.HasPrefix(data, "recall:") {
 		forwardSvc.HandleRecallCallback(ctx, botInstance, query)
 	}
+}
+
+// ==================== 收支记账相关 Handlers ====================
+
+// handleAccountingInput 处理记账输入（私有函数，由 handleTextMessage 调用）
+func (b *Bot) handleAccountingInput(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) bool {
+	if update.Message == nil || update.Message.From == nil {
+		return false
+	}
+
+	chatID := update.Message.Chat.ID
+	userID := update.Message.From.ID
+	text := strings.TrimSpace(update.Message.Text)
+
+	// 检查群组是否启用记账功能
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err != nil || !group.Settings.AccountingEnabled {
+		return false
+	}
+
+	// 检查用户权限（仅管理员）
+	isAdmin, err := b.userService.CheckAdminPermission(ctx, userID)
+	if err != nil || !isAdmin {
+		return false
+	}
+
+	// 尝试添加记账记录
+	if err := b.accountingService.AddRecord(ctx, chatID, userID, text); err != nil {
+		// 如果是格式错误，返回 false（让后续 handler 处理）
+		if strings.Contains(err.Error(), "输入格式错误") {
+			return false
+		}
+		// 其他错误，显示错误消息
+		b.sendErrorMessage(ctx, chatID, err.Error())
+		return true
+	}
+
+	// 添加成功，自动查询并显示最新账单
+	report, err := b.accountingService.QueryRecords(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, "记录成功，但查询账单失败")
+		return true
+	}
+
+	b.sendMessage(ctx, chatID, report)
+	return true
+}
+
+// handleQueryAccounting 处理"查询记账"命令
+func (b *Bot) handleQueryAccounting(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	chatID := update.Message.Chat.ID
+
+	// 检查群组是否启用记账功能
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, "查询失败")
+		return
+	}
+
+	if !group.Settings.AccountingEnabled {
+		b.sendErrorMessage(ctx, chatID, "收支记账功能未启用")
+		return
+	}
+
+	// 查询账单
+	report, err := b.accountingService.QueryRecords(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, err.Error())
+		return
+	}
+
+	b.sendMessage(ctx, chatID, report)
+}
+
+// handleDeleteAccounting 处理"删除记账记录"命令（显示删除界面）
+func (b *Bot) handleDeleteAccounting(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	chatID := update.Message.Chat.ID
+
+	// 检查群组是否启用记账功能
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, "查询失败")
+		return
+	}
+
+	if !group.Settings.AccountingEnabled {
+		b.sendErrorMessage(ctx, chatID, "收支记账功能未启用")
+		return
+	}
+
+	// 获取最近2天的记录
+	records, err := b.accountingService.GetRecentRecordsForDeletion(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, err.Error())
+		return
+	}
+
+	if len(records) == 0 {
+		b.sendMessage(ctx, chatID, "没有可删除的记录")
+		return
+	}
+
+	// 构建删除界面
+	var keyboard [][]botModels.InlineKeyboardButton
+	for _, record := range records {
+		// 格式：MM-DD HH:MM | ±金额 货币 [删除]
+		dateStr := record.RecordedAt.Format("01-02 15:04")
+		amountStr := formatRecordAmount(record.Amount, record.Currency)
+		buttonText := fmt.Sprintf("%s | %s", dateStr, amountStr)
+
+		keyboard = append(keyboard, []botModels.InlineKeyboardButton{
+			{
+				Text:         buttonText,
+				CallbackData: fmt.Sprintf("acc_del:%s", record.ID.Hex()),
+			},
+		})
+	}
+
+	params := &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "🗑️ 点击按钮删除对应记录：",
+		ReplyMarkup: &botModels.InlineKeyboardMarkup{
+			InlineKeyboard: keyboard,
+		},
+	}
+
+	if _, err := botInstance.SendMessage(ctx, params); err != nil {
+		logger.L().Errorf("Failed to send delete menu: %v", err)
+	}
+}
+
+// formatRecordAmount 格式化记录金额（用于删除界面）
+func formatRecordAmount(amount float64, currency string) string {
+	var currencySymbol string
+	if currency == models.CurrencyUSD {
+		currencySymbol = "U"
+	} else {
+		currencySymbol = "Y"
+	}
+
+	if amount == float64(int64(amount)) {
+		// 整数
+		if amount >= 0 {
+			return fmt.Sprintf("+%d%s", int64(amount), currencySymbol)
+		}
+		return fmt.Sprintf("%d%s", int64(amount), currencySymbol)
+	}
+	// 小数
+	if amount >= 0 {
+		return fmt.Sprintf("+%.2f%s", amount, currencySymbol)
+	}
+	return fmt.Sprintf("%.2f%s", amount, currencySymbol)
+}
+
+// handleAccountingDeleteCallback 处理删除按钮回调
+func (b *Bot) handleAccountingDeleteCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	query := update.CallbackQuery
+	chatID := query.Message.Message.Chat.ID
+	data := query.Data
+
+	// 解析 callback data: acc_del:<record_id>
+	if !strings.HasPrefix(data, "acc_del:") {
+		return
+	}
+
+	recordID := strings.TrimPrefix(data, "acc_del:")
+
+	// 删除记录
+	if err := b.accountingService.DeleteRecord(ctx, recordID); err != nil {
+		// 回答 callback query
+		if _, err := botInstance.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: query.ID,
+			Text:            "删除失败",
+			ShowAlert:       true,
+		}); err != nil {
+			logger.L().Errorf("Failed to answer callback query: %v", err)
+		}
+		return
+	}
+
+	// 回答 callback query
+	if _, err := botInstance.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: query.ID,
+		Text:            "删除成功",
+	}); err != nil {
+		logger.L().Errorf("Failed to answer callback query: %v", err)
+	}
+
+	// 删除成功，自动发送最新账单
+	report, err := b.accountingService.QueryRecords(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, "删除成功，但查询账单失败")
+		return
+	}
+
+	b.sendMessage(ctx, chatID, report)
+}
+
+// handleClearAccounting 处理"清零记账"命令
+func (b *Bot) handleClearAccounting(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	chatID := update.Message.Chat.ID
+
+	// 检查群组是否启用记账功能
+	group, err := b.groupService.GetGroupInfo(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, "查询失败")
+		return
+	}
+
+	if !group.Settings.AccountingEnabled {
+		b.sendErrorMessage(ctx, chatID, "收支记账功能未启用")
+		return
+	}
+
+	// 清空所有记录
+	count, err := b.accountingService.ClearAllRecords(ctx, chatID)
+	if err != nil {
+		b.sendErrorMessage(ctx, chatID, err.Error())
+		return
+	}
+
+	b.sendSuccessMessage(ctx, chatID, fmt.Sprintf("已清空 %d 条记账记录", count))
 }

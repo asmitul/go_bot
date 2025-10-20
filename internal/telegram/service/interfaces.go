@@ -130,3 +130,21 @@ type ForwardService interface {
 	// RecallForwardedMessages 撤回转发消息
 	RecallForwardedMessages(ctx context.Context, bot interface{}, taskID string, requesterID int64) (successCount, failedCount int, err error)
 }
+
+// AccountingService 收支记账业务逻辑接口
+type AccountingService interface {
+	// AddRecord 添加记账记录
+	AddRecord(ctx context.Context, chatID, userID int64, input string) error
+
+	// QueryRecords 查询并格式化账单
+	QueryRecords(ctx context.Context, chatID int64) (string, error)
+
+	// GetRecentRecordsForDeletion 获取最近2天记录（用于删除界面）
+	GetRecentRecordsForDeletion(ctx context.Context, chatID int64) ([]*models.AccountingRecord, error)
+
+	// DeleteRecord 删除记录
+	DeleteRecord(ctx context.Context, recordID string) error
+
+	// ClearAllRecords 清空所有记录
+	ClearAllRecords(ctx context.Context, chatID int64) (int64, error)
+}
