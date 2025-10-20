@@ -26,7 +26,7 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
 
 # 设置时区
-ENV TZ=UTC
+ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
