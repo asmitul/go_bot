@@ -61,20 +61,23 @@ go_bot/
 │   ├── logger/          # Logrus-based logging with env config
 │   ├── mongo/           # MongoDB client wrapper
 │   └── telegram/        # Telegram bot service
-│       ├── models/      # Data models (User, Group, Message)
+│       ├── models/      # Data models (User, Group, Message, AccountingRecord)
 │       │   ├── user.go
 │       │   ├── group.go
-│       │   └── message.go
+│       │   ├── message.go
+│       │   └── accounting.go
 │       ├── repository/  # Data access layer with interfaces
 │       │   ├── user.go
 │       │   ├── group.go
 │       │   ├── message.go
+│       │   ├── accounting.go
 │       │   └── interfaces.go
 │       ├── service/     # Business logic layer
 │       │   ├── interfaces.go
 │       │   ├── user_service.go
 │       │   ├── group_service.go
-│       │   └── message_service.go
+│       │   ├── message_service.go
+│       │   └── accounting_service.go
 │       ├── features/    # Feature plugin system
 │       │   ├── feature.go        # Feature interface definition
 │       │   ├── manager.go        # Feature Manager
@@ -136,14 +139,17 @@ go_bot/
   - `User` struct with role-based permissions (Owner/Admin/User)
   - `Group` struct with settings and statistics
   - `Message` struct for recording all telegram messages (text/media/channel posts)
+  - `AccountingRecord` struct for income/expense tracking (USDT/CNY)
   - Permission check methods (`IsOwner()`, `IsAdmin()`, `CanManageUsers()`)
   - Message type constants (MessageTypeText, MessageTypePhoto, MessageTypeVideo, etc.)
+  - Currency constants (CurrencyUSD, CurrencyCNY)
 
 - **repository/** - Data access layer (CRUD operations)
   - Defines repository interfaces in `repository/interfaces.go`
   - `UserRepository`: CreateOrUpdate, GetByTelegramID, UpdateLastActive, GrantAdmin, RevokeAdmin, ListAdmins, GetUserInfo
   - `GroupRepository`: CreateOrUpdate, GetByTelegramID, MarkBotLeft, DeleteGroup, ListActiveGroups, UpdateSettings, UpdateStats
   - `MessageRepository`: CreateMessage, GetByTelegramID, UpdateMessageEdit, ListMessagesByChat, CountMessagesByType
+  - `AccountingRepository`: CreateRecord, GetRecordsByDateRange, GetRecentRecords, DeleteRecord, DeleteAllByChatID
   - All repositories provide `EnsureIndexes()` for automatic index creation
   - Pure data access layer - no business logic or validation
 
@@ -153,6 +159,7 @@ go_bot/
     - `UserService`: RegisterOrUpdateUser, GrantAdminPermission, RevokeAdminPermission, GetUserInfo, ListAllAdmins, CheckOwnerPermission, CheckAdminPermission, UpdateUserActivity
     - `GroupService`: CreateOrUpdateGroup, GetGroupInfo, MarkBotLeft, ListActiveGroups, UpdateGroupSettings, LeaveGroup, HandleBotAddedToGroup, HandleBotRemovedFromGroup
     - `MessageService`: HandleTextMessage, HandleMediaMessage, HandleEditedMessage, RecordChannelPost, GetChatMessageHistory
+    - `AccountingService`: AddRecord, QueryRecords, GetRecentRecordsForDeletion, DeleteRecord, ClearAllRecords
     - DTOs: `TelegramUserInfo`, `TextMessageInfo`, `MediaMessageInfo`, `ChannelPostInfo`
   - **UserService implementation** (`service/user_service.go`):
     - `RegisterOrUpdateUser(info)`: Converts DTO to model, calls repository, logs operation
@@ -174,6 +181,15 @@ go_bot/
     - `HandleEditedMessage`: Updates message edit history with edited_at timestamp
     - `RecordChannelPost`: Records channel posts (user_id=0 for channel messages)
     - `GetChatMessageHistory`: Retrieves paginated message history for a chat
+  - **AccountingService implementation** (`service/accounting_service.go`):
+    - `AddRecord(chatID, userID, input)`: Parses input (symbol/Chinese format), calculates expression using calculator, creates record
+    - `QueryRecords(chatID)`: Calculates yesterday balance (historical cumulative), retrieves today details, formats report (HTML bold for total)
+    - `GetRecentRecordsForDeletion(chatID)`: Gets last 2 days records sorted by time descending
+    - `DeleteRecord(recordID)`: Deletes single record by ID
+    - `ClearAllRecords(chatID)`: Deletes all records for the group, returns count
+    - Supports symbol format (`+100*7.2U`, `-50Y`) and Chinese format (`入100`, `出50Y`, default USDT)
+    - Uses calculator.Calculate() for math expression evaluation (+ - * /)
+    - Formats output: integers without `.0`, positive with `+`, negative with `-`, bold HTML tags for total balance
   - **Responsibility separation from repository**:
     - Repository layer: Pure database CRUD, no business validation
     - Service layer: Business validation, permission checks, business rules, error handling
@@ -297,6 +313,18 @@ go_bot/
     - MongoDB background task checks every 60 seconds for expired documents
     - Zero maintenance cost - fully automated by database engine
 
+- **accounting_records** collection
+  - `_id` (ObjectID) - Record identifier
+  - `chat_id` (int64, index) - Group chat ID
+  - `user_id` (int64, index) - User who created the record
+  - `amount` (float64) - Amount (positive for income, negative for expense)
+  - `currency` (string) - Currency type: USD (USDT) or CNY
+  - `original_expr` (string) - Original expression (e.g., "100*7.2")
+  - `recorded_at` (time, index) - Record timestamp (container timezone: Asia/Shanghai)
+  - `created_at` (time) - Database creation timestamp
+  - Indexes: `{chat_id: 1, recorded_at: -1, currency: 1}` (composite index for query optimization)
+  - No TTL index - records persist until manually deleted
+
 **Supported Commands:**
 
 | Command | Permission | Description |
@@ -308,6 +336,11 @@ go_bot/
 | `/admins` | Admin+ | List all administrators |
 | `/userinfo <user_id>` | Admin+ | View detailed user information |
 | `/leave` | Admin+ | Bot leaves the group and deletes group record |
+| `查询记账` | All members | Query accounting records and balance |
+| `删除记账记录` | Admin+ | Show delete menu with recent 2 days records |
+| `清零记账` | Admin+ | Clear all accounting records for the group |
+| `+100U` / `-50Y` | Admin+ | Add accounting record (symbol format) |
+| `入100` / `出50Y` | Admin+ | Add accounting record (Chinese format, default USDT) |
 
 **Supported Event Handlers:**
 

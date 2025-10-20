@@ -127,6 +127,11 @@ cd go_bot
 | `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
 | `/admins` | Admin+ | 查看所有管理员列表 |
 | `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
+| `查询记账` | 所有成员 | 查询收支账单和余额 |
+| `删除记账记录` | Admin+ | 显示删除菜单（最近2天记录） |
+| `清零记账` | Admin+ | 清空群组所有记账记录 |
+| `+100U` / `-50Y` | Admin+ | 添加记账记录（符号格式） |
+| `入100` / `出50Y` | Admin+ | 添加记账记录（中文格式，默认USDT） |
 
 - **数据库设计**：
 
@@ -146,6 +151,15 @@ cd go_bot
   - `bot_status` - Bot 状态（active/kicked/left）
   - `settings` - 群组配置（欢迎消息、反垃圾等）
   - `stats` - 群组统计信息（消息数、最后消息时间等）
+
+  **accounting_records Collection**（收支记账表）
+  - `chat_id` - 群组 Chat ID（索引）
+  - `user_id` - 创建记录的用户 ID
+  - `amount` - 金额（正数为收入，负数为支出）
+  - `currency` - 货币类型（USD/CNY）
+  - `original_expr` - 原始表达式（如 "100*7.2"）
+  - `recorded_at` - 记录时间（容器时区：Asia/Shanghai）
+  - 复合索引：`{chat_id, recorded_at, currency}` 用于查询优化
 
 - **使用示例**：
 
