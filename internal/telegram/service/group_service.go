@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -55,16 +54,14 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 	logger.L().Infof("Group %d not found, auto-creating...", chatInfo.ChatID)
 
 	newGroup := &models.Group{
-		TelegramID:  chatInfo.ChatID,
-		Type:        chatInfo.Type,
-		Title:       chatInfo.Title,
-		Username:    chatInfo.Username,
-		BotStatus:   models.BotStatusActive,
-		BotJoinedAt: time.Now(),
-		Settings:    models.GroupSettings{}, // 默认配置（所有功能关闭）
-		Stats:       models.GroupStats{},
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		TelegramID: chatInfo.ChatID,
+		Type:       chatInfo.Type,
+		Title:      chatInfo.Title,
+		Username:   chatInfo.Username,
+		BotStatus:  models.BotStatusActive,
+		Settings:   models.GroupSettings{}, // 默认配置（所有功能关闭）
+		Stats:      models.GroupStats{},
+		// BotJoinedAt、CreatedAt、UpdatedAt 由 CreateOrUpdate 的 $setOnInsert 自动设置
 	}
 
 	if err := s.groupRepo.CreateOrUpdate(ctx, newGroup); err != nil {
