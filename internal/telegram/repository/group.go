@@ -91,21 +91,21 @@ func (r *MongoGroupRepository) GetByTelegramID(ctx context.Context, telegramID i
 	return &group, nil
 }
 
-// MarkBotLeft 标记 Bot 离开群组
-func (r *MongoGroupRepository) MarkBotLeft(ctx context.Context, telegramID int64) error {
+// UpdateBotStatus 更新 Bot 在群组中的状态
+func (r *MongoGroupRepository) UpdateBotStatus(ctx context.Context, telegramID int64, status string) error {
 	now := time.Now()
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
-			"bot_status": models.BotStatusLeft,
+			"bot_status":  status,
 			"bot_left_at": now,
-			"updated_at": now,
+			"updated_at":  now,
 		},
 	}
 
 	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return fmt.Errorf("failed to mark bot left: %w", err)
+		return fmt.Errorf("failed to update bot status: %w", err)
 	}
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("group not found: %d", telegramID)

@@ -11,6 +11,12 @@ cd go_bot
 
 ---
 
+## 🤝 贡献指南
+
+在开始开发或提交流程前，请阅读 [`Repository Guidelines`](AGENTS.md)，了解项目结构、编码规范、测试与提交流程等要求。
+
+---
+
 ## 🔐 2. 配置 GitHub Actions Secrets
 
 在项目的 **GitHub 仓库** 中，依次进入：

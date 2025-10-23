@@ -69,13 +69,20 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		return nil, fmt.Errorf("自动创建群组失败")
 	}
 
+	// 再次查询以获取数据库填充的默认值
+	createdGroup, err := s.groupRepo.GetByTelegramID(ctx, chatInfo.ChatID)
+	if err != nil {
+		logger.L().Errorf("Failed to reload group %d after creation: %v", chatInfo.ChatID, err)
+		return nil, fmt.Errorf("自动创建群组失败")
+	}
+
 	logger.L().Infof("Auto-created group record: chat_id=%d, title=%s", chatInfo.ChatID, chatInfo.Title)
-	return newGroup, nil
+	return createdGroup, nil
 }
 
 // MarkBotLeft 标记 Bot 离开群组
 func (s *GroupServiceImpl) MarkBotLeft(ctx context.Context, telegramID int64) error {
-	if err := s.groupRepo.MarkBotLeft(ctx, telegramID); err != nil {
+	if err := s.groupRepo.UpdateBotStatus(ctx, telegramID, models.BotStatusLeft); err != nil {
 		logger.L().Errorf("Failed to mark bot left for group %d: %v", telegramID, err)
 		return fmt.Errorf("标记失败: %w", err)
 	}
@@ -163,7 +170,7 @@ func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegr
 	}
 
 	// 标记 Bot 离开
-	if err := s.groupRepo.MarkBotLeft(ctx, telegramID); err != nil {
+	if err := s.groupRepo.UpdateBotStatus(ctx, telegramID, status); err != nil {
 		logger.L().Errorf("Failed to handle bot removed from group %d: %v", telegramID, err)
 		return fmt.Errorf("记录 Bot 离开群组失败: %w", err)
 	}

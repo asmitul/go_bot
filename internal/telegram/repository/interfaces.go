@@ -42,8 +42,8 @@ type GroupRepository interface {
 	// GetByTelegramID 根据 Telegram ID 获取群组
 	GetByTelegramID(ctx context.Context, telegramID int64) (*models.Group, error)
 
-	// MarkBotLeft 标记 Bot 离开群组
-	MarkBotLeft(ctx context.Context, telegramID int64) error
+	// UpdateBotStatus 更新 Bot 在群组中的状态
+	UpdateBotStatus(ctx context.Context, telegramID int64, status string) error
 
 	// DeleteGroup 删除群组（Bot 离开时）
 	DeleteGroup(ctx context.Context, telegramID int64) error

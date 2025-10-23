@@ -19,10 +19,15 @@ type Config struct {
 
 // Load 从环境变量加载配置
 func Load() (*Config, error) {
+	mongoDBName := os.Getenv("MONGO_DB_NAME")
+	if mongoDBName == "" {
+		mongoDBName = "go_bot"
+	}
+
 	cfg := &Config{
 		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
 		MongoURI:      os.Getenv("MONGO_URI"),
-		MongoDBName:   os.Getenv("MONGO_DB_NAME"),
+		MongoDBName:   mongoDBName,
 	}
 
 	// 解析BOT_OWNER_IDS
