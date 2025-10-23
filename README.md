@@ -56,7 +56,7 @@ cd go_bot
 | 名称             | 说明                                                            | 默认值     |
 | ---------------- | --------------------------------------------------------------- | ---------- |
 | `LOG_LEVEL`      | 日志级别（支持：`debug`、`info`、`warn`、`error`）                | `info`     |
-| `MONGO_DB_NAME`  | MongoDB 数据库名称。未设置时默认使用仓库名（如 `go_bot`） | 仓库名 |
+| `MONGO_DB_NAME`  | MongoDB 数据库名称。未设置时默认使用 `go_bot` | `go_bot` |
 | `MESSAGE_RETENTION_DAYS` | 消息保留天数，过期后自动删除（最小值：1） | `7` |
 
 
@@ -83,7 +83,9 @@ cd go_bot
   - `TELEGRAM_TOKEN` - Telegram Bot API 令牌
   - `BOT_OWNER_IDS` - 机器人管理员 ID 列表（支持单个 ID 如 `123456789`，或逗号分隔多个 ID 如 `123456789,987654321`）
   - `MONGO_URI` - MongoDB 数据库连接字符串
-  - `MONGO_DB_NAME` - MongoDB 数据库名称
+  - `MONGO_DB_NAME` - MongoDB 数据库名称（默认：`go_bot`）
+  - `MESSAGE_RETENTION_DAYS` - 消息保留天数（默认：`7`，最小值：`1`）
+  - `CHANNEL_ID` - 可选，配置频道 ID 后启用频道消息转发
 
 ---
 
@@ -133,6 +135,7 @@ cd go_bot
 | `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
 | `/admins` | Admin+ | 查看所有管理员列表 |
 | `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
+| `/configs` | Admin+ | 打开群组功能配置菜单（计算器、翻译、USDT 价格等） |
 | `查询记账` | 所有成员 | 查询收支账单和余额 |
 | `删除记账记录` | Admin+ | 显示删除菜单（最近2天记录） |
 | `清零记账` | Admin+ | 清空群组所有记账记录 |
@@ -155,8 +158,8 @@ cd go_bot
   - `type` - 群组类型（group/supergroup/channel）
   - `title` - 群组名称
   - `bot_status` - Bot 状态（active/kicked/left）
-  - `settings` - 群组配置（欢迎消息、反垃圾等）
-  - `stats` - 群组统计信息（消息数、最后消息时间等）
+  - `settings` - 群组功能配置（计算器、翻译、USDT 价格、渠道转发、记账开关、商户号等）
+  - `stats` - 群组统计信息（`total_messages`、`last_message_at`）
 
   **accounting_records Collection**（收支记账表）
   - `chat_id` - 群组 Chat ID（索引）
