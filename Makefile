@@ -1,4 +1,9 @@
 .PHONY: local-up local-down local-logs local-restart local-clean local-mongo test-ttl help
+.DEFAULT_GOAL := help
+
+COMPOSE_FILE := docker-compose.local.yml
+DOCKER_COMPOSE := $(if $(shell command -v docker-compose >/dev/null 2>&1 && echo yes),docker-compose,docker compose)
+COMPOSE := $(DOCKER_COMPOSE) -f $(COMPOSE_FILE)
 
 # 默认目标：显示帮助信息
 help:
@@ -30,25 +35,25 @@ local-up:
 		echo "然后编辑 .env.local 填入你的配置"; \
 		exit 1; \
 	fi
-	docker-compose -f docker-compose.local.yml --env-file .env.local up -d
+	$(COMPOSE) --env-file .env.local up -d
 	@echo "✅ 环境已启动！"
 	@echo "📝 查看日志: make local-logs"
 
 # 停止本地测试环境
 local-down:
 	@echo "🛑 停止本地测试环境..."
-	docker-compose -f docker-compose.local.yml down
+	$(COMPOSE) down
 	@echo "✅ 环境已停止"
 
 # 查看实时日志
 local-logs:
 	@echo "📝 查看 Bot 实时日志（Ctrl+C 退出）..."
-	docker-compose -f docker-compose.local.yml logs -f bot
+	$(COMPOSE) logs -f bot
 
 # 重启 Bot（保留数据库）
 local-restart:
 	@echo "♻️  重启 Bot..."
-	docker-compose -f docker-compose.local.yml restart bot
+	$(COMPOSE) restart bot
 	@echo "✅ Bot 已重启"
 	@echo "📝 查看日志: make local-logs"
 
@@ -56,7 +61,7 @@ local-restart:
 local-clean:
 	@echo "🧹 清理所有本地数据..."
 	@read -p "确认删除所有数据？(y/N) " confirm && [ "$$confirm" = "y" ] || exit 1
-	docker-compose -f docker-compose.local.yml down -v
+	$(COMPOSE) down -v
 	rm -rf data/
 	@echo "✅ 已清理所有本地数据"
 
