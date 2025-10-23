@@ -139,7 +139,7 @@ INFO[0001] Telegram bot initialized successfully
 
 **预期结果：**
 ```
-🏓 Pong! Bot is running.
+🏓 Pong!
 ```
 
 #### 测试 3：查看管理员列表
@@ -241,7 +241,7 @@ INFO[0001] Telegram bot initialized successfully
 
 **预期结果：**
 ```
-🏓 Pong! Bot is running.
+🏓 Pong!
 ```
 
 #### 测试 10：消息记录
