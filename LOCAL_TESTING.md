@@ -74,7 +74,7 @@ INFO[0001] Message indexes ensured (TTL: 7 days = 604800 seconds)
 | 命令 | 说明 | 预期结果 |
 |------|------|----------|
 | `/start` | 测试 bot 启动和用户注册 | 收到欢迎消息 |
-| `/ping` | 测试连接状态 | 收到 "🏓 Pong! Bot is running." |
+| `/ping` | 测试连接状态 | 收到 "🏓 Pong!" |
 | `/admins` | 查看管理员列表 | 显示你的用户信息（Owner） |
 | `/userinfo <your_id>` | 查看用户详情 | 显示完整的用户信息 |
 | 发送文本消息 | 测试消息记录功能 | 消息被记录到数据库 |
@@ -396,7 +396,7 @@ make local-mongo
 ## 📚 相关文档
 
 - [README.md](./README.md) - 项目总体说明
-- [CLAUDE.md](./CLAUDE.md) - 项目架构和开发规范
+- [AGENTS.md](./AGENTS.md) - 仓库贡献指南
 - [TESTING.md](./TESTING.md) - 线上环境测试指南
 - [GitHub Actions 配置](./.github/workflows/) - CI/CD 流程
 
