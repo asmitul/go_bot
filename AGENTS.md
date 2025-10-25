@@ -29,4 +29,4 @@
 
 ## Environment & Secrets
 - Copy `.env.local.example` to `.env.local`, then provide `TELEGRAM_TOKEN`, `BOT_OWNER_IDS`, and Mongo credentials before running `make local-up`.
-- GitHub Actions depend on matching secrets (`TELEGRAM_TOKEN`, `MONGO_URI`, `VPS_*`); new deployments should validate that these stay in sync with the service configuration.
+- GitHub Actions depend on matching secrets (`TELEGRAM_TOKEN`, `MONGO_URI`, `VPS_*`, `SIFANG_*`); new deployments should validate that these stay in sync with the service configuration.

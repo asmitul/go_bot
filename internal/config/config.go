@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config 应用程序配置
@@ -15,6 +16,22 @@ type Config struct {
 	MongoDBName          string  // MongoDB数据库名称
 	MessageRetentionDays int     // 消息保留天数（过期自动删除）
 	ChannelID            int64   // 源频道 ID（用于转发功能）
+	Payment              PaymentConfig
+}
+
+// PaymentConfig 支付相关配置
+type PaymentConfig struct {
+	Sifang SifangConfig
+}
+
+// SifangConfig 四方支付配置
+type SifangConfig struct {
+	BaseURL            string
+	AccessKey          string
+	MasterKey          string
+	DefaultMerchantKey string
+	MerchantKeys       map[int64]string
+	Timeout            time.Duration
 }
 
 // Load 从环境变量加载配置
@@ -65,6 +82,13 @@ func Load() (*Config, error) {
 		cfg.ChannelID = channelID
 	}
 
+	// 加载四方支付配置
+	sifangCfg, err := loadSifangConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.Payment.Sifang = sifangCfg
+
 	return cfg, nil
 }
 
@@ -88,4 +112,69 @@ func parseOwnerIDs(s string) ([]int64, error) {
 	}
 
 	return ids, nil
+}
+
+func loadSifangConfig() (SifangConfig, error) {
+	var cfg SifangConfig
+
+	cfg.BaseURL = strings.TrimSpace(os.Getenv("SIFANG_BASE_URL"))
+	cfg.AccessKey = strings.TrimSpace(os.Getenv("SIFANG_ACCESS_KEY"))
+	cfg.MasterKey = strings.TrimSpace(os.Getenv("SIFANG_MASTER_KEY"))
+	cfg.DefaultMerchantKey = strings.TrimSpace(os.Getenv("SIFANG_DEFAULT_MERCHANT_KEY"))
+
+	if timeoutStr := strings.TrimSpace(os.Getenv("SIFANG_TIMEOUT_SECONDS")); timeoutStr != "" {
+		seconds, err := strconv.Atoi(timeoutStr)
+		if err != nil || seconds <= 0 {
+			return SifangConfig{}, fmt.Errorf("invalid SIFANG_TIMEOUT_SECONDS: %s", timeoutStr)
+		}
+		cfg.Timeout = time.Duration(seconds) * time.Second
+	} else {
+		cfg.Timeout = 10 * time.Second
+	}
+
+	merchantKeyStr := strings.TrimSpace(os.Getenv("SIFANG_MERCHANT_KEYS"))
+	if merchantKeyStr != "" {
+		parsed, err := parseMerchantKeys(merchantKeyStr)
+		if err != nil {
+			return SifangConfig{}, err
+		}
+		cfg.MerchantKeys = parsed
+	} else {
+		cfg.MerchantKeys = map[int64]string{}
+	}
+
+	return cfg, nil
+}
+
+// parseMerchantKeys 解析格式为 "1001:secret,1002:secret2" 的字符串
+func parseMerchantKeys(input string) (map[int64]string, error) {
+	pairs := strings.Split(input, ",")
+	result := make(map[int64]string, len(pairs))
+
+	for _, pair := range pairs {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid SIFANG_MERCHANT_KEYS entry: %s", pair)
+		}
+
+		idStr := strings.TrimSpace(parts[0])
+		key := strings.TrimSpace(parts[1])
+		if idStr == "" || key == "" {
+			return nil, fmt.Errorf("invalid SIFANG_MERCHANT_KEYS entry: %s", pair)
+		}
+
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid merchant id in SIFANG_MERCHANT_KEYS: %s", idStr)
+		}
+
+		result[id] = key
+	}
+
+	return result, nil
 }

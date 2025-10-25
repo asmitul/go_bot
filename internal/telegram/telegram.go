@@ -7,10 +7,12 @@ import (
 
 	"go_bot/internal/config"
 	"go_bot/internal/logger"
+	paymentservice "go_bot/internal/payment/service"
 	"go_bot/internal/telegram/features"
 	"go_bot/internal/telegram/features/calculator"
 	"go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/merchant"
+	"go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/features/translator"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
@@ -46,6 +48,7 @@ type Bot struct {
 	configMenuService *service.ConfigMenuService
 	forwardService    service.ForwardService    // 转发服务
 	accountingService service.AccountingService // 收支记账服务
+	paymentService    paymentservice.Service
 
 	// 功能管理器
 	featureManager *features.Manager
@@ -59,7 +62,7 @@ type Bot struct {
 }
 
 // New 创建 Telegram Bot 实例
-func New(cfg Config, db *mongo.Database) (*Bot, error) {
+func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bot, error) {
 	// 验证配置
 	if cfg.Token == "" {
 		return nil, fmt.Errorf("telegram token cannot be empty")
@@ -122,6 +125,7 @@ func New(cfg Config, db *mongo.Database) (*Bot, error) {
 		configMenuService:    configMenuService,
 		forwardService:       forwardService,
 		accountingService:    accountingService,
+		paymentService:       paymentSvc,
 		featureManager:       featureManager,
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
@@ -165,7 +169,7 @@ func (b *Bot) asyncHandler(handler bot.HandlerFunc) bot.HandlerFunc {
 }
 
 // InitFromConfig 从应用配置初始化 Telegram Bot
-func InitFromConfig(cfg *config.Config, db *mongo.Database) (*Bot, error) {
+func InitFromConfig(cfg *config.Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bot, error) {
 	telegramCfg := Config{
 		Token:                cfg.TelegramToken,
 		OwnerIDs:             cfg.BotOwnerIDs,
@@ -173,7 +177,7 @@ func InitFromConfig(cfg *config.Config, db *mongo.Database) (*Bot, error) {
 		MessageRetentionDays: cfg.MessageRetentionDays,
 		ChannelID:            cfg.ChannelID,
 	}
-	return New(telegramCfg, db)
+	return New(telegramCfg, db, paymentSvc)
 }
 
 // Start 启动 Bot（阻塞式，应在 goroutine 中运行）
@@ -273,6 +277,9 @@ func (b *Bot) registerFeatures() {
 
 	// 注册商户号绑定功能
 	b.featureManager.Register(merchant.New(b.groupService, b.userService))
+
+	// 注册四方支付功能
+	b.featureManager.Register(sifang.New(b.paymentService, b.userService))
 
 	// 注册翻译功能
 	b.featureManager.Register(translator.New())

@@ -161,6 +161,22 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
+		// 四方支付功能开关
+		{
+			ID:       "sifang_enabled",
+			Name:     "四方支付查询",
+			Icon:     "🏦",
+			Type:     models.ConfigTypeToggle,
+			Category: "功能管理",
+			ToggleGetter: func(g *models.Group) bool {
+				return g.Settings.SifangEnabled
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.SifangEnabled = val
+			},
+			RequireAdmin: true,
+		},
+
 		// ========== 扩展示例（已注释）==========
 		//
 		// 需要更多配置？取消注释或添加新配置项即可：

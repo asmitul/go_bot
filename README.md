@@ -41,6 +41,10 @@ cd go_bot
 | 名称 | 说明 |
 | ---- | ---- |
 | `CHANNEL_ID` | 源频道 ID，用于自动转发消息到群组。格式：`-100` 开头的 13 位数字（例如 `-1001234567890`）。不设置时转发功能不启用 |
+| `SIFANG_BASE_URL` | 四方支付 API 基础地址，例如 `https://www.example.com/index.php?s=/Index/Api` |
+| `SIFANG_ACCESS_KEY` | 四方平台提供的 access key，用于启用 master key 签名 |
+| `SIFANG_MASTER_KEY` | 四方平台提供的 master key（与 access key 搭配使用） |
+| `SIFANG_TIMEOUT_SECONDS` | 四方支付请求超时（秒），未配置时默认 10 |
 
 **如何获取频道 ID**：
 1. 在频道中转发一条消息到 [@userinfobot](https://t.me/userinfobot)
@@ -86,6 +90,12 @@ cd go_bot
   - `MONGO_DB_NAME` - MongoDB 数据库名称（默认：`go_bot`）
   - `MESSAGE_RETENTION_DAYS` - 消息保留天数（默认：`7`，最小值：`1`）
   - `CHANNEL_ID` - 可选，配置频道 ID 后启用频道消息转发
+  - 四方支付相关（可选）：
+    - `SIFANG_BASE_URL` - 四方支付接口基础地址，例如 `https://www.example.com/index.php?s=/Index/Api`
+    - `SIFANG_ACCESS_KEY` / `SIFANG_MASTER_KEY` - 平台提供的 master access key 与密钥（签名时优先使用）
+    - `SIFANG_DEFAULT_MERCHANT_KEY` - 默认商户密钥，当群组绑定的商户未在映射表中时使用
+    - `SIFANG_MERCHANT_KEYS` - 指定商户密钥映射，格式示例：`1001:secret_for_1001,1002:secret_for_1002`
+    - `SIFANG_TIMEOUT_SECONDS` - 请求超时时间（秒，默认 `10`）
 
 ---
 

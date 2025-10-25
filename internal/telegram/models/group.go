@@ -24,9 +24,9 @@ type Group struct {
 	MemberCount int                `bson:"member_count"`          // 成员数量（定期更新）
 
 	// Bot 状态
-	BotStatus   string     `bson:"bot_status"`             // Bot 状态：active/kicked/left
-	BotJoinedAt time.Time  `bson:"bot_joined_at"`          // Bot 加入时间
-	BotLeftAt   *time.Time `bson:"bot_left_at,omitempty"`  // Bot 离开时间
+	BotStatus   string     `bson:"bot_status"`            // Bot 状态：active/kicked/left
+	BotJoinedAt time.Time  `bson:"bot_joined_at"`         // Bot 加入时间
+	BotLeftAt   *time.Time `bson:"bot_left_at,omitempty"` // Bot 离开时间
 
 	// 群组配置
 	Settings GroupSettings `bson:"settings"` // 群组功能配置
@@ -47,11 +47,12 @@ type GroupSettings struct {
 	ForwardEnabled    bool    `bson:"forward_enabled"`    // 是否接收频道转发消息
 	AccountingEnabled bool    `bson:"accounting_enabled"` // 是否启用收支记账功能
 	MerchantID        int32   `bson:"merchant_id"`        // 商户号（数字类型，0 表示未绑定）
+	SifangEnabled     bool    `bson:"sifang_enabled"`     // 是否启用四方支付功能
 }
 
 // GroupStats 群组统计信息
 type GroupStats struct {
-	TotalMessages int64     `bson:"total_messages"` // 总消息数
+	TotalMessages int64     `bson:"total_messages"`  // 总消息数
 	LastMessageAt time.Time `bson:"last_message_at"` // 最后一条消息时间
 }
 

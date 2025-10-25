@@ -7,14 +7,17 @@ import (
 	"go_bot/internal/config"
 	"go_bot/internal/logger"
 	"go_bot/internal/mongo"
+	paymentservice "go_bot/internal/payment/service"
+	"go_bot/internal/payment/sifang"
 	"go_bot/internal/telegram"
 )
 
 // App 应用服务容器
 // 负责管理所有服务的生命周期（初始化、运行、关闭）
 type App struct {
-	MongoDB     *mongo.Client
-	TelegramBot *telegram.Bot
+	MongoDB        *mongo.Client
+	TelegramBot    *telegram.Bot
+	PaymentService paymentservice.Service
 	// 未来扩展其他服务：
 	// RedisClient *redis.Client
 }
@@ -32,8 +35,21 @@ func New(cfg *config.Config) (*App, error) {
 	app.MongoDB = mongoClient
 	logger.L().Info("MongoDB initialized successfully")
 
+	// 初始化四方支付服务（可选）
+	if cfg.Payment.Sifang.BaseURL != "" {
+		sifangClient, err := sifang.NewClient(cfg.Payment.Sifang)
+		if err != nil {
+			app.Close(context.Background())
+			return nil, fmt.Errorf("init Sifang client failed: %w", err)
+		}
+		app.PaymentService = paymentservice.NewSifangService(sifangClient)
+		logger.L().Info("Sifang payment service initialized successfully")
+	} else {
+		logger.L().Warn("Sifang payment service not initialized: SIFANG_BASE_URL is empty")
+	}
+
 	// 初始化 Telegram Bot
-	app.TelegramBot, err = telegram.InitFromConfig(cfg, app.MongoDB.Database())
+	app.TelegramBot, err = telegram.InitFromConfig(cfg, app.MongoDB.Database(), app.PaymentService)
 	if err != nil {
 		app.Close(context.Background()) // 清理已初始化的服务
 		return nil, fmt.Errorf("init Telegram bot failed: %w", err)

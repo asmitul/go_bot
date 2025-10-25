@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+env:
+  SIFANG_BASE_URL: ${{ secrets.SIFANG_BASE_URL }}
+  SIFANG_ACCESS_KEY: ${{ secrets.SIFANG_ACCESS_KEY }}
+  SIFANG_MASTER_KEY: ${{ secrets.SIFANG_MASTER_KEY }}
+  SIFANG_TIMEOUT_SECONDS: ${{ secrets.SIFANG_TIMEOUT_SECONDS }}
+
 jobs:
   lint:
     name: 代码规范检查
