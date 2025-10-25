@@ -59,8 +59,15 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		Title:      chatInfo.Title,
 		Username:   chatInfo.Username,
 		BotStatus:  models.BotStatusActive,
-		Settings:   models.GroupSettings{}, // 默认配置（所有功能关闭）
-		Stats:      models.GroupStats{},
+		Settings: models.GroupSettings{
+			CalculatorEnabled: true,
+			CryptoEnabled:     true,
+			CryptoFloatRate:   0.12,
+			ForwardEnabled:    true,
+			AccountingEnabled: true,
+			SifangEnabled:     true,
+		},
+		Stats: models.GroupStats{},
 		// BotJoinedAt、CreatedAt、UpdatedAt 由 CreateOrUpdate 的 $setOnInsert 自动设置
 	}
 
