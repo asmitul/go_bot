@@ -74,7 +74,7 @@ func (s *Service) HandleChannelMessage(ctx context.Context, botInterface interfa
 	// 过滤启用转发且已绑定商户号的群组
 	var targetGroups []*models.Group
 	for _, group := range groups {
-		if group.Settings.ForwardEnabled && group.Settings.MerchantID != 0 {
+		if group.Settings.ForwardEnabled {
 			targetGroups = append(targetGroups, group)
 		}
 	}
