@@ -69,22 +69,6 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
-		// 翻译功能开关
-		{
-			ID:       "translator_enabled",
-			Name:     "翻译功能",
-			Icon:     "📖",
-			Type:     models.ConfigTypeToggle,
-			Category: "功能管理",
-			ToggleGetter: func(g *models.Group) bool {
-				return g.Settings.TranslatorEnabled
-			},
-			ToggleSetter: func(s *models.GroupSettings, val bool) {
-				s.TranslatorEnabled = val
-			},
-			RequireAdmin: true,
-		},
-
 		// 加密货币价格查询功能开关
 		{
 			ID:       "crypto_enabled",

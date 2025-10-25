@@ -107,7 +107,6 @@
   - 显示交互式配置菜单（HTML 格式 InlineKeyboard）
   - 当前菜单项均源自 `internal/telegram/config_definitions.go`，包括：
     - `🧮 计算器功能`（开关）
-    - `📖 翻译功能`（开关）
     - `💰 USDT价格查询`（开关）
     - `📊 USDT浮动费率`（选择 `0.00`/`0.08`/`0.09` 等）
     - `📢 接收频道转发`（开关）
