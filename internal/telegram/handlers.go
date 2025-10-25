@@ -392,7 +392,7 @@ func (b *Bot) handleMyChatMember(ctx context.Context, botInstance *bot.Bot, upda
 		if chat.Type != "channel" {
 			welcomeText := fmt.Sprintf(
 				"👋 你好！我是 Bot，感谢邀请我加入 %s！\n\n"+
-					"使用 /help 查看可用命令。",
+					"使用 /configs 查看可用配置命令。",
 				chat.Title,
 			)
 			b.sendMessage(ctx, chat.ID, welcomeText)
