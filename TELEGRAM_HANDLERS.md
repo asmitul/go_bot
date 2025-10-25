@@ -4,8 +4,8 @@
 
 ## 概览
 
-项目当前注册了 **21 个 Update Handler**：
-- 11 个命令处理器（Command Handlers）
+项目当前注册了 **23 个 Update Handler**：
+- 13 个命令处理器（Command Handlers）
 - 3 个回调处理器（Callback Handlers）
 - 7 个事件处理器（Event Handlers）
 
@@ -119,7 +119,38 @@
 
 ---
 
-### 1.9 `查询记账` - 拉取账单
+### 1.9 `四方余额` - 查询四方支付账户余额
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:76`
+- **权限**: Admin+
+- **触发**: 文本消息 `四方余额`（精确匹配）
+- **前置条件**:
+  - 群组已绑定商户号（见商户号管理功能）
+  - `/configs` 菜单中启用了「四方支付查询」开关
+  - 部署环境配置了 `SIFANG_BASE_URL`、签名密钥等变量
+- **主要功能**:
+  - 调用四方支付 `/balance` 接口
+  - 读取 `balance`、`pending_withdraw`、`currency`、`updated_at`
+  - 以文本格式返回账户余额概览
+- **Service**: SifangService (`internal/payment/service`)
+- **数据库**: 无
+
+### 1.10 `四方订单 [页码]` - 查询四方支付订单列表
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:101`
+- **权限**: Admin+
+- **触发**: 文本消息 `四方订单` 或 `四方订单 3`（页码默认为 1）
+- **前置条件**:
+  - 同「四方余额」
+- **主要功能**:
+  - 调用四方支付 `/orders` 接口（分页）
+  - 每页展示 5 条：平台单号、商户单号、金额、状态、回调状态、通道、时间等
+  - 当返回为空时提示“暂无订单”
+  - 附带 summary 字段时汇总显示
+- **Service**: SifangService
+- **数据库**: 无
+
+### 1.11 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -130,7 +161,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.10 `删除记账记录` - 打开删除菜单
+### 1.12 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -142,7 +173,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.11 `清零记账` - 清空账本
+### 1.13 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -298,6 +329,7 @@
     - 已实现的功能插件：
       - **计算器**（优先级 20）：检测数学表达式并返回计算结果
       - **商户号管理**（优先级 15）：解析“绑定 123456”/“解绑”等命令
+      - **四方支付查询**（优先级 25）：`四方余额` / `四方订单 [页码]`
       - **翻译**（优先级 30）：处理“翻译 xxx”或 `/translate xxx`
       - **USDT 价格查询**（优先级 30）：解析 OKX 指令（如 `z3 100`）
      - 如果任何功能返回 `handled=true`，停止后续处理，不记录为普通消息
@@ -373,6 +405,8 @@ Handler 函数
     ↓
 Feature Manager (仅 TextMessage handler - 可选)
     ├── Calculator Feature (检测数学表达式)
+    ├── Merchant Feature (商户号管理)
+    ├── Sifang Feature (四方支付查询)
     ├── Translator Feature (检测翻译请求)
     └── ... 其他功能插件
     ↓
@@ -412,6 +446,8 @@ Handler Layer (handlers.go, handlers_config.go)
 Feature Plugin Layer (features/) [仅 TextMessage handler]
     ├── Feature Manager
     ├── Calculator Feature
+    ├── Merchant Feature
+    ├── Sifang Feature
     ├── Translator Feature
     └── ... 更多功能插件
     ↓
