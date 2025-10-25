@@ -221,6 +221,25 @@ func IsMathExpression(text string) bool {
 		return false
 	}
 
+	// 至少包含一个运算符（排除纯数字）
+	hasOperator := false
+	for i, ch := range cleaned {
+		switch ch {
+		case '+', '*', '/':
+			hasOperator = true
+		case '-':
+			if i > 0 {
+				hasOperator = true
+			}
+		}
+		if hasOperator {
+			break
+		}
+	}
+	if !hasOperator {
+		return false
+	}
+
 	// 不应该以运算符结尾(除了括号)
 	lastChar := rune(cleaned[len(cleaned)-1])
 	if lastChar == '+' || lastChar == '-' || lastChar == '*' || lastChar == '/' {
