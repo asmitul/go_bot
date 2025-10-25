@@ -617,26 +617,25 @@ func (s *SomeService) DoSomething(ctx context.Context, params ...) error {
 
 ### 添加新的 Feature Plugin
 
-Feature Plugin 系统允许你添加基于消息的功能（如计算器、支付查询、天气查询等），无需修改 handler 代码。
+Feature Plugin 系统允许你添加基于消息的功能（如计算器、支付查询等），无需修改 handler 代码。
 
 #### 1. 创建 Feature 包
 
 在 `internal/telegram/features/` 下创建新功能目录：
 ```bash
-mkdir -p internal/telegram/features/weather
+mkdir -p internal/telegram/features/<feature_name>
 ```
 
 #### 2. 实现 Feature 接口
 
-创建 `feature.go` 并实现 Feature 接口：
+创建 `feature.go` 并实现 Feature 接口，例如一个简单的关键字回复功能：
 
 ```go
-// internal/telegram/features/weather/feature.go
-package weather
+// internal/telegram/features/example/feature.go
+package example
 
 import (
     "context"
-    "fmt"
     "strings"
 
     "go_bot/internal/logger"
@@ -644,55 +643,44 @@ import (
     botModels "github.com/go-telegram/bot/models"
 )
 
-type WeatherFeature struct{}
+type Feature struct{}
 
-func New() *WeatherFeature {
-    return &WeatherFeature{}
+func New() *Feature {
+    return &Feature{}
 }
 
-// Name 返回功能名称
-func (f *WeatherFeature) Name() string {
-    return "weather"
+func (f *Feature) Name() string {
+    return "example"
 }
 
-// Enabled 检查功能是否启用（根据群组配置）
-func (f *WeatherFeature) Enabled(ctx context.Context, group *models.Group) bool {
-    return group.Settings.WeatherEnabled
+func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
+    return true // 或根据群组配置开关控制
 }
 
-// Match 检查消息是否匹配该功能
-func (f *WeatherFeature) Match(ctx context.Context, msg *botModels.Message) bool {
-    return strings.HasPrefix(msg.Text, "天气 ")
+func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
+    return strings.HasPrefix(msg.Text, "例子 ")
 }
 
-// Process 处理消息
-func (f *WeatherFeature) Process(ctx context.Context, msg *botModels.Message) (string, bool, error) {
-    city := strings.TrimPrefix(msg.Text, "天气 ")
-    weather := getWeather(city) // 调用天气 API
-
-    logger.L().Infof("Weather query: city=%s (chat_id=%d)", city, msg.Chat.ID)
-    return fmt.Sprintf("🌤️ %s 天气: %s", city, weather), true, nil
+func (f *Feature) Process(ctx context.Context, msg *botModels.Message) (string, bool, error) {
+    logger.L().Infof("Example feature triggered: chat_id=%d", msg.Chat.ID)
+    return "示例功能已触发", true, nil
 }
 
-// Priority 返回优先级（40 = 中等优先级）
-func (f *WeatherFeature) Priority() int {
+func (f *Feature) Priority() int {
     return 40
-}
-
-func getWeather(city string) string {
-    // TODO: 调用真实的天气 API
-    return "晴天 25°C"
 }
 ```
 
+根据需要替换 `Match` 和 `Process` 中的逻辑。
+
 #### 3. 注册 Feature
 
-在 `internal/telegram/telegram.go` 的 `registerFeatures()` 中注册：
+在 `internal/telegram/telegram.go` 的 `registerFeatures()` 中注册新功能：
 
 ```go
 func (b *Bot) registerFeatures() {
     b.featureManager.Register(calculator.New())
-    b.featureManager.Register(weather.New())  // ✨ 新增
+    b.featureManager.Register(example.New())
 
     logger.L().Infof("Registered %d features: %v", len(b.featureManager.ListFeatures()), b.featureManager.ListFeatures())
 }
@@ -701,72 +689,23 @@ func (b *Bot) registerFeatures() {
 并在文件顶部添加 import：
 ```go
 import (
-    "go_bot/internal/telegram/features/weather"
+    "go_bot/internal/telegram/features/example"
 )
 ```
 
 #### 4. 添加配置字段（可选）
 
-**在 `models/group.go` 添加配置字段**：
-```go
-type GroupSettings struct {
-    CalculatorEnabled bool `bson:"calculator_enabled"`
-    WeatherEnabled    bool `bson:"weather_enabled"`  // ✨ 新增
-}
-```
-
-**在 `config_definitions.go` 添加配置开关**：
-```go
-{
-    ID:   "weather_enabled",
-    Name: "天气查询",
-    Icon: "🌤️",
-    Type: models.ConfigTypeToggle,
-    Category: "功能管理",
-    ToggleGetter: func(g *models.Group) bool {
-        return g.Settings.WeatherEnabled
-    },
-    ToggleSetter: func(s *models.GroupSettings, val bool) {
-        s.WeatherEnabled = val
-    },
-    RequireAdmin: true,
-},
-```
+若功能需要可配置开关，可在 `models/group.go` 等位置添加布尔字段，并在 `config_definitions.go` 注册对应的配置项，逻辑与现有功能保持一致。
 
 #### 5. 添加测试（推荐）
 
-创建 `weather_test.go` 测试功能逻辑：
-```go
-package weather
-
-import "testing"
-
-func TestMatch(t *testing.T) {
-    feature := New()
-
-    tests := []struct {
-        text  string
-        match bool
-    }{
-        {"天气 北京", true},
-        {"天气 上海", true},
-        {"hello", false},
-    }
-
-    for _, tt := range tests {
-        msg := &botModels.Message{Text: tt.text}
-        if feature.Match(context.Background(), msg) != tt.match {
-            t.Errorf("Match(%q) = %v, want %v", tt.text, !tt.match, tt.match)
-        }
-    }
-}
-```
+为 Feature 编写单元测试，覆盖 `Match` 和 `Process` 的关键路径，保持测试风格与现有功能一致。
 
 #### 6. 删除 Feature
 
-只需注释掉注册行：
+移除注册调用并清理多余的配置或依赖即可：
 ```go
-// b.featureManager.Register(weather.New())  // ❌ 注释掉即可删除
+// b.featureManager.Register(example.New())
 ```
 
 #### Feature 优先级指南

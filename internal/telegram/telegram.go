@@ -284,7 +284,6 @@ func (b *Bot) registerFeatures() {
 	b.featureManager.Register(crypto.New())
 
 	// 后续可添加更多功能:
-	// b.featureManager.Register(weather.New())
 	// b.featureManager.Register(aichat.New())
 	// b.featureManager.Register(reminder.New())
 
