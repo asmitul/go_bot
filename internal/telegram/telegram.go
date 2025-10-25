@@ -13,7 +13,6 @@ import (
 	"go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/merchant"
 	"go_bot/internal/telegram/features/sifang"
-	"go_bot/internal/telegram/features/translator"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
@@ -280,9 +279,6 @@ func (b *Bot) registerFeatures() {
 
 	// 注册四方支付功能
 	b.featureManager.Register(sifang.New(b.paymentService, b.userService))
-
-	// 注册翻译功能
-	b.featureManager.Register(translator.New())
 
 	// 注册加密货币价格查询功能
 	b.featureManager.Register(crypto.New())

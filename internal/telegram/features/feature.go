@@ -3,15 +3,15 @@ package features
 import (
 	"context"
 
-	"go_bot/internal/telegram/models"
 	botModels "github.com/go-telegram/bot/models"
+	"go_bot/internal/telegram/models"
 )
 
 // Feature 消息处理功能插件接口
 //
 // 每个功能插件需实现此接口,例如:
 // - 计算器: 检测数学表达式并计算结果
-// - 翻译: 检测 "翻译 xxx" 并调用翻译 API
+// - 汇率查询: 检测价格指令并返回行情
 // - 天气查询: 检测 "天气 城市名" 并返回天气信息
 // - AI 对话: 匹配任意文本并调用 AI API
 type Feature interface {
@@ -37,7 +37,7 @@ type Feature interface {
 	//
 	// 示例:
 	//   - 计算器: 检测是否为数学表达式 "1+1"
-	//   - 翻译: 检测是否以 "翻译 " 开头
+	//   - 行情: 检测是否匹配指定价格指令
 	Match(ctx context.Context, msg *botModels.Message) bool
 
 	// Process 处理消息并返回响应
@@ -61,7 +61,7 @@ type Feature interface {
 	//
 	// 推荐优先级:
 	//   - 1-20: 高优先级功能(如计算器、命令解析)
-	//   - 21-50: 中优先级功能(如翻译、天气查询)
+	//   - 21-50: 中优先级功能(如行情查询、天气查询)
 	//   - 51-100: 低优先级功能(如 AI 对话、关键词回复)
 	//
 	// 优先级排序原因:

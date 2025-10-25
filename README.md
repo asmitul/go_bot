@@ -145,7 +145,7 @@ cd go_bot
 | `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
 | `/admins` | Admin+ | 查看所有管理员列表 |
 | `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
-| `/configs` | Admin+ | 打开群组功能配置菜单（计算器、翻译、USDT 价格等） |
+| `/configs` | Admin+ | 打开群组功能配置菜单（计算器、支付查询、USDT 价格等） |
 | `查询记账` | 所有成员 | 查询收支账单和余额 |
 | `删除记账记录` | Admin+ | 显示删除菜单（最近2天记录） |
 | `清零记账` | Admin+ | 清空群组所有记账记录 |
@@ -168,7 +168,7 @@ cd go_bot
   - `type` - 群组类型（group/supergroup/channel）
   - `title` - 群组名称
   - `bot_status` - Bot 状态（active/kicked/left）
-  - `settings` - 群组功能配置（计算器、翻译、USDT 价格、渠道转发、记账开关、商户号等）
+  - `settings` - 群组功能配置（计算器、支付查询、USDT 价格、渠道转发、记账开关、商户号等）
   - `stats` - 群组统计信息（`total_messages`、`last_message_at`）
 
   **accounting_records Collection**（收支记账表）

@@ -110,7 +110,7 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 	}
 }
 
-// Priority 设置为 25，介于商户绑定与翻译之间
+// Priority 设置为 25，介于商户绑定与行情功能之间
 func (f *Feature) Priority() int {
 	return 25
 }

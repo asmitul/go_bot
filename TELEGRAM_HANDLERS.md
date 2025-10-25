@@ -329,7 +329,6 @@
       - **计算器**（优先级 20）：检测数学表达式并返回计算结果
       - **商户号管理**（优先级 15）：解析“绑定 123456”/“解绑”等命令
       - **四方支付查询**（优先级 25）：`四方余额` / `四方订单 [页码]`
-      - **翻译**（优先级 30）：处理“翻译 xxx”或 `/translate xxx`
       - **USDT 价格查询**（优先级 30）：解析 OKX 指令（如 `z3 100`）
      - 如果任何功能返回 `handled=true`，停止后续处理，不记录为普通消息
      - 功能插件可通过 `/configs` 菜单在群组中启用/禁用
@@ -406,7 +405,6 @@ Feature Manager (仅 TextMessage handler - 可选)
     ├── Calculator Feature (检测数学表达式)
     ├── Merchant Feature (商户号管理)
     ├── Sifang Feature (四方支付查询)
-    ├── Translator Feature (检测翻译请求)
     └── ... 其他功能插件
     ↓
 Service 层业务逻辑
@@ -447,7 +445,6 @@ Feature Plugin Layer (features/) [仅 TextMessage handler]
     ├── Calculator Feature
     ├── Merchant Feature
     ├── Sifang Feature
-    ├── Translator Feature
     └── ... 更多功能插件
     ↓
 Service Layer (service/)
@@ -459,7 +456,7 @@ MongoDB
 
 **职责分离:**
 - **Handler**: 解析命令参数、提取 Update 数据、调用 Service、发送响应
-- **Feature Plugin**: 处理基于消息的功能（计算器、翻译等），独立可插拔
+- **Feature Plugin**: 处理基于消息的功能（计算器、支付查询等），独立可插拔
   - 每个功能实现 Feature 接口（Name, Enabled, Match, Process, Priority）
   - Feature Manager 按优先级顺序执行所有已启用且匹配的功能
   - 功能可通过群组配置动态启用/禁用
@@ -620,7 +617,7 @@ func (s *SomeService) DoSomething(ctx context.Context, params ...) error {
 
 ### 添加新的 Feature Plugin
 
-Feature Plugin 系统允许你添加基于消息的功能（如计算器、翻译、天气查询等），无需修改 handler 代码。
+Feature Plugin 系统允许你添加基于消息的功能（如计算器、支付查询、天气查询等），无需修改 handler 代码。
 
 #### 1. 创建 Feature 包
 
@@ -695,7 +692,6 @@ func getWeather(city string) string {
 ```go
 func (b *Bot) registerFeatures() {
     b.featureManager.Register(calculator.New())
-    b.featureManager.Register(translator.New())
     b.featureManager.Register(weather.New())  // ✨ 新增
 
     logger.L().Infof("Registered %d features: %v", len(b.featureManager.ListFeatures()), b.featureManager.ListFeatures())
@@ -715,7 +711,6 @@ import (
 ```go
 type GroupSettings struct {
     CalculatorEnabled bool `bson:"calculator_enabled"`
-    TranslatorEnabled bool `bson:"translator_enabled"`
     WeatherEnabled    bool `bson:"weather_enabled"`  // ✨ 新增
 }
 ```
@@ -777,7 +772,7 @@ func TestMatch(t *testing.T) {
 #### Feature 优先级指南
 
 - **1-20**: 高优先级（商户号管理、数学计算等需要优先消费的命令）
-- **21-50**: 中优先级（翻译、USDT 价格查询等扩展功能）
+- **21-50**: 中优先级（价格查询等扩展功能）
 - **51-100**: 低优先级（AI 对话、关键词回复等可选功能）
 
 优先级低的数字先执行，避免低优先级功能抢占高优先级功能的消息。

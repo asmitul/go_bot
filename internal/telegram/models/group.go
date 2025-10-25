@@ -41,7 +41,6 @@ type Group struct {
 // GroupSettings 群组配置
 type GroupSettings struct {
 	CalculatorEnabled bool    `bson:"calculator_enabled"` // 是否启用计算器功能
-	TranslatorEnabled bool    `bson:"translator_enabled"` // 是否启用翻译功能
 	CryptoEnabled     bool    `bson:"crypto_enabled"`     // 是否启用加密货币价格查询功能
 	CryptoFloatRate   float64 `bson:"crypto_float_rate"`  // 加密货币价格浮动费率（默认 0.12）
 	ForwardEnabled    bool    `bson:"forward_enabled"`    // 是否接收频道转发消息
