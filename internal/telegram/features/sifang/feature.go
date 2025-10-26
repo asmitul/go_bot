@@ -54,7 +54,7 @@ func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
 }
 
 // Match 支持命令：
-//   - 四方余额
+//   - 余额
 //   - 四方订单 [页码]
 func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 	if msg.Chat.Type != "group" && msg.Chat.Type != "supergroup" {
@@ -66,7 +66,7 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return false
 	}
 
-	if text == "四方余额" {
+	if text == "余额" {
 		return true
 	}
 
@@ -83,24 +83,28 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 		return "", false, nil
 	}
 
-	// 权限校验
-	isAdmin, err := f.userService.CheckAdminPermission(ctx, msg.From.ID)
-	if err != nil {
-		logger.L().Errorf("Sifang feature admin check failed: user_id=%d, err=%v", msg.From.ID, err)
-		return "❌ 权限检查失败，请稍后重试", true, nil
-	}
-	if !isAdmin {
-		return "❌ 仅管理员可使用四方支付查询", true, nil
-	}
-
 	merchantID := int64(group.Settings.MerchantID)
 	if merchantID == 0 {
 		return "ℹ️ 当前群组未绑定商户号，请先使用「绑定 [商户号]」命令", true, nil
 	}
 
 	text := strings.TrimSpace(msg.Text)
+	isBalanceCmd := text == "余额"
+
+	if !isBalanceCmd {
+		// 权限校验仅针对订单命令
+		isAdmin, err := f.userService.CheckAdminPermission(ctx, msg.From.ID)
+		if err != nil {
+			logger.L().Errorf("Sifang feature admin check failed: user_id=%d, err=%v", msg.From.ID, err)
+			return "❌ 权限检查失败，请稍后重试", true, nil
+		}
+		if !isAdmin {
+			return "❌ 仅管理员可查询四方订单", true, nil
+		}
+	}
+
 	switch {
-	case text == "四方余额":
+	case isBalanceCmd:
 		return f.handleBalance(ctx, merchantID)
 	case orderCmdRegex.MatchString(text):
 		page := parsePage(text)
