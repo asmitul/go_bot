@@ -64,7 +64,7 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 			CryptoEnabled:     true,
 			CryptoFloatRate:   0.12,
 			ForwardEnabled:    true,
-			AccountingEnabled: true,
+			AccountingEnabled: false,
 			SifangEnabled:     true,
 		},
 		Stats: models.GroupStats{},
