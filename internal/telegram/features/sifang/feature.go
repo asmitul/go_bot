@@ -132,16 +132,18 @@ func (f *Feature) handleBalance(ctx context.Context, merchantID int64) (string, 
 	}
 
 	var sb strings.Builder
-	sb.WriteString("🏦 四方支付余额\n")
-	sb.WriteString(fmt.Sprintf("商户号：%s\n", merchant))
-	sb.WriteString(fmt.Sprintf("可用余额：%s\n", emptyFallback(balance.Balance, "未知")))
-	sb.WriteString(fmt.Sprintf("待提现：%s\n", emptyFallback(balance.PendingWithdraw, "0")))
-	if balance.Currency != "" {
-		sb.WriteString(fmt.Sprintf("币种：%s\n", balance.Currency))
-	}
-	if balance.UpdatedAt != "" {
-		sb.WriteString(fmt.Sprintf("更新时间：%s\n", balance.UpdatedAt))
-	}
+	// sb.WriteString("🏦 四方支付余额\n")
+	// sb.WriteString(fmt.Sprintf("商户号：%s\n", merchant))
+	// sb.WriteString(fmt.Sprintf("可用余额：%s\n", emptyFallback(balance.Balance, "未知")))
+	// sb.WriteString(fmt.Sprintf("待提现：%s\n", emptyFallback(balance.PendingWithdraw, "0")))
+	// if balance.Currency != "" {
+	// 	sb.WriteString(fmt.Sprintf("币种：%s\n", balance.Currency))
+	// }
+	// if balance.UpdatedAt != "" {
+	// 	sb.WriteString(fmt.Sprintf("更新时间：%s\n", balance.UpdatedAt))
+	// }
+
+	sb.WriteString(fmt.Sprintf("%s", emptyFallback(balance.Balance, "未知")))
 
 	logger.L().Infof("Sifang balance queried: merchant_id=%s", merchant)
 	return sb.String(), true, nil
