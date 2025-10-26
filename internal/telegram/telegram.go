@@ -278,7 +278,7 @@ func (b *Bot) registerFeatures() {
 	b.featureManager.Register(merchant.New(b.groupService, b.userService))
 
 	// 注册四方支付功能
-	b.featureManager.Register(sifang.New(b.paymentService, b.userService))
+	b.featureManager.Register(sifang.New(b.paymentService))
 
 	// 注册加密货币价格查询功能
 	b.featureManager.Register(crypto.New())

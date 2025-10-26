@@ -4,8 +4,8 @@
 
 ## 概览
 
-项目当前注册了 **23 个 Update Handler**：
-- 13 个命令处理器（Command Handlers）
+项目当前注册了 **22 个 Update Handler**：
+- 12 个命令处理器（Command Handlers）
 - 3 个回调处理器（Callback Handlers）
 - 7 个事件处理器（Event Handlers）
 
@@ -135,22 +135,7 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.10 `四方订单 [页码]` - 查询四方支付订单列表
-
-- **文件位置**: `internal/telegram/features/sifang/feature.go:101`
-- **权限**: Admin+
-- **触发**: 文本消息 `四方订单` 或 `四方订单 3`（页码默认为 1）
-- **前置条件**:
-  - 同「余额」
-- **主要功能**:
-  - 调用四方支付 `/orders` 接口（分页）
-  - 每页展示 5 条：平台单号、商户单号、金额、状态、回调状态、通道、时间等
-  - 当返回为空时提示“暂无订单”
-  - 附带 summary 字段时汇总显示
-- **Service**: SifangService
-- **数据库**: 无
-
-### 1.11 `查询记账` - 拉取账单
+### 1.10 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -161,7 +146,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.12 `删除记账记录` - 打开删除菜单
+### 1.11 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -173,7 +158,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.13 `清零记账` - 清空账本
+### 1.12 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
