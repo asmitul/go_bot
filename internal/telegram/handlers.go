@@ -474,9 +474,9 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	responseText, handled, err := b.featureManager.Process(ctx, msg)
 	if handled {
 		if err != nil {
-			b.sendErrorMessage(ctx, msg.Chat.ID, responseText)
+			b.sendErrorMessage(ctx, msg.Chat.ID, responseText, msg.ID)
 		} else if responseText != "" {
-			b.sendMessage(ctx, msg.Chat.ID, responseText)
+			b.sendMessage(ctx, msg.Chat.ID, responseText, msg.ID)
 		}
 		return // 功能已处理，不再记录为普通消息
 	}
