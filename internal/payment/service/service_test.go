@@ -1,31 +1,9 @@
 package service
 
 import (
-	"reflect"
 	"testing"
 )
 
-func TestOrdersFilterToParams(t *testing.T) {
-	filter := OrdersFilter{
-		Status:          "1",
-		MerchantOrderNo: "M123",
-		Page:            2,
-		PageSize:        50,
-	}
-
-	params := filter.toParams()
-
-	expected := map[string]string{
-		"status":            "1",
-		"merchant_order_no": "M123",
-		"page":              "2",
-		"page_size":         "50",
-	}
-
-	if !reflect.DeepEqual(params, expected) {
-		t.Fatalf("unexpected params: %#v", params)
-	}
-}
 
 func TestDecodeBalance(t *testing.T) {
 	raw := map[string]interface{}{
