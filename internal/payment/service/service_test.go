@@ -143,3 +143,80 @@ func TestDecodeSummaryByDay_DynamicKeys(t *testing.T) {
 		t.Fatalf("unexpected amounts: %#v", summary)
 	}
 }
+
+func TestDecodeSummaryByDayChannel_Items(t *testing.T) {
+	payload := map[string]interface{}{
+		"items": []map[string]interface{}{
+			{
+				"date":            "2025-10-30",
+				"channel_code":    "USDT",
+				"channel_name":    "USDT通道",
+				"order_count":     10,
+				"success_count":   9,
+				"gross_amount":    "5000.00",
+				"merchant_income": "4500.00",
+				"agent_income":    "200.00",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	items, err := decodeSummaryByDayChannel(data)
+	if err != nil {
+		t.Fatalf("decode channel summary: %v", err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+
+	item := items[0]
+	if item.Date != "2025-10-30" || item.ChannelCode != "USDT" || item.ChannelName != "USDT通道" {
+		t.Fatalf("unexpected item: %#v", item)
+	}
+	if item.TotalAmount != "5000.00" || item.MerchantIncome != "4500.00" || item.AgentIncome != "200.00" {
+		t.Fatalf("unexpected amounts: %#v", item)
+	}
+}
+
+func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
+	payload := map[string]interface{}{
+		"2025-10-30": []map[string]interface{}{
+			{
+				"code":              "ALIPAY",
+				"channel_name":      "支付宝",
+				"count":             "5",
+				"success_total":     "4",
+				"total_order_money": "1234.56",
+				"merchant_profit":   "1200.00",
+				"agent_commission":  "34.56",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	items, err := decodeSummaryByDayChannel(data)
+	if err != nil {
+		t.Fatalf("decode channel summary: %v", err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+
+	item := items[0]
+	if item.Date != "2025-10-30" || item.ChannelCode != "ALIPAY" || item.ChannelName != "支付宝" {
+		t.Fatalf("unexpected item: %#v", item)
+	}
+	if item.TotalAmount != "1234.56" || item.MerchantIncome != "1200.00" || item.AgentIncome != "34.56" {
+		t.Fatalf("unexpected amounts: %#v", item)
+	}
+}

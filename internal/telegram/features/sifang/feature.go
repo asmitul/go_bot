@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,10 @@ import (
 	botModels "github.com/go-telegram/bot/models"
 )
 
-var chinaLocation = mustLoadChinaLocation()
+var (
+	chinaLocation    = mustLoadChinaLocation()
+	dateSuffixRegexp = regexp.MustCompile(`^[0-9\s./\-年月日号]*$`)
+)
 
 func mustLoadChinaLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Shanghai")
@@ -64,7 +68,15 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return true
 	}
 
-	return strings.HasPrefix(text, "账单")
+	if _, ok := extractDateSuffix(text, "账单"); ok {
+		return true
+	}
+
+	if _, ok := extractDateSuffix(text, "通道账单"); ok {
+		return true
+	}
+
+	return false
 }
 
 // Process 执行四方支付查询
@@ -87,8 +99,12 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 		return f.handleBalance(ctx, merchantID)
 	}
 
-	if strings.HasPrefix(text, "账单") {
+	if _, ok := extractDateSuffix(text, "账单"); ok {
 		return f.handleSummary(ctx, merchantID, text)
+	}
+
+	if _, ok := extractDateSuffix(text, "通道账单"); ok {
+		return f.handleChannelSummary(ctx, merchantID, text)
 	}
 
 	return "", false, nil
@@ -243,6 +259,72 @@ func formatSummaryMessage(summary *paymentservice.SummaryByDay) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+func (f *Feature) handleChannelSummary(ctx context.Context, merchantID int64, text string) (string, bool, error) {
+	dateText := strings.TrimSpace(strings.TrimPrefix(text, "通道账单"))
+	now := time.Now().In(chinaLocation)
+	targetDate, err := parseSummaryDate(dateText, now)
+	if err != nil {
+		return fmt.Sprintf("❌ %v", err), true, nil
+	}
+
+	items, err := f.paymentService.GetSummaryByDayByChannel(ctx, merchantID, targetDate)
+	if err != nil {
+		logger.L().Errorf("Sifang channel summary query failed: merchant_id=%d, date=%s, err=%v", merchantID, targetDate.Format("2006-01-02"), err)
+		return fmt.Sprintf("❌ 查询通道账单失败：%v", err), true, nil
+	}
+
+	message := formatChannelSummaryMessage(targetDate.Format("2006-01-02"), items)
+	logger.L().Infof("Sifang channel summary queried: merchant_id=%d, date=%s, channels=%d", merchantID, targetDate.Format("2006-01-02"), len(items))
+	return message, true, nil
+}
+
+func formatChannelSummaryMessage(date string, items []*paymentservice.SummaryByDayChannel) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📑 通道账单 - %s\n", html.EscapeString(date)))
+
+	if len(items) == 0 {
+		sb.WriteString("跑量：0\n成交：0\n笔数：0")
+		return sb.String()
+	}
+
+	for _, item := range items {
+		name := strings.TrimSpace(item.ChannelName)
+		code := strings.TrimSpace(item.ChannelCode)
+
+		sb.WriteString("\n")
+		switch {
+		case name != "" && code != "":
+			sb.WriteString(fmt.Sprintf("%s：<code>%s</code>\n", html.EscapeString(name), html.EscapeString(code)))
+		case name != "":
+			sb.WriteString(fmt.Sprintf("%s\n", html.EscapeString(name)))
+		case code != "":
+			sb.WriteString(fmt.Sprintf("<code>%s</code>\n", html.EscapeString(code)))
+		default:
+			sb.WriteString("-\n")
+		}
+
+		volume := strings.TrimSpace(item.TotalAmount)
+		if volume == "" {
+			volume = "0"
+		}
+		sb.WriteString(fmt.Sprintf("跑量：%s\n", html.EscapeString(volume)))
+
+		combined := combineAmounts(item.MerchantIncome, item.AgentIncome)
+		if combined == "" {
+			combined = "0"
+		}
+		sb.WriteString(fmt.Sprintf("成交：%s\n", html.EscapeString(combined)))
+
+		count := strings.TrimSpace(item.OrderCount)
+		if count == "" {
+			count = "0"
+		}
+		sb.WriteString(fmt.Sprintf("笔数：%s\n", html.EscapeString(count)))
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 func emptyFallback(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -298,4 +380,24 @@ func formatFloat(value float64) string {
 		return fmt.Sprintf("%.0f", value)
 	}
 	return fmt.Sprintf("%.2f", value)
+}
+
+func extractDateSuffix(text, prefix string) (string, bool) {
+	if !strings.HasPrefix(text, prefix) {
+		return "", false
+	}
+
+	suffix := text[len(prefix):]
+	if !isValidDateSuffix(suffix) {
+		return "", false
+	}
+	return suffix, true
+}
+
+func isValidDateSuffix(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return true
+	}
+	return dateSuffixRegexp.MatchString(trimmed)
 }

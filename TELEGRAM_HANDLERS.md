@@ -150,7 +150,20 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.11 `查询记账` - 拉取账单
+### 1.11 `通道账单` - 查询四方支付日通道汇总
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:178`
+- **权限**: 所有群成员（需启用四方支付功能）
+- **触发**: 文本消息 `通道账单`、`通道账单10月26`
+- **前置条件**: 同 `账单` 命令
+- **主要功能**:
+  - 解析日期（默认当天，按北京时间）
+  - 调用四方支付 `/summarybydaychannel` 接口，获取按通道拆分的跑量、成交（商户实收+代理收益）、笔数
+  - 返回按通道分组的明细；若接口无数据则输出跑量/成交/笔数均为 0
+- **Service**: SifangService (`internal/payment/service`)
+- **数据库**: 无
+
+### 1.12 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -161,7 +174,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.12 `删除记账记录` - 打开删除菜单
+### 1.13 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -173,7 +186,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.13 `清零记账` - 清空账本
+### 1.14 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）

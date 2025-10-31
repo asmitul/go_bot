@@ -5,6 +5,8 @@ import (
 	"time"
 
 	paymentservice "go_bot/internal/payment/service"
+
+	botModels "github.com/go-telegram/bot/models"
 )
 
 func TestParseSummaryDate_DefaultsToToday(t *testing.T) {
@@ -74,5 +76,62 @@ func TestFormatSummaryMessage(t *testing.T) {
 	expected := "📑 账单 - 2025-10-31\n跑量：4650.00\n成交：4336.75\n笔数：40"
 	if got != expected {
 		t.Fatalf("unexpected message:\n%s", got)
+	}
+}
+
+func TestFormatChannelSummaryMessage(t *testing.T) {
+	items := []*paymentservice.SummaryByDayChannel{
+		{
+			ChannelCode:    "USDT",
+			ChannelName:    "USDT通道",
+			TotalAmount:    "5000.00",
+			MerchantIncome: "4800.00",
+			AgentIncome:    "100.00",
+			OrderCount:     "20",
+		},
+		{
+			ChannelCode:    "ALIPAY",
+			ChannelName:    "支付宝",
+			TotalAmount:    "2000",
+			MerchantIncome: "1800",
+			AgentIncome:    "",
+			OrderCount:     "5",
+		},
+	}
+
+	got := formatChannelSummaryMessage("2025-10-31", items)
+	expected := "📑 通道账单 - 2025-10-31\n\nUSDT通道：<code>USDT</code>\n跑量：5000.00\n成交：4900\n笔数：20\n\n支付宝：<code>ALIPAY</code>\n跑量：2000\n成交：1800\n笔数：5"
+	if got != expected {
+		t.Fatalf("unexpected channel message:\n%s", got)
+	}
+}
+
+func TestFormatChannelSummaryMessage_NoItems(t *testing.T) {
+	got := formatChannelSummaryMessage("2025-10-31", nil)
+	expected := "📑 通道账单 - 2025-10-31\n跑量：0\n成交：0\n笔数：0"
+	if got != expected {
+		t.Fatalf("unexpected channel message for no items:\n%s", got)
+	}
+}
+
+func TestMatchIgnoresNonCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "账单不对呀",
+	}
+	if f.Match(nil, msg) {
+		t.Fatalf("expected non-command to be ignored")
+	}
+}
+
+func TestMatchAcceptsChannelCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "通道账单10月26",
+	}
+	if !f.Match(nil, msg) {
+		t.Fatalf("expected command to match")
 	}
 }
