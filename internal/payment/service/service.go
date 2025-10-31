@@ -16,6 +16,7 @@ type Service interface {
 	GetBalance(ctx context.Context, merchantID int64) (*Balance, error)
 	GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*SummaryByDay, error)
 	GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*SummaryByDayChannel, error)
+	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 }
 
 type sifangService struct {
@@ -121,6 +122,33 @@ func (s *sifangService) GetSummaryByDayByChannel(ctx context.Context, merchantID
 	return summaries, nil
 }
 
+func (s *sifangService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 50 {
+		pageSize = 10
+	}
+
+	business := map[string]string{
+		"start_time": start.Format("2006-01-02 15:04:05"),
+		"end_time":   end.Format("2006-01-02 15:04:05"),
+		"page":       strconv.Itoa(page),
+		"page_size":  strconv.Itoa(pageSize),
+	}
+
+	var raw json.RawMessage
+	if err := s.client.Post(ctx, "withdrawlist", merchantID, business, &raw); err != nil {
+		return nil, err
+	}
+
+	return decodeWithdrawList(raw)
+}
+
 // Balance 表示账户余额信息
 type Balance struct {
 	MerchantID      string
@@ -150,6 +178,27 @@ type SummaryByDayChannel struct {
 	TotalAmount    string
 	MerchantIncome string
 	AgentIncome    string
+}
+
+// Withdraw 表示提现记录
+type Withdraw struct {
+	WithdrawNo string
+	OrderNo    string
+	Amount     string
+	Fee        string
+	Status     string
+	CreatedAt  string
+	PaidAt     string
+	Channel    string
+}
+
+// WithdrawList 表示提现列表及分页信息
+type WithdrawList struct {
+	Page       int
+	PageSize   int
+	Total      int
+	TotalPages int
+	Items      []*Withdraw
 }
 
 func decodeBalance(raw map[string]interface{}) *Balance {
@@ -272,6 +321,86 @@ func decodeSummaryByDayChannel(data json.RawMessage) ([]*SummaryByDayChannel, er
 
 	items := extractChannelSummaries(payload)
 	return items, nil
+}
+
+func decodeWithdrawList(data json.RawMessage) (*WithdrawList, error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return &WithdrawList{Items: []*Withdraw{}}, nil
+	}
+
+	var payload struct {
+		Page       int         `json:"page"`
+		PageSize   int         `json:"page_size"`
+		Total      int         `json:"total"`
+		TotalPages int         `json:"total_pages"`
+		Items      interface{} `json:"items"`
+	}
+
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal withdraw list failed: %w", err)
+	}
+
+	list := &WithdrawList{
+		Page:       payload.Page,
+		PageSize:   payload.PageSize,
+		Total:      payload.Total,
+		TotalPages: payload.TotalPages,
+		Items:      make([]*Withdraw, 0),
+	}
+
+	if payload.Items == nil {
+		return list, nil
+	}
+
+	switch v := payload.Items.(type) {
+	case []interface{}:
+		for _, elem := range v {
+			if elem == nil {
+				continue
+			}
+			if summary := buildWithdraw(elem); summary != nil {
+				list.Items = append(list.Items, summary)
+			}
+		}
+	case map[string]interface{}:
+		for _, elem := range v {
+			if elem == nil {
+				continue
+			}
+			if summary := buildWithdraw(elem); summary != nil {
+				list.Items = append(list.Items, summary)
+			}
+		}
+	default:
+		// ignore unrecognized structure
+	}
+
+	return list, nil
+}
+
+func buildWithdraw(value interface{}) *Withdraw {
+	item, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	withdraw := &Withdraw{
+		WithdrawNo: pickString(item, "withdraw_no", "id", "withdraw_id"),
+		OrderNo:    pickString(item, "order_no", "merchant_order_no", "orderid"),
+		Amount:     pickString(item, "amount", "money", "withdraw_amount", "apply_amount"),
+		Fee:        pickString(item, "fee", "charge", "service_fee"),
+		Status:     pickString(item, "status", "state"),
+		CreatedAt:  pickString(item, "created_at", "create_time", "created_time", "apply_time", "ctime"),
+		PaidAt:     pickString(item, "paid_at", "pay_time", "payed_at"),
+		Channel:    pickString(item, "channel", "channel_name", "channel_code"),
+	}
+
+	if withdraw.WithdrawNo == "" && withdraw.OrderNo == "" && withdraw.Amount == "" {
+		return nil
+	}
+
+	return withdraw
 }
 
 func extractChannelSummaries(value interface{}) []*SummaryByDayChannel {

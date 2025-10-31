@@ -76,6 +76,10 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return true
 	}
 
+	if _, ok := extractDateSuffix(text, "提款明细"); ok {
+		return true
+	}
+
 	return false
 }
 
@@ -105,6 +109,10 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 
 	if _, ok := extractDateSuffix(text, "通道账单"); ok {
 		return f.handleChannelSummary(ctx, merchantID, text)
+	}
+
+	if _, ok := extractDateSuffix(text, "提款明细"); ok {
+		return f.handleWithdrawList(ctx, merchantID, text)
 	}
 
 	return "", false, nil
@@ -330,6 +338,78 @@ func emptyFallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (f *Feature) handleWithdrawList(ctx context.Context, merchantID int64, text string) (string, bool, error) {
+	dateText := strings.TrimSpace(strings.TrimPrefix(text, "提款明细"))
+	now := time.Now().In(chinaLocation)
+	targetDate, err := parseSummaryDate(dateText, now)
+	if err != nil {
+		return fmt.Sprintf("❌ %v", err), true, nil
+	}
+
+	start := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, targetDate.Location())
+	end := start.Add(24*time.Hour - time.Second)
+
+	list, err := f.paymentService.GetWithdrawList(ctx, merchantID, start, end, 1, 10)
+	if err != nil {
+		logger.L().Errorf("Sifang withdraw list query failed: merchant_id=%d, date=%s, err=%v", merchantID, targetDate.Format("2006-01-02"), err)
+		return fmt.Sprintf("❌ 查询提款明细失败：%v", err), true, nil
+	}
+
+	message := formatWithdrawListMessage(targetDate.Format("2006-01-02"), list)
+	logger.L().Infof("Sifang withdraw list queried: merchant_id=%d, date=%s, count=%d", merchantID, targetDate.Format("2006-01-02"), len(list.Items))
+	return message, true, nil
+}
+
+func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("💸 提款明细 - %s\n", html.EscapeString(date)))
+
+	if list == nil || len(list.Items) == 0 {
+		sb.WriteString("暂无提款记录")
+		return sb.String()
+	}
+
+	for i, item := range list.Items {
+		sb.WriteString(fmt.Sprintf("\n#%d", i+1))
+		if item.WithdrawNo != "" {
+			sb.WriteString(fmt.Sprintf(" 提现单号:%s", html.EscapeString(item.WithdrawNo)))
+		}
+		if item.OrderNo != "" {
+			sb.WriteString(fmt.Sprintf(" 订单号:%s", html.EscapeString(item.OrderNo)))
+		}
+		sb.WriteString("\n")
+
+		amount := strings.TrimSpace(item.Amount)
+		if amount == "" {
+			amount = "0"
+		}
+		sb.WriteString(fmt.Sprintf("金额：%s", html.EscapeString(amount)))
+		if fee := strings.TrimSpace(item.Fee); fee != "" {
+			sb.WriteString(fmt.Sprintf(" 手续费：%s", html.EscapeString(fee)))
+		}
+		if ch := strings.TrimSpace(item.Channel); ch != "" {
+			sb.WriteString(fmt.Sprintf(" 渠道：%s", html.EscapeString(ch)))
+		}
+		sb.WriteString("\n")
+
+		status := strings.TrimSpace(item.Status)
+		if status == "" {
+			status = "-"
+		}
+		sb.WriteString(fmt.Sprintf("状态：%s", html.EscapeString(status)))
+
+		if created := strings.TrimSpace(item.CreatedAt); created != "" {
+			sb.WriteString(fmt.Sprintf(" 创建：%s", html.EscapeString(created)))
+		}
+		if paid := strings.TrimSpace(item.PaidAt); paid != "" {
+			sb.WriteString(fmt.Sprintf(" 支付：%s", html.EscapeString(paid)))
+		}
+		sb.WriteString("\n")
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func combineAmounts(merchant, agent string) string {

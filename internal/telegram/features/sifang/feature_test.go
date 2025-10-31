@@ -135,3 +135,42 @@ func TestMatchAcceptsChannelCommand(t *testing.T) {
 		t.Fatalf("expected command to match")
 	}
 }
+
+func TestMatchAcceptsWithdrawCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "提款明细",
+	}
+	if !f.Match(nil, msg) {
+		t.Fatalf("expected withdraw command to match")
+	}
+}
+
+func TestFormatWithdrawListMessage(t *testing.T) {
+	list := &paymentservice.WithdrawList{
+		Items: []*paymentservice.Withdraw{
+			{
+				WithdrawNo: "W2025",
+				OrderNo:    "O1",
+				Amount:     "100.00",
+				Fee:        "1.00",
+				Status:     "paid",
+				CreatedAt:  "2025-10-31 10:00:00",
+				PaidAt:     "2025-10-31 11:00:00",
+				Channel:    "ALIPAY",
+			},
+		},
+	}
+
+	got := formatWithdrawListMessage("2025-10-31", list)
+	expected := "💸 提款明细 - 2025-10-31\n\n#1 提现单号:W2025 订单号:O1\n金额：100.00 手续费：1.00 渠道：ALIPAY\n状态：paid 创建：2025-10-31 10:00:00 支付：2025-10-31 11:00:00"
+	if got != expected {
+		t.Fatalf("unexpected withdraw message:\n%s", got)
+	}
+
+	gotEmpty := formatWithdrawListMessage("2025-10-31", &paymentservice.WithdrawList{})
+	if gotEmpty != "💸 提款明细 - 2025-10-31\n暂无提款记录" {
+		t.Fatalf("unexpected empty withdraw message:\n%s", gotEmpty)
+	}
+}

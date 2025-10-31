@@ -220,3 +220,65 @@ func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
 		t.Fatalf("unexpected amounts: %#v", item)
 	}
 }
+
+func TestDecodeWithdrawList_Items(t *testing.T) {
+	payload := map[string]interface{}{
+		"page":      1,
+		"page_size": 10,
+		"total":     2,
+		"items": []map[string]interface{}{
+			{
+				"withdraw_no": "W2025",
+				"order_no":    "O1",
+				"amount":      "100.00",
+				"fee":         "1.00",
+				"status":      "paid",
+				"create_time": "2025-10-31 10:00:00",
+				"pay_time":    "2025-10-31 11:00:00",
+				"channel":     "ALIPAY",
+			},
+			{
+				"id":            "W2024",
+				"merchant_order_no": "O2",
+				"withdraw_amount": "200",
+				"charge":           "2.00",
+				"state":            "processing",
+				"apply_time":       "2025-10-30 09:00:00",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	list, err := decodeWithdrawList(data)
+	if err != nil {
+		t.Fatalf("decode withdraw list: %v", err)
+	}
+
+	if list.Page != 1 || list.PageSize != 10 || list.Total != 2 {
+		t.Fatalf("unexpected pagination: %#v", list)
+	}
+
+	if len(list.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(list.Items))
+	}
+
+	first := list.Items[0]
+	if first.WithdrawNo != "W2025" || first.Amount != "100.00" || first.Status != "paid" {
+		t.Fatalf("unexpected first item: %#v", first)
+	}
+	if first.Channel != "ALIPAY" || first.PaidAt != "2025-10-31 11:00:00" {
+		t.Fatalf("unexpected first item channel/time: %#v", first)
+	}
+
+	second := list.Items[1]
+	if second.WithdrawNo != "W2024" || second.Amount != "200" || second.Fee != "2.00" {
+		t.Fatalf("unexpected second item: %#v", second)
+	}
+	if second.Status != "processing" || second.PaidAt != "" {
+		t.Fatalf("unexpected second item status/time: %#v", second)
+	}
+}

@@ -163,7 +163,20 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.12 `查询记账` - 拉取账单
+### 1.12 `提款明细` - 查询四方支付提现列表
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:258`
+- **权限**: 所有群成员（需启用四方支付功能）
+- **触发**: 文本消息 `提款明细`、`提款明细10月26`
+- **前置条件**: 同 `账单` 命令
+- **主要功能**:
+  - 解析日期（默认当天，按北京时间）
+  - 调用四方支付 `/withdrawlist` 接口，默认查询当天前 10 条提现记录
+  - 格式化展示提现单号、订单号、金额、手续费、状态、时间以及通道信息；无记录时提示“暂无提款记录”
+- **Service**: SifangService (`internal/payment/service`)
+- **数据库**: 无
+
+### 1.13 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -174,7 +187,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.13 `删除记账记录` - 打开删除菜单
+### 1.14 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -186,7 +199,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.14 `清零记账` - 清空账本
+### 1.15 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
