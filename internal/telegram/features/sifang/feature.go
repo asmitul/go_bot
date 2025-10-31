@@ -364,49 +364,38 @@ func (f *Feature) handleWithdrawList(ctx context.Context, merchantID int64, text
 
 func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) string {
 	var sb strings.Builder
+
+	totalAmount := 0.0
+	itemCount := 0
+	for _, item := range list.Items {
+		if amount, ok := parseAmountToFloat(item.Amount); ok {
+			totalAmount += amount
+		}
+		itemCount++
+	}
+
 	sb.WriteString(fmt.Sprintf("💸 提款明细 - %s\n", html.EscapeString(date)))
 
-	if list == nil || len(list.Items) == 0 {
+	if itemCount == 0 {
 		sb.WriteString("暂无提款记录")
 		return sb.String()
 	}
 
-	for i, item := range list.Items {
-		sb.WriteString(fmt.Sprintf("\n#%d", i+1))
-		if item.WithdrawNo != "" {
-			sb.WriteString(fmt.Sprintf(" 提现单号:%s", html.EscapeString(item.WithdrawNo)))
+	sb.WriteString(fmt.Sprintf("总计：%s | %d笔\n", html.EscapeString(formatFloat(totalAmount)), itemCount))
+
+	for _, item := range list.Items {
+		created := strings.TrimSpace(item.CreatedAt)
+		timePart := extractTime(created)
+		if timePart == "" {
+			timePart = "--:--:--"
 		}
-		if item.OrderNo != "" {
-			sb.WriteString(fmt.Sprintf(" 订单号:%s", html.EscapeString(item.OrderNo)))
-		}
-		sb.WriteString("\n")
 
 		amount := strings.TrimSpace(item.Amount)
 		if amount == "" {
 			amount = "0"
 		}
-		sb.WriteString(fmt.Sprintf("金额：%s", html.EscapeString(amount)))
-		if fee := strings.TrimSpace(item.Fee); fee != "" {
-			sb.WriteString(fmt.Sprintf(" 手续费：%s", html.EscapeString(fee)))
-		}
-		if ch := strings.TrimSpace(item.Channel); ch != "" {
-			sb.WriteString(fmt.Sprintf(" 渠道：%s", html.EscapeString(ch)))
-		}
-		sb.WriteString("\n")
 
-		status := strings.TrimSpace(item.Status)
-		if status == "" {
-			status = "-"
-		}
-		sb.WriteString(fmt.Sprintf("状态：%s", html.EscapeString(status)))
-
-		if created := strings.TrimSpace(item.CreatedAt); created != "" {
-			sb.WriteString(fmt.Sprintf(" 创建：%s", html.EscapeString(created)))
-		}
-		if paid := strings.TrimSpace(item.PaidAt); paid != "" {
-			sb.WriteString(fmt.Sprintf(" 支付：%s", html.EscapeString(paid)))
-		}
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("%s      %s\n", html.EscapeString(timePart), html.EscapeString(amount)))
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -460,6 +449,32 @@ func formatFloat(value float64) string {
 		return fmt.Sprintf("%.0f", value)
 	}
 	return fmt.Sprintf("%.2f", value)
+}
+
+func extractTime(datetime string) string {
+	datetime = strings.TrimSpace(datetime)
+	if datetime == "" {
+		return ""
+	}
+
+	if len(datetime) >= 8 {
+		idx := strings.LastIndex(datetime, " ")
+		if idx >= 0 && idx+1 < len(datetime) {
+			timePart := datetime[idx+1:]
+			if len(timePart) == 8 {
+				return timePart
+			}
+		}
+
+		if len(datetime) >= 8 {
+			candidate := datetime[len(datetime)-8:]
+			if strings.Count(candidate, ":") == 2 {
+				return candidate
+			}
+		}
+	}
+
+	return ""
 }
 
 func extractDateSuffix(text, prefix string) (string, bool) {

@@ -130,8 +130,11 @@ func (s *sifangService) GetWithdrawList(ctx context.Context, merchantID int64, s
 	if page <= 0 {
 		page = 1
 	}
-	if pageSize <= 0 || pageSize > 50 {
-		pageSize = 10
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
 	}
 
 	business := map[string]string{
