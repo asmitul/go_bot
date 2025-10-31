@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"go_bot/internal/config"
+	"go_bot/internal/logger"
 )
 
 // Client 封装与四方支付平台的 HTTP 通讯
@@ -121,6 +122,8 @@ func (c *Client) Post(ctx context.Context, action string, merchantID int64, busi
 		form.Set(k, v)
 	}
 
+	logger.L().Infof("Sifang request: action=%s merchant_id=%d params=%v", action, merchantID, sanitizeParamsForLog(params))
+
 	endpoint := c.buildEndpoint(action)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -140,8 +143,11 @@ func (c *Client) Post(ctx context.Context, action string, merchantID int64, busi
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logger.L().Warnf("Sifang response: action=%s merchant_id=%d status=%d body=%s", action, merchantID, resp.StatusCode, truncate(string(body), 512))
 		return fmt.Errorf("sifang http error: status=%d, body=%s", resp.StatusCode, truncate(string(body), 256))
 	}
+
+	logger.L().Infof("Sifang response: action=%s merchant_id=%d status=%d body=%s", action, merchantID, resp.StatusCode, truncate(string(body), 512))
 
 	var envelope struct {
 		Code    int             `json:"code"`
@@ -225,4 +231,16 @@ func truncate(s string, limit int) string {
 		return s
 	}
 	return string(runes[:limit])
+}
+
+func sanitizeParamsForLog(params map[string]string) map[string]string {
+	clone := make(map[string]string, len(params))
+	for k, v := range params {
+		if strings.EqualFold(k, "sign") {
+			clone[k] = "***"
+			continue
+		}
+		clone[k] = v
+	}
+	return clone
 }

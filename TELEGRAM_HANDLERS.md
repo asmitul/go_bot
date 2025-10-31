@@ -121,7 +121,7 @@
 
 ### 1.9 `余额` - 查询四方支付账户余额
 
-- **文件位置**: `internal/telegram/features/sifang/feature.go:76`
+- **文件位置**: `internal/telegram/features/sifang/feature.go:92`
 - **权限**: 所有群成员（需启用四方支付功能）
 - **触发**: 文本消息 `余额`（精确匹配）
 - **前置条件**:
@@ -135,7 +135,22 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.10 `查询记账` - 拉取账单
+### 1.10 `账单` - 查询四方支付日汇总
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:122`
+- **权限**: 所有群成员（需启用四方支付功能）
+- **触发**: 文本消息 `账单`、`账单10月26` 等（缺省日期时取当天）
+- **前置条件**: 同 `余额` 命令，需要绑定商户号并启用「四方支付查询」开关
+- **主要功能**:
+  - 解析命令中的日期文本，默认当天，若指定日期晚于当前日期则回退一年
+  - 日期解析与统计时间窗口统一使用北京时间（Asia/Shanghai）
+  - 调用四方支付 `/summarybyday` 接口获取按日汇总数据
+  - 格式化订单笔数、总金额、商户实收、代理收益等信息后返回
+  - 当日无数据时提示“暂无账单数据”
+- **Service**: SifangService (`internal/payment/service`)
+- **数据库**: 无
+
+### 1.11 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -146,7 +161,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.11 `删除记账记录` - 打开删除菜单
+### 1.12 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -158,7 +173,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.12 `清零记账` - 清空账本
+### 1.13 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
