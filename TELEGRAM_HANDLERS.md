@@ -226,13 +226,26 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 删除 `accounting_records`
 
+### 1.17 `撤回` - 管理员引用撤回机器人消息
+
+- **文件位置**: `internal/telegram/handlers.go:515`
+- **权限**: Admin+（动态校验 `CheckAdminPermission`）
+- **触发**: 管理员回复本机器人发送的消息并输入 `撤回`
+- **主要功能**:
+  - 校验触发者是否拥有管理员权限
+  - 确认被引用消息的发送者是当前 Bot（`bot.ID()`）
+  - 删除被引用的机器人消息
+  - 删除触发命令的管理员消息（失败时仅记日志，不影响主流程）
+- **Service**: UserService（权限校验）
+- **数据库**: 无
+
 ---
 
 ## 2. 配置回调处理器（Callback Handler）
 
 ### 2.1 ConfigCallback - 配置菜单回调
 
-- **文件位置**: `internal/telegram/handlers_config.go:57`
+- **文件位置**: `internal/telegram/handlers_config.go:77`
 - **权限**: Admin+（handler 内部检查 `user.IsAdmin()`）
 - **触发**: `update.CallbackQuery != nil && strings.HasPrefix(data, "config:")`
 - **回调数据格式**（`config:<type>:<id>` 或专用指令）：
@@ -252,7 +265,7 @@
 
 ### 2.2 ForwardRecallCallback - 频道转发撤回
 
-- **文件位置**: `internal/telegram/handlers.go:665`（入口），实际处理在 `internal/telegram/forward/handlers.go`
+- **文件位置**: `internal/telegram/handlers.go:725`（入口），实际处理在 `internal/telegram/forward/handlers.go`
 - **权限**: Admin+（通过 ForwardService 内部校验）
 - **触发**: `recall:<task_id>`、`recall_confirm:<task_id>`、`recall_cancel`
 - **主要功能**:
@@ -263,7 +276,7 @@
 
 ### 2.3 AccountingDeleteCallback - 删除记账记录
 
-- **文件位置**: `internal/telegram/handlers.go:872`
+- **文件位置**: `internal/telegram/handlers.go:933`
 - **权限**: Admin+（间接依赖前置命令）
 - **触发**: `acc_del:<record_id>`
 - **主要功能**:
@@ -279,7 +292,7 @@
 
 ### 3.1 MyChatMember - Bot 状态变化
 
-- **文件位置**: `internal/telegram/handlers.go:341`
+- **文件位置**: `internal/telegram/handlers.go:363`
 - **权限**: 无（自动触发）
 - **触发**: `update.MyChatMember != nil`（Bot 在群组中的成员状态变化）
 - **主要功能**:
@@ -296,7 +309,7 @@
 
 ### 3.2 MediaMessage - 媒体消息
 
-- **文件位置**: `internal/telegram/handlers.go:448`
+- **文件位置**: `internal/telegram/handlers.go:567`
 - **权限**: 无（自动记录所有媒体消息）
 - **触发**: `update.Message` 包含 Photo/Video/Document/Voice/Audio/Sticker/Animation
 - **支持的媒体类型**:
@@ -317,7 +330,7 @@
 
 ### 3.3 ChannelPost - 频道消息
 
-- **文件位置**: `internal/telegram/handlers.go:531`
+- **文件位置**: `internal/telegram/handlers.go:650`
 - **权限**: 无（自动记录所有频道消息）
 - **触发**: `update.ChannelPost != nil`
 - **主要功能**:
@@ -330,7 +343,7 @@
 
 ### 3.4 EditedChannelPost - 编辑的频道消息
 
-- **文件位置**: `internal/telegram/handlers.go:566`
+- **文件位置**: `internal/telegram/handlers.go:692`
 - **权限**: 无（自动处理）
 - **触发**: `update.EditedChannelPost != nil && update.EditedChannelPost.Text != ""`
 - **主要功能**:
@@ -342,7 +355,7 @@
 
 ### 3.5 LeftChatMember - 成员离开
 
-- **文件位置**: `internal/telegram/handlers.go:623`
+- **文件位置**: `internal/telegram/handlers.go:707`
 - **权限**: 无（自动触发）
 - **触发**: `update.Message.LeftChatMember != nil`
 - **主要功能**:
@@ -354,7 +367,7 @@
 
 ### 3.6 TextMessage - 普通文本消息
 
-- **文件位置**: `internal/telegram/handlers.go:393`
+- **文件位置**: `internal/telegram/handlers.go:417`
 - **权限**: 无（自动记录所有文本消息）
 - **触发**: 非命令、非媒体、非系统消息的普通文本
 - **过滤规则**:
@@ -362,19 +375,22 @@
   - 排除 NewChatMembers/LeftChatMember 系统消息
   - 排除媒体消息（Photo/Video/Document/Voice/Audio/Sticker/Animation）
 - **主要功能**（按优先级顺序）:
-  1. **配置输入处理**：检查用户是否处于配置菜单的输入模式
+  1. **管理员撤回命令**：`tryHandleRecallCommand` 拦截管理员回复的 `撤回`
+     - 仅允许 Admin+ 操作
+     - 只处理由本 Bot 发送的消息，并尝试删除触发命令
+  2. **配置输入处理**：检查用户是否处于配置菜单的输入模式
      - 如果是，调用 ConfigMenuService.ProcessUserInput 处理输入
      - 显示成功/失败消息后直接返回，不记录为普通消息
-  2. **功能插件处理** (Feature Manager)：
+  3. **功能插件处理** (Feature Manager)：
      - 调用 FeatureManager.Process() 按优先级执行所有已启用的功能插件
-    - 已实现的功能插件：
-      - **计算器**（优先级 20）：检测数学表达式并返回计算结果
-      - **商户号管理**（优先级 15）：解析“绑定 123456”/“解绑”等命令
-      - **四方支付查询**（优先级 25）：`余额`
-      - **USDT 价格查询**（优先级 30）：解析 OKX 指令（如 `z3 100`）
+     - 已实现的功能插件：
+       - **计算器**（优先级 20）：检测数学表达式并返回计算结果
+       - **商户号管理**（优先级 15）：解析“绑定 123456”/“解绑”等命令
+       - **四方支付查询**（优先级 25）：`余额`
+       - **USDT 价格查询**（优先级 30）：解析 OKX 指令（如 `z3 100`）
      - 如果任何功能返回 `handled=true`，停止后续处理，不记录为普通消息
      - 功能插件可通过 `/configs` 菜单在群组中启用/禁用
-  3. **记录普通消息**：
+  4. **记录普通消息**：
      - 提取消息文本、reply_to_message_id、发送时间
      - 调用 MessageService.HandleTextMessage 记录消息
      - 自动更新群组统计（total_messages, last_message_at）
@@ -393,7 +409,7 @@
 
 ### 3.7 EditedMessage - 消息编辑事件
 
-- **文件位置**: `internal/telegram/handlers.go:516`
+- **文件位置**: `internal/telegram/handlers.go:635`
 - **权限**: 无（自动处理）
 - **触发**: `update.EditedMessage != nil && update.EditedMessage.Text != ""`
 - **主要功能**:
@@ -804,26 +820,27 @@ import (
 
 | # | Handler | 类型 | 权限 | 文件位置 |
 |---|---------|------|------|----------|
-| 1 | `/start` | 命令 | All | `handlers.go:104` |
+| 1 | `/start` | 命令 | All | `handlers.go:123` |
 | 2 | `/ping` | 命令 | All | `handlers.go:152` |
 | 3 | `/grant` | 命令 | Owner | `handlers.go:166` |
-| 4 | `/revoke` | 命令 | Owner | `handlers.go:205` |
-| 5 | `/admins` | 命令 | Admin+ | `handlers.go:237` |
-| 6 | `/userinfo` | 命令 | Admin+ | `handlers.go:274` |
-| 7 | `/leave` | 命令 | Admin+ | `handlers.go:315` |
-| 8 | `/configs` | 命令 | Admin+ | `handlers_config.go:15` |
-| 9 | `查询记账` | 命令 | All | `handlers.go:744` |
-| 10 | `删除记账记录` | 命令 | Admin+ | `handlers.go:780` |
-| 11 | `清零记账` | 命令 | Admin+ | `handlers.go:920` |
-| 12 | ConfigCallback | 回调 | Admin+ | `handlers_config.go:57` |
-| 13 | ForwardRecallCallback | 回调 | Admin+ | `handlers.go:665` / `forward/handlers.go` |
-| 14 | AccountingDeleteCallback | 回调 | Admin+ | `handlers.go:872` |
-| 15 | MyChatMember | 事件 | 无 | `handlers.go:341` |
-| 16 | TextMessage | 事件 | 无 | `handlers.go:392` |
-| 17 | MediaMessage | 事件 | 无 | `handlers.go:448` |
-| 18 | ChannelPost | 事件 | 无 | `handlers.go:531` |
-| 19 | EditedChannelPost | 事件 | 无 | `handlers.go:566` |
-| 20 | LeftChatMember | 事件 | 无 | `handlers.go:623` |
-| 21 | EditedMessage | 事件 | 无 | `handlers.go:516` |
+| 4 | `/revoke` | 命令 | Owner | `handlers.go:197` |
+| 5 | `/admins` | 命令 | Admin+ | `handlers.go:228` |
+| 6 | `/userinfo` | 命令 | Admin+ | `handlers.go:265` |
+| 7 | `/leave` | 命令 | Admin+ | `handlers.go:332` |
+| 8 | `/configs` | 命令 | Admin+ | `handlers_config.go:18` |
+| 9 | `查询记账` | 命令 | All | `handlers.go:805` |
+| 10 | `删除记账记录` | 命令 | Admin+ | `handlers.go:842` |
+| 11 | `清零记账` | 命令 | Admin+ | `handlers.go:981` |
+| 12 | `撤回` | 命令 | Admin+ | `handlers.go:438` / `handlers.go:515` |
+| 13 | ConfigCallback | 回调 | Admin+ | `handlers_config.go:77` |
+| 14 | ForwardRecallCallback | 回调 | Admin+ | `handlers.go:725` / `forward/handlers.go` |
+| 15 | AccountingDeleteCallback | 回调 | Admin+ | `handlers.go:933` |
+| 16 | MyChatMember | 事件 | 无 | `handlers.go:363` |
+| 17 | TextMessage | 事件 | 无 | `handlers.go:417` |
+| 18 | MediaMessage | 事件 | 无 | `handlers.go:567` |
+| 19 | ChannelPost | 事件 | 无 | `handlers.go:650` |
+| 20 | EditedChannelPost | 事件 | 无 | `handlers.go:692` |
+| 21 | LeftChatMember | 事件 | 无 | `handlers.go:707` |
+| 22 | EditedMessage | 事件 | 无 | `handlers.go:635` |
 
-**总计**: 21 个 Handler（11 命令 + 3 回调 + 7 事件）
+**总计**: 22 个 Handler（12 命令 + 3 回调 + 7 事件）

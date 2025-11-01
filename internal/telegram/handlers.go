@@ -421,6 +421,10 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 
 	msg := update.Message
 
+	if msg.From == nil {
+		return
+	}
+
 	// 排除命令消息（以 / 开头）
 	if strings.HasPrefix(msg.Text, "/") {
 		return
@@ -428,6 +432,11 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 
 	// 排除系统消息（NewChatMembers、LeftChatMember 等）
 	if msg.NewChatMembers != nil || msg.LeftChatMember != nil {
+		return
+	}
+
+	// 处理管理员撤回命令
+	if b.tryHandleRecallCommand(ctx, botInstance, msg) {
 		return
 	}
 
@@ -500,6 +509,58 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	if err := b.messageService.HandleTextMessage(ctx, textMsg); err != nil {
 		logger.L().Errorf("Failed to handle text message: %v", err)
 	}
+}
+
+// tryHandleRecallCommand 处理管理员引用撤回命令
+func (b *Bot) tryHandleRecallCommand(ctx context.Context, botInstance *bot.Bot, msg *botModels.Message) bool {
+	if strings.TrimSpace(msg.Text) != "撤回" {
+		return false
+	}
+
+	isAdmin, err := b.userService.CheckAdminPermission(ctx, msg.From.ID)
+	if err != nil {
+		logger.L().Errorf("Failed to check admin permission: user=%d err=%v", msg.From.ID, err)
+		b.sendErrorMessage(ctx, msg.Chat.ID, "权限检查失败，请稍后重试", msg.ID)
+		return true
+	}
+
+	if !isAdmin {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "此命令需要管理员权限", msg.ID)
+		return true
+	}
+
+	if msg.ReplyToMessage == nil {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "请引用需要撤回的机器人消息", msg.ID)
+		return true
+	}
+
+	target := msg.ReplyToMessage
+	if target.From == nil || target.From.ID != botInstance.ID() {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "只能撤回本机器人的消息", msg.ID)
+		return true
+	}
+
+	_, err = botInstance.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    msg.Chat.ID,
+		MessageID: target.ID,
+	})
+	if err != nil {
+		logger.L().Errorf("Failed to delete recalled message: chat=%d target_msg=%d err=%v",
+			msg.Chat.ID, target.ID, err)
+		b.sendErrorMessage(ctx, msg.Chat.ID, "撤回失败，请稍后重试", msg.ID)
+		return true
+	}
+
+	_, err = botInstance.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    msg.Chat.ID,
+		MessageID: msg.ID,
+	})
+	if err != nil {
+		logger.L().Warnf("Failed to delete recall command message: chat=%d msg=%d err=%v",
+			msg.Chat.ID, msg.ID, err)
+	}
+
+	return true
 }
 
 // handleMediaMessage 处理媒体消息
