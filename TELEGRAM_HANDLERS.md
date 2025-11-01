@@ -130,8 +130,8 @@
   - 部署环境配置了 `SIFANG_BASE_URL`、签名密钥等变量
 - **主要功能**:
   - 调用四方支付 `/balance` 接口
-  - 读取 `balance`、`pending_withdraw`、`currency`、`updated_at`
-  - 以文本格式返回账户余额概览
+  - 支持追加日期后缀（如 `余额10-30`）查询对应历史余额
+  - 仅返回目标日期的余额金额，保持消息简洁
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
