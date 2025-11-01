@@ -173,7 +173,7 @@ func (f *Feature) handleBalance(ctx context.Context, merchantID int64, rawSuffix
 func (f *Feature) handleSummary(ctx context.Context, merchantID int64, text string) (string, bool, error) {
 	dateText := strings.TrimSpace(strings.TrimPrefix(text, "账单"))
 	now := time.Now().In(chinaLocation)
-	targetDate, err := parseSummaryDate(dateText, now)
+	targetDate, err := parseSummaryDate(dateText, now, "账单")
 	if err != nil {
 		return fmt.Sprintf("❌ %v", err), true, nil
 	}
@@ -241,7 +241,11 @@ func (f *Feature) queryWithdrawMessage(ctx context.Context, merchantID int64, ta
 	return formatWithdrawListMessage(targetDate.Format("2006-01-02"), list), nil
 }
 
-func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
+func parseSummaryDate(raw string, now time.Time, usage string) (time.Time, error) {
+	usage = strings.TrimSpace(usage)
+	if usage == "" {
+		usage = "账单"
+	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), nil
@@ -256,7 +260,7 @@ func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
 	normalized = strings.ReplaceAll(normalized, ".", "-")
 	normalized = strings.Trim(normalized, "- ")
 	if normalized == "" {
-		return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+		return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 	}
 
 	parts := strings.Split(normalized, "-")
@@ -271,28 +275,28 @@ func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
 	case 3:
 		year, err = strconv.Atoi(parts[0])
 		if err != nil {
-			return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+			return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 		}
 		month, err = strconv.Atoi(parts[1])
 		if err != nil {
-			return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+			return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 		}
 		day, err = strconv.Atoi(parts[2])
 		if err != nil {
-			return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+			return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 		}
 	case 2:
 		year = now.Year()
 		month, err = strconv.Atoi(parts[0])
 		if err != nil {
-			return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+			return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 		}
 		day, err = strconv.Atoi(parts[1])
 		if err != nil {
-			return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+			return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 		}
 	default:
-		return time.Time{}, fmt.Errorf("日期格式错误，请使用「账单」或「账单10月26」")
+		return time.Time{}, fmt.Errorf("日期格式错误，请使用「%s」或「%s10月26」", usage, usage)
 	}
 
 	candidate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, now.Location())
@@ -308,13 +312,7 @@ func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
 }
 
 func parseBalanceDate(raw string, now time.Time) (time.Time, error) {
-	date, err := parseSummaryDate(raw, now)
-	if err == nil {
-		return date, nil
-	}
-	msg := err.Error()
-	msg = strings.ReplaceAll(msg, "账单", "余额")
-	return time.Time{}, fmt.Errorf("%s", msg)
+	return parseSummaryDate(raw, now, "余额")
 }
 
 func calculateHistoryDays(target, now time.Time) int {
@@ -357,7 +355,7 @@ func formatSummaryMessage(summary *paymentservice.SummaryByDay) string {
 func (f *Feature) handleChannelSummary(ctx context.Context, merchantID int64, text string) (string, bool, error) {
 	dateText := strings.TrimSpace(strings.TrimPrefix(text, "通道账单"))
 	now := time.Now().In(chinaLocation)
-	targetDate, err := parseSummaryDate(dateText, now)
+	targetDate, err := parseSummaryDate(dateText, now, "通道账单")
 	if err != nil {
 		return fmt.Sprintf("❌ %v", err), true, nil
 	}
@@ -368,19 +366,40 @@ func (f *Feature) handleChannelSummary(ctx context.Context, merchantID int64, te
 		return fmt.Sprintf("❌ 查询通道账单失败：%v", err), true, nil
 	}
 
-	message := formatChannelSummaryMessage(targetDate.Format("2006-01-02"), items)
+	if len(items) == 0 {
+		return fmt.Sprintf("ℹ️ %s 暂无通道账单数据", targetDate.Format("2006-01-02")), true, nil
+	}
+
 	logger.L().Infof("Sifang channel summary queried: merchant_id=%d, date=%s, channels=%d", merchantID, targetDate.Format("2006-01-02"), len(items))
+
+	message := formatChannelSummaryMessage(targetDate.Format("2006-01-02"), items)
+
+	historyDays := calculateHistoryDays(targetDate, now)
+	balanceAmount, balanceErr := f.queryBalanceAmount(ctx, merchantID, historyDays)
+	withdrawMessage, withdrawErr := f.queryWithdrawMessage(ctx, merchantID, targetDate)
+
+	if withdrawErr != nil {
+		logger.L().Errorf("Sifang withdraw list in channel summary failed: merchant_id=%d, date=%s, err=%v", merchantID, targetDate.Format("2006-01-02"), withdrawErr)
+	} else if withdrawMessage != "" {
+		message = fmt.Sprintf("%s\n\n%s", message, withdrawMessage)
+	}
+
+	if balanceErr != nil {
+		logger.L().Errorf("Sifang balance in channel summary failed: merchant_id=%d, history_days=%d, err=%v", merchantID, historyDays, balanceErr)
+	} else if balanceAmount != "" {
+		message = fmt.Sprintf("%s\n\n余额：%s", message, balanceAmount)
+	}
+
 	return message, true, nil
 }
 
 func formatChannelSummaryMessage(date string, items []*paymentservice.SummaryByDayChannel) string {
+	if len(items) == 0 {
+		return fmt.Sprintf("ℹ️ %s 暂无通道账单数据", html.EscapeString(date))
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("📑 通道账单 - %s\n", html.EscapeString(date)))
-
-	if len(items) == 0 {
-		sb.WriteString("跑量：0\n成交：0\n笔数：0")
-		return sb.String()
-	}
 
 	for _, item := range items {
 		name := strings.TrimSpace(item.ChannelName)
@@ -430,7 +449,7 @@ func emptyFallback(value, fallback string) string {
 func (f *Feature) handleWithdrawList(ctx context.Context, merchantID int64, text string) (string, bool, error) {
 	dateText := strings.TrimSpace(strings.TrimPrefix(text, "提款明细"))
 	now := time.Now().In(chinaLocation)
-	targetDate, err := parseSummaryDate(dateText, now)
+	targetDate, err := parseSummaryDate(dateText, now, "提款明细")
 	if err != nil {
 		return fmt.Sprintf("❌ %v", err), true, nil
 	}

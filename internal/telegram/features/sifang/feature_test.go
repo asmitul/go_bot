@@ -14,7 +14,7 @@ import (
 func TestParseSummaryDate_DefaultsToToday(t *testing.T) {
 	loc := mustLoadChinaLocation()
 	now := time.Date(2024, 10, 27, 15, 30, 0, 0, loc)
-	got, err := parseSummaryDate("", now)
+	got, err := parseSummaryDate("", now, "账单")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestParseSummaryDate_DefaultsToToday(t *testing.T) {
 func TestParseSummaryDate_MonthDayCurrentYear(t *testing.T) {
 	loc := mustLoadChinaLocation()
 	now := time.Date(2024, 11, 5, 10, 0, 0, 0, loc)
-	got, err := parseSummaryDate("10月26", now)
+	got, err := parseSummaryDate("10月26", now, "账单")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestParseSummaryDate_MonthDayCurrentYear(t *testing.T) {
 func TestParseSummaryDate_MonthDayPreviousYearWhenFuture(t *testing.T) {
 	loc := mustLoadChinaLocation()
 	now := time.Date(2024, 1, 2, 9, 0, 0, 0, loc)
-	got, err := parseSummaryDate("12月31", now)
+	got, err := parseSummaryDate("12月31", now, "账单")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,13 +54,13 @@ func TestParseSummaryDate_MonthDayPreviousYearWhenFuture(t *testing.T) {
 }
 
 func TestParseSummaryDate_InvalidFormat(t *testing.T) {
-	if _, err := parseSummaryDate("abc", time.Now()); err == nil {
+	if _, err := parseSummaryDate("abc", time.Now(), "账单"); err == nil {
 		t.Fatalf("expected error for invalid format")
 	}
 }
 
 func TestParseSummaryDate_InvalidDate(t *testing.T) {
-	if _, err := parseSummaryDate("2023-02-29", time.Now()); err == nil {
+	if _, err := parseSummaryDate("2023-02-29", time.Now(), "账单"); err == nil {
 		t.Fatalf("expected error for invalid date")
 	}
 }
@@ -160,7 +160,7 @@ func TestFormatChannelSummaryMessage(t *testing.T) {
 
 func TestFormatChannelSummaryMessage_NoItems(t *testing.T) {
 	got := formatChannelSummaryMessage("2025-10-31", nil)
-	expected := "📑 通道账单 - 2025-10-31\n跑量：0\n成交：0\n笔数：0"
+	expected := "ℹ️ 2025-10-31 暂无通道账单数据"
 	if got != expected {
 		t.Fatalf("unexpected channel message for no items:\n%s", got)
 	}
@@ -438,16 +438,94 @@ func TestHandleSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
 	}
 }
 
+func TestHandleChannelSummaryIncludesWithdrawAndBalance(t *testing.T) {
+	now := time.Now().In(chinaLocation)
+	today := now.Format("2006-01-02")
+	fake := &fakePaymentService{
+		channelSummaryResp: []*paymentservice.SummaryByDayChannel{
+			{
+				ChannelCode:    "USDT",
+				ChannelName:    "USDT通道",
+				TotalAmount:    "5000",
+				MerchantIncome: "4800",
+				AgentIncome:    "100",
+				OrderCount:     "20",
+			},
+		},
+		balanceResp: &paymentservice.Balance{
+			Balance:        "5000",
+			HistoryBalance: "4000",
+		},
+		withdrawResp: &paymentservice.WithdrawList{
+			Items: []*paymentservice.Withdraw{
+				{Amount: "100", CreatedAt: today + " 08:00:00"},
+			},
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	message, _, err := feature.handleChannelSummary(context.Background(), 1001, "通道账单")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(message, "📑 通道账单 - ") {
+		t.Fatalf("expected channel summary header, got %s", message)
+	}
+	if !strings.Contains(message, "💸 提款明细（总计 ") {
+		t.Fatalf("expected withdraw section, got %s", message)
+	}
+	if !strings.Contains(message, "余额：5000") {
+		t.Fatalf("expected balance amount, got %s", message)
+	}
+	if fake.lastHistoryDays != 0 {
+		t.Fatalf("expected history_days 0, got %d", fake.lastHistoryDays)
+	}
+}
+
+func TestHandleChannelSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
+	fake := &fakePaymentService{
+		channelSummaryResp: []*paymentservice.SummaryByDayChannel{
+			{
+				ChannelCode:    "USDT",
+				ChannelName:    "USDT通道",
+				TotalAmount:    "5000",
+				MerchantIncome: "4800",
+				AgentIncome:    "100",
+				OrderCount:     "20",
+			},
+		},
+		balanceResp: &paymentservice.Balance{
+			Balance:        "5000",
+			HistoryBalance: "4000",
+		},
+		withdrawResp: &paymentservice.WithdrawList{},
+	}
+	feature := &Feature{paymentService: fake}
+
+	message, _, err := feature.handleChannelSummary(context.Background(), 1001, "通道账单01-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(message, "余额：4000") {
+		t.Fatalf("expected history balance in channel summary, got %s", message)
+	}
+	if fake.lastHistoryDays <= 0 {
+		t.Fatalf("expected history_days > 0, got %d", fake.lastHistoryDays)
+	}
+}
+
 type fakePaymentService struct {
-	balanceResp       *paymentservice.Balance
-	balanceErr        error
-	summaryResp       *paymentservice.SummaryByDay
-	summaryErr        error
-	withdrawResp      *paymentservice.WithdrawList
-	withdrawErr       error
-	channelStatusResp []*paymentservice.ChannelStatus
-	channelStatusErr  error
-	lastHistoryDays   int
+	balanceResp        *paymentservice.Balance
+	balanceErr         error
+	summaryResp        *paymentservice.SummaryByDay
+	summaryErr         error
+	channelSummaryResp []*paymentservice.SummaryByDayChannel
+	channelSummaryErr  error
+	withdrawResp       *paymentservice.WithdrawList
+	withdrawErr        error
+	channelStatusResp  []*paymentservice.ChannelStatus
+	channelStatusErr   error
+	lastHistoryDays    int
 }
 
 func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -476,7 +554,13 @@ func (f *fakePaymentService) GetSummaryByDay(ctx context.Context, merchantID int
 }
 
 func (f *fakePaymentService) GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*paymentservice.SummaryByDayChannel, error) {
-	return nil, nil
+	if f.channelSummaryErr != nil {
+		return nil, f.channelSummaryErr
+	}
+	if f.channelSummaryResp != nil {
+		return f.channelSummaryResp, nil
+	}
+	return []*paymentservice.SummaryByDayChannel{}, nil
 }
 
 func (f *fakePaymentService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*paymentservice.WithdrawList, error) {
