@@ -184,8 +184,53 @@ func (f *Feature) handleSummary(ctx context.Context, merchantID int64, text stri
 		summary.Date = targetDate.Format("2006-01-02")
 	}
 
+	historyDays := calculateHistoryDays(targetDate, now)
+	balanceAmount, balanceErr := f.queryBalanceAmount(ctx, merchantID, historyDays)
+	withdrawMessage, withdrawErr := f.queryWithdrawMessage(ctx, merchantID, targetDate)
+
 	logger.L().Infof("Sifang summary queried: merchant_id=%d, date=%s", merchantID, summary.Date)
-	return formatSummaryMessage(summary), true, nil
+	message := formatSummaryMessage(summary)
+
+	if withdrawErr != nil {
+		logger.L().Errorf("Sifang withdraw list in summary failed: merchant_id=%d, date=%s, err=%v", merchantID, targetDate.Format("2006-01-02"), withdrawErr)
+	} else if withdrawMessage != "" {
+		message = fmt.Sprintf("%s\n\n%s", message, withdrawMessage)
+	}
+
+	if balanceErr != nil {
+		logger.L().Errorf("Sifang balance in summary failed: merchant_id=%d, history_days=%d, err=%v", merchantID, historyDays, balanceErr)
+	} else if balanceAmount != "" {
+		message = fmt.Sprintf("%s\n\n余额：%s", message, balanceAmount)
+	}
+
+	return message, true, nil
+}
+
+func (f *Feature) queryBalanceAmount(ctx context.Context, merchantID int64, historyDays int) (string, error) {
+	balance, err := f.paymentService.GetBalance(ctx, merchantID, historyDays)
+	if err != nil {
+		return "", err
+	}
+	if balance == nil {
+		return "", fmt.Errorf("empty balance response")
+	}
+	amount := strings.TrimSpace(balance.Balance)
+	if historyDays > 0 {
+		amount = strings.TrimSpace(balance.HistoryBalance)
+	}
+	return emptyFallback(amount, "未知"), nil
+}
+
+func (f *Feature) queryWithdrawMessage(ctx context.Context, merchantID int64, targetDate time.Time) (string, error) {
+	start := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, targetDate.Location())
+	end := start.Add(24*time.Hour - time.Second)
+
+	list, err := f.paymentService.GetWithdrawList(ctx, merchantID, start, end, 1, 100)
+	if err != nil {
+		return "", err
+	}
+
+	return formatWithdrawListMessage(targetDate.Format("2006-01-02"), list), nil
 }
 
 func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
@@ -408,14 +453,13 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 		itemCount++
 	}
 
-	sb.WriteString(fmt.Sprintf("💸 提款明细 - %s\n", html.EscapeString(date)))
+	title := "💸 提款明细"
 
 	if itemCount == 0 {
-		sb.WriteString("暂无提款记录")
-		return sb.String()
+		return fmt.Sprintf("%s\n暂无提款记录", title)
 	}
 
-	sb.WriteString(fmt.Sprintf("总计：%s | %d笔\n", html.EscapeString(formatFloat(totalAmount)), itemCount))
+	sb.WriteString(fmt.Sprintf("%s（总计 %s｜%d 笔）\n", title, html.EscapeString(formatFloat(totalAmount)), itemCount))
 
 	for _, item := range list.Items {
 		created := strings.TrimSpace(item.CreatedAt)
