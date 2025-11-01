@@ -1,6 +1,8 @@
 package sifang
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,56 @@ func TestParseSummaryDate_InvalidFormat(t *testing.T) {
 func TestParseSummaryDate_InvalidDate(t *testing.T) {
 	if _, err := parseSummaryDate("2023-02-29", time.Now()); err == nil {
 		t.Fatalf("expected error for invalid date")
+	}
+}
+
+func TestParseBalanceDate_RewritesErrorMessage(t *testing.T) {
+	_, err := parseBalanceDate("not-a-date", time.Now())
+	if err == nil {
+		t.Fatalf("expected error for invalid balance date")
+	}
+	if !strings.Contains(err.Error(), "余额") {
+		t.Fatalf("expected error message to mention 余额, got %v", err)
+	}
+}
+
+func TestCalculateHistoryDays(t *testing.T) {
+	loc := mustLoadChinaLocation()
+	now := time.Date(2024, 11, 5, 12, 0, 0, 0, loc)
+
+	tests := []struct {
+		name     string
+		target   time.Time
+		expected int
+	}{
+		{
+			name:     "Today",
+			target:   time.Date(2024, 11, 5, 0, 0, 0, 0, loc),
+			expected: 0,
+		},
+		{
+			name:     "Yesterday",
+			target:   time.Date(2024, 11, 4, 0, 0, 0, 0, loc),
+			expected: 1,
+		},
+		{
+			name:     "ThreeDaysAgo",
+			target:   time.Date(2024, 11, 2, 23, 0, 0, 0, loc),
+			expected: 3,
+		},
+		{
+			name:     "FutureClamped",
+			target:   time.Date(2024, 11, 6, 0, 0, 0, 0, loc),
+			expected: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := calculateHistoryDays(tc.target, now); got != tc.expected {
+				t.Fatalf("expected %d, got %d", tc.expected, got)
+			}
+		})
 	}
 }
 
@@ -136,6 +188,17 @@ func TestMatchAcceptsChannelCommand(t *testing.T) {
 	}
 }
 
+func TestMatchAcceptsBalanceWithDate(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "余额10月30",
+	}
+	if !f.Match(nil, msg) {
+		t.Fatalf("expected balance command with date to match")
+	}
+}
+
 func TestMatchAcceptsWithdrawCommand(t *testing.T) {
 	f := &Feature{}
 	msg := &botModels.Message{
@@ -173,4 +236,70 @@ func TestFormatWithdrawListMessage(t *testing.T) {
 	if gotEmpty != "💸 提款明细 - 2025-10-31\n暂无提款记录" {
 		t.Fatalf("unexpected empty withdraw message:\n%s", gotEmpty)
 	}
+}
+
+func TestHandleBalanceReturnsCurrentAmount(t *testing.T) {
+	fake := &fakePaymentService{
+		response: &paymentservice.Balance{
+			Balance:        "123.45",
+			HistoryBalance: "67.89",
+			MerchantID:     "1001",
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	amount, _, err := feature.handleBalance(context.Background(), 1001, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amount != "123.45" {
+		t.Fatalf("expected current balance, got %s", amount)
+	}
+	if fake.lastHistoryDays != 0 {
+		t.Fatalf("expected history_days 0, got %d", fake.lastHistoryDays)
+	}
+}
+
+func TestHandleBalanceReturnsHistoryAmount(t *testing.T) {
+	fake := &fakePaymentService{
+		response: &paymentservice.Balance{
+			Balance:        "123.45",
+			HistoryBalance: "67.89",
+			MerchantID:     "1001",
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	amount, _, err := feature.handleBalance(context.Background(), 1001, "2000-01-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amount != "67.89" {
+		t.Fatalf("expected history balance, got %s", amount)
+	}
+	if fake.lastHistoryDays <= 0 {
+		t.Fatalf("expected history_days > 0, got %d", fake.lastHistoryDays)
+	}
+}
+
+type fakePaymentService struct {
+	response        *paymentservice.Balance
+	lastHistoryDays int
+}
+
+func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
+	f.lastHistoryDays = historyDays
+	return f.response, nil
+}
+
+func (f *fakePaymentService) GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*paymentservice.SummaryByDay, error) {
+	return nil, nil
+}
+
+func (f *fakePaymentService) GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*paymentservice.SummaryByDayChannel, error) {
+	return nil, nil
+}
+
+func (f *fakePaymentService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*paymentservice.WithdrawList, error) {
+	return nil, nil
 }

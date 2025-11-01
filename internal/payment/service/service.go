@@ -13,7 +13,7 @@ import (
 
 // Service 定义四方支付相关操作
 type Service interface {
-	GetBalance(ctx context.Context, merchantID int64) (*Balance, error)
+	GetBalance(ctx context.Context, merchantID int64, historyDays int) (*Balance, error)
 	GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*SummaryByDay, error)
 	GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*SummaryByDayChannel, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
@@ -28,17 +28,33 @@ func NewSifangService(client *sifang.Client) Service {
 	return &sifangService{client: client}
 }
 
-func (s *sifangService) GetBalance(ctx context.Context, merchantID int64) (*Balance, error) {
+func (s *sifangService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*Balance, error) {
 	if merchantID == 0 {
 		return nil, fmt.Errorf("merchant id is required")
 	}
 
+	if historyDays < 0 {
+		historyDays = 0
+	}
+	if historyDays > 365 {
+		historyDays = 365
+	}
+
+	business := map[string]string{
+		"history_days": strconv.Itoa(historyDays),
+	}
+
 	raw := make(map[string]interface{})
-	if err := s.client.Post(ctx, "balance", merchantID, nil, &raw); err != nil {
+	if err := s.client.Post(ctx, "balance", merchantID, business, &raw); err != nil {
 		return nil, err
 	}
 
-	return decodeBalance(raw), nil
+	balance := decodeBalance(raw)
+	if balance != nil && balance.HistoryDays == 0 {
+		balance.HistoryDays = historyDays
+	}
+
+	return balance, nil
 }
 
 func (s *sifangService) GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*SummaryByDay, error) {
@@ -159,6 +175,8 @@ type Balance struct {
 	PendingWithdraw string
 	Currency        string
 	UpdatedAt       string
+	HistoryDays     int
+	HistoryBalance  string
 }
 
 // SummaryByDay 表示按日汇总数据
@@ -211,6 +229,8 @@ func decodeBalance(raw map[string]interface{}) *Balance {
 		PendingWithdraw: stringify(raw["pending_withdraw"]),
 		Currency:        stringify(raw["currency"]),
 		UpdatedAt:       stringify(raw["updated_at"]),
+		HistoryDays:     parseInt(raw["history_days"], 0),
+		HistoryBalance:  stringify(raw["history_balance"]),
 	}
 }
 
@@ -530,4 +550,15 @@ func stringify(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func parseInt(value interface{}, fallback int) int {
+	str := strings.TrimSpace(stringify(value))
+	if str == "" {
+		return fallback
+	}
+	if n, err := strconv.Atoi(str); err == nil {
+		return n
+	}
+	return fallback
 }

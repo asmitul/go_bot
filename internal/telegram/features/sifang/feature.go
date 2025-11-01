@@ -64,7 +64,7 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return false
 	}
 
-	if text == "余额" {
+	if _, ok := extractDateSuffix(text, "余额"); ok {
 		return true
 	}
 
@@ -99,8 +99,8 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 	}
 
 	text := strings.TrimSpace(msg.Text)
-	if text == "余额" {
-		return f.handleBalance(ctx, merchantID)
+	if suffix, ok := extractDateSuffix(text, "余额"); ok {
+		return f.handleBalance(ctx, merchantID, suffix)
 	}
 
 	if _, ok := extractDateSuffix(text, "账单"); ok {
@@ -123,34 +123,43 @@ func (f *Feature) Priority() int {
 	return 25
 }
 
-func (f *Feature) handleBalance(ctx context.Context, merchantID int64) (string, bool, error) {
-	balance, err := f.paymentService.GetBalance(ctx, merchantID)
+func (f *Feature) handleBalance(ctx context.Context, merchantID int64, rawSuffix string) (string, bool, error) {
+	now := time.Now().In(chinaLocation)
+	targetDate, err := parseBalanceDate(rawSuffix, now)
 	if err != nil {
-		logger.L().Errorf("Sifang balance query failed: merchant_id=%d, err=%v", merchantID, err)
+		return fmt.Sprintf("❌ %v", err), true, nil
+	}
+
+	historyDays := calculateHistoryDays(targetDate, now)
+	nowMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if historyDays > 365 {
+		historyDays = 365
+		targetDate = nowMidnight.AddDate(0, 0, -historyDays)
+	}
+
+	balance, err := f.paymentService.GetBalance(ctx, merchantID, historyDays)
+	if err != nil {
+		logger.L().Errorf("Sifang balance query failed: merchant_id=%d, history_days=%d, err=%v", merchantID, historyDays, err)
 		return fmt.Sprintf("❌ 查询余额失败：%v", err), true, nil
 	}
+	if balance == nil {
+		logger.L().Warnf("Sifang balance query returned empty result: merchant_id=%d, history_days=%d", merchantID, historyDays)
+		return "ℹ️ 暂未取得余额数据，请稍后重试", true, nil
+	}
+
+	amount := strings.TrimSpace(balance.Balance)
+	if historyDays > 0 {
+		amount = strings.TrimSpace(balance.HistoryBalance)
+	}
+	amount = emptyFallback(amount, "未知")
 
 	merchant := balance.MerchantID
 	if merchant == "" {
 		merchant = strconv.FormatInt(merchantID, 10)
 	}
 
-	var sb strings.Builder
-	// sb.WriteString("🏦 四方支付余额\n")
-	// sb.WriteString(fmt.Sprintf("商户号：%s\n", merchant))
-	// sb.WriteString(fmt.Sprintf("可用余额：%s\n", emptyFallback(balance.Balance, "未知")))
-	// sb.WriteString(fmt.Sprintf("待提现：%s\n", emptyFallback(balance.PendingWithdraw, "0")))
-	// if balance.Currency != "" {
-	// 	sb.WriteString(fmt.Sprintf("币种：%s\n", balance.Currency))
-	// }
-	// if balance.UpdatedAt != "" {
-	// 	sb.WriteString(fmt.Sprintf("更新时间：%s\n", balance.UpdatedAt))
-	// }
-
-	sb.WriteString(fmt.Sprintf("%s", emptyFallback(balance.Balance, "未知")))
-
-	logger.L().Infof("Sifang balance queried: merchant_id=%s", merchant)
-	return sb.String(), true, nil
+	logger.L().Infof("Sifang balance queried: merchant_id=%s history_days=%d date=%s", merchant, historyDays, targetDate.Format("2006-01-02"))
+	return amount, true, nil
 }
 
 func (f *Feature) handleSummary(ctx context.Context, merchantID int64, text string) (string, bool, error) {
@@ -243,6 +252,31 @@ func parseSummaryDate(raw string, now time.Time) (time.Time, error) {
 	}
 
 	return candidate, nil
+}
+
+func parseBalanceDate(raw string, now time.Time) (time.Time, error) {
+	date, err := parseSummaryDate(raw, now)
+	if err == nil {
+		return date, nil
+	}
+	msg := err.Error()
+	msg = strings.ReplaceAll(msg, "账单", "余额")
+	return time.Time{}, fmt.Errorf("%s", msg)
+}
+
+func calculateHistoryDays(target, now time.Time) int {
+	targetMidnight := time.Date(target.Year(), target.Month(), target.Day(), 0, 0, 0, 0, target.Location())
+	nowMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	if targetMidnight.After(nowMidnight) {
+		return 0
+	}
+
+	days := int(nowMidnight.Sub(targetMidnight).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	return days
 }
 
 func formatSummaryMessage(summary *paymentservice.SummaryByDay) string {

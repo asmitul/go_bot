@@ -12,11 +12,16 @@ func TestDecodeBalance(t *testing.T) {
 		"pending_withdraw": "10.00",
 		"currency":         "CNY",
 		"updated_at":       "2024-01-01 12:00:00",
+		"history_days":     7,
+		"history_balance":  "100.00",
 	}
 
 	b := decodeBalance(raw)
 	if b.MerchantID != "1001" || b.Balance != "123.45" || b.Currency != "CNY" {
 		t.Fatalf("unexpected balance decode: %#v", b)
+	}
+	if b.HistoryDays != 7 || b.HistoryBalance != "100.00" {
+		t.Fatalf("unexpected history fields: %#v", b)
 	}
 }
 
@@ -238,12 +243,12 @@ func TestDecodeWithdrawList_Items(t *testing.T) {
 				"channel":     "ALIPAY",
 			},
 			{
-				"id":            "W2024",
+				"id":                "W2024",
 				"merchant_order_no": "O2",
-				"withdraw_amount": "200",
-				"charge":           "2.00",
-				"state":            "processing",
-				"apply_time":       "2025-10-30 09:00:00",
+				"withdraw_amount":   "200",
+				"charge":            "2.00",
+				"state":             "processing",
+				"apply_time":        "2025-10-30 09:00:00",
 			},
 		},
 	}
