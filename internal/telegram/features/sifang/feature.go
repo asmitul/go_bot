@@ -80,6 +80,10 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return true
 	}
 
+	if text == "费率" {
+		return true
+	}
+
 	return false
 }
 
@@ -101,6 +105,10 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 	text := strings.TrimSpace(msg.Text)
 	if suffix, ok := extractDateSuffix(text, "余额"); ok {
 		return f.handleBalance(ctx, merchantID, suffix)
+	}
+
+	if text == "费率" {
+		return f.handleChannelRates(ctx, merchantID)
 	}
 
 	if _, ok := extractDateSuffix(text, "账单"); ok {
@@ -573,4 +581,93 @@ func isValidDateSuffix(raw string) bool {
 		return true
 	}
 	return dateSuffixRegexp.MatchString(trimmed)
+}
+
+func (f *Feature) handleChannelRates(ctx context.Context, merchantID int64) (string, bool, error) {
+	statuses, err := f.paymentService.GetChannelStatus(ctx, merchantID)
+	if err != nil {
+		logger.L().Errorf("Sifang channel status query failed: merchant_id=%d, err=%v", merchantID, err)
+		return fmt.Sprintf("❌ 查询费率失败：%v", err), true, nil
+	}
+
+	if len(statuses) == 0 {
+		return "ℹ️ 暂无通道状态数据", true, nil
+	}
+
+	message := formatChannelRatesMessage(statuses)
+	logger.L().Infof("Sifang channel status queried: merchant_id=%d, channels=%d", merchantID, len(statuses))
+	return message, true, nil
+}
+
+func formatChannelRatesMessage(items []*paymentservice.ChannelStatus) string {
+	if len(items) == 0 {
+		return "ℹ️ 暂无通道状态数据"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📡 通道费率\n")
+	sb.WriteString("<pre>")
+	sb.WriteString("状态  通道代码    费率   通道名称\n")
+	sb.WriteString("———————————————————————————————\n")
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+
+		originalCode := strings.TrimSpace(item.ChannelCode)
+		if strings.HasSuffix(strings.ToLower(originalCode), "test") {
+			continue
+		}
+
+		status := "❌"
+		if item.SystemEnabled && item.MerchantEnabled {
+			status = "✅"
+		}
+
+		code := originalCode
+		if code == "" {
+			code = "-"
+		}
+		name := strings.TrimSpace(item.ChannelName)
+		if name == "" {
+			name = "-"
+		}
+
+		rate := formatChannelRate(item.Rate)
+
+		line := fmt.Sprintf("%s %-8s %-6s %s\n",
+			status,
+			html.EscapeString(code),
+			html.EscapeString(rate),
+			html.EscapeString(name),
+		)
+		sb.WriteString(line)
+	}
+
+	output := strings.TrimRight(sb.String(), "\n")
+	return output + "\n</pre>"
+}
+
+func formatChannelRate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "-" {
+		return "-"
+	}
+
+	hasPercent := strings.ContainsAny(raw, "%％")
+	normalized := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(raw, "%"), "％"))
+	normalized = strings.ReplaceAll(normalized, ",", "")
+	if normalized == "" {
+		return "-"
+	}
+
+	if value, err := strconv.ParseFloat(normalized, 64); err == nil {
+		if hasPercent || value > 1 {
+			return strconv.FormatFloat(value, 'f', -1, 64) + "%"
+		}
+		return strconv.FormatFloat(value*100, 'f', -1, 64) + "%"
+	}
+
+	return raw
 }

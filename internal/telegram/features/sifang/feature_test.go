@@ -166,6 +166,72 @@ func TestFormatChannelSummaryMessage_NoItems(t *testing.T) {
 	}
 }
 
+func TestFormatChannelRate(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"0.1", "10%"},
+		{"0.065", "6.5%"},
+		{"6.5%", "6.5%"},
+		{"10", "10%"},
+		{"", "-"},
+		{"-", "-"},
+	}
+
+	for _, tc := range tests {
+		if got := formatChannelRate(tc.input); got != tc.expected {
+			t.Fatalf("formatChannelRate(%q) expected %q, got %q", tc.input, tc.expected, got)
+		}
+	}
+}
+
+func TestFormatChannelRatesMessage(t *testing.T) {
+	items := []*paymentservice.ChannelStatus{
+		{
+			ChannelCode:     "cjwxhf",
+			ChannelName:     "微信话费慢充",
+			SystemEnabled:   true,
+			MerchantEnabled: true,
+			Rate:            "0.10",
+		},
+		{
+			ChannelCode:     "tbsqhf",
+			ChannelName:     "淘宝授权话费",
+			SystemEnabled:   true,
+			MerchantEnabled: false,
+			Rate:            "",
+		},
+		{
+			ChannelCode:     "wxhftest",
+			ChannelName:     "微信测试",
+			SystemEnabled:   true,
+			MerchantEnabled: true,
+			Rate:            "0.08",
+		},
+	}
+
+	message := formatChannelRatesMessage(items)
+	if !strings.Contains(message, "📡 通道费率") {
+		t.Fatalf("expected header, got %s", message)
+	}
+	if !strings.Contains(message, "✅") || !strings.Contains(message, "❌") {
+		t.Fatalf("expected status icons, got %s", message)
+	}
+	if !strings.Contains(message, "cjwxhf") || !strings.Contains(message, "tbsqhf") {
+		t.Fatalf("expected channel codes, got %s", message)
+	}
+	if !strings.Contains(message, "10%") {
+		t.Fatalf("expected formatted rate, got %s", message)
+	}
+	if !strings.Contains(message, "</pre>") {
+		t.Fatalf("expected preformatted block, got %s", message)
+	}
+	if strings.Contains(message, "wxhftest") {
+		t.Fatalf("expected test channel to be skipped, got %s", message)
+	}
+}
+
 func TestMatchIgnoresNonCommand(t *testing.T) {
 	f := &Feature{}
 	msg := &botModels.Message{
@@ -196,6 +262,17 @@ func TestMatchAcceptsBalanceWithDate(t *testing.T) {
 	}
 	if !f.Match(nil, msg) {
 		t.Fatalf("expected balance command with date to match")
+	}
+}
+
+func TestMatchAcceptsRateCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "费率",
+	}
+	if !f.Match(nil, msg) {
+		t.Fatalf("expected rate command to match")
 	}
 }
 
@@ -235,6 +312,32 @@ func TestFormatWithdrawListMessage(t *testing.T) {
 	gotEmpty := formatWithdrawListMessage("2025-10-31", &paymentservice.WithdrawList{})
 	if gotEmpty != "💸 提款明细\n暂无提款记录" {
 		t.Fatalf("unexpected empty withdraw message:\n%s", gotEmpty)
+	}
+}
+
+func TestHandleChannelRates(t *testing.T) {
+	fake := &fakePaymentService{
+		channelStatusResp: []*paymentservice.ChannelStatus{
+			{
+				ChannelCode:     "zft",
+				ChannelName:     "直付通",
+				SystemEnabled:   true,
+				MerchantEnabled: true,
+				Rate:            "0.09",
+			},
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	message, handled, err := feature.handleChannelRates(context.Background(), 1001)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled to be true")
+	}
+	if !strings.Contains(message, "直付通") || !strings.Contains(message, "9%") {
+		t.Fatalf("unexpected message: %s", message)
 	}
 }
 
@@ -336,13 +439,15 @@ func TestHandleSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
 }
 
 type fakePaymentService struct {
-	balanceResp     *paymentservice.Balance
-	balanceErr      error
-	summaryResp     *paymentservice.SummaryByDay
-	summaryErr      error
-	withdrawResp    *paymentservice.WithdrawList
-	withdrawErr     error
-	lastHistoryDays int
+	balanceResp       *paymentservice.Balance
+	balanceErr        error
+	summaryResp       *paymentservice.SummaryByDay
+	summaryErr        error
+	withdrawResp      *paymentservice.WithdrawList
+	withdrawErr       error
+	channelStatusResp []*paymentservice.ChannelStatus
+	channelStatusErr  error
+	lastHistoryDays   int
 }
 
 func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -382,4 +487,11 @@ func (f *fakePaymentService) GetWithdrawList(ctx context.Context, merchantID int
 		return f.withdrawResp, nil
 	}
 	return &paymentservice.WithdrawList{}, nil
+}
+
+func (f *fakePaymentService) GetChannelStatus(ctx context.Context, merchantID int64) ([]*paymentservice.ChannelStatus, error) {
+	if f.channelStatusErr != nil {
+		return nil, f.channelStatusErr
+	}
+	return f.channelStatusResp, nil
 }

@@ -226,6 +226,71 @@ func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
 	}
 }
 
+func TestDecodeChannelStatus(t *testing.T) {
+	payload := map[string]interface{}{
+		"items": []map[string]interface{}{
+			{
+				"channel_code":     "cjwxhf",
+				"channel_name":     "微信话费慢充",
+				"system_enabled":   1,
+				"merchant_enabled": "1",
+				"rate":             "0.10",
+				"min_amount":       "10",
+				"max_amount":       "5000",
+			},
+			{
+				"code":            "tbsqhf",
+				"name":            "淘宝授权话费",
+				"system_status":   true,
+				"merchant_status": 0,
+				"fee_rate":        "10%",
+				"daily_quota":     "10000",
+				"daily_used":      "2000",
+				"last_used_at":    "2025-10-31 10:00:00",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	items, err := decodeChannelStatus(data)
+	if err != nil {
+		t.Fatalf("decode channel status: %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	first := items[0]
+	if first.ChannelCode != "cjwxhf" || first.ChannelName != "微信话费慢充" {
+		t.Fatalf("unexpected first item: %#v", first)
+	}
+	if !first.SystemEnabled || !first.MerchantEnabled {
+		t.Fatalf("expected first item enabled: %#v", first)
+	}
+	if first.Rate != "0.10" || first.MinAmount != "10" || first.MaxAmount != "5000" {
+		t.Fatalf("unexpected first item amounts: %#v", first)
+	}
+
+	second := items[1]
+	if second.ChannelCode != "tbsqhf" || second.ChannelName != "淘宝授权话费" {
+		t.Fatalf("unexpected second item: %#v", second)
+	}
+	if !second.SystemEnabled || second.MerchantEnabled {
+		t.Fatalf("unexpected second item enabled flags: %#v", second)
+	}
+	if second.Rate != "10%" || second.DailyQuota != "10000" || second.DailyUsed != "2000" {
+		t.Fatalf("unexpected second item limits: %#v", second)
+	}
+	if second.LastUsedAt != "2025-10-31 10:00:00" {
+		t.Fatalf("unexpected second item last used: %#v", second)
+	}
+}
+
 func TestDecodeWithdrawList_Items(t *testing.T) {
 	payload := map[string]interface{}{
 		"page":      1,

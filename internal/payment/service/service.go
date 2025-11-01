@@ -16,6 +16,7 @@ type Service interface {
 	GetBalance(ctx context.Context, merchantID int64, historyDays int) (*Balance, error)
 	GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*SummaryByDay, error)
 	GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*SummaryByDayChannel, error)
+	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 }
 
@@ -138,6 +139,24 @@ func (s *sifangService) GetSummaryByDayByChannel(ctx context.Context, merchantID
 	return summaries, nil
 }
 
+func (s *sifangService) GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+
+	var raw json.RawMessage
+	if err := s.client.Post(ctx, "channelstatus", merchantID, nil, &raw); err != nil {
+		return nil, err
+	}
+
+	statuses, err := decodeChannelStatus(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return statuses, nil
+}
+
 func (s *sifangService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error) {
 	if merchantID == 0 {
 		return nil, fmt.Errorf("merchant id is required")
@@ -199,6 +218,20 @@ type SummaryByDayChannel struct {
 	TotalAmount    string
 	MerchantIncome string
 	AgentIncome    string
+}
+
+// ChannelStatus 表示通道状态
+type ChannelStatus struct {
+	ChannelCode     string
+	ChannelName     string
+	SystemEnabled   bool
+	MerchantEnabled bool
+	Rate            string
+	MinAmount       string
+	MaxAmount       string
+	DailyQuota      string
+	DailyUsed       string
+	LastUsedAt      string
 }
 
 // Withdraw 表示提现记录
@@ -344,6 +377,20 @@ func decodeSummaryByDayChannel(data json.RawMessage) ([]*SummaryByDayChannel, er
 
 	items := extractChannelSummaries(payload)
 	return items, nil
+}
+
+func decodeChannelStatus(data json.RawMessage) ([]*ChannelStatus, error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+
+	var payload interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal channel status failed: %w", err)
+	}
+
+	return extractChannelStatus(payload), nil
 }
 
 func decodeWithdrawList(data json.RawMessage) (*WithdrawList, error) {
@@ -510,6 +557,144 @@ func buildChannelSummary(m map[string]interface{}) *SummaryByDayChannel {
 	}
 
 	return summary
+}
+
+func extractChannelStatus(value interface{}) []*ChannelStatus {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []interface{}:
+		result := make([]*ChannelStatus, 0, len(v))
+		for _, elem := range v {
+			if elem == nil {
+				continue
+			}
+			switch entry := elem.(type) {
+			case map[string]interface{}:
+				if status := buildChannelStatus(entry); status != nil {
+					result = append(result, status)
+				} else {
+					if nested := extractChannelStatus(entry); len(nested) > 0 {
+						result = append(result, nested...)
+					}
+				}
+			default:
+				if nested := extractChannelStatus(entry); len(nested) > 0 {
+					result = append(result, nested...)
+				}
+			}
+		}
+		return result
+	case map[string]interface{}:
+		if status := buildChannelStatus(v); status != nil {
+			return []*ChannelStatus{status}
+		}
+
+		keys := []string{"items", "list", "channels", "data", "rows", "result"}
+		for _, key := range keys {
+			if nested, exists := v[key]; exists {
+				if list := extractChannelStatus(nested); len(list) > 0 {
+					return list
+				}
+			}
+		}
+
+		var result []*ChannelStatus
+		for _, nested := range v {
+			if list := extractChannelStatus(nested); len(list) > 0 {
+				result = append(result, list...)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func buildChannelStatus(m map[string]interface{}) *ChannelStatus {
+	if len(m) == 0 {
+		return nil
+	}
+
+	status := &ChannelStatus{
+		ChannelCode:     pickString(m, "channel_code", "code", "channel", "channel_id"),
+		ChannelName:     pickString(m, "channel_name", "name", "channelTitle", "channel_display"),
+		Rate:            pickString(m, "rate", "channel_rate", "fee_rate"),
+		MinAmount:       pickString(m, "min_amount", "min", "min_money", "min_limit"),
+		MaxAmount:       pickString(m, "max_amount", "max", "max_money", "max_limit"),
+		DailyQuota:      pickString(m, "daily_quota", "day_quota", "quota", "daily_limit"),
+		DailyUsed:       pickString(m, "daily_used", "day_used", "used", "used_quota"),
+		LastUsedAt:      pickString(m, "last_used_at", "last_time", "updated_at", "last_pay_time"),
+		SystemEnabled:   pickBool(m, "system_enabled", "system_open", "system_status", "enabled", "is_enabled"),
+		MerchantEnabled: pickBool(m, "merchant_enabled", "merchant_open", "merchant_status", "merchant_enable"),
+	}
+
+	if status.ChannelCode == "" && status.ChannelName == "" && status.Rate == "" && !status.SystemEnabled && !status.MerchantEnabled {
+		return nil
+	}
+
+	return status
+}
+
+func pickBool(m map[string]interface{}, keys ...string) bool {
+	for _, key := range keys {
+		if val, ok := m[key]; ok {
+			if parsed, ok := parseBoolValue(val); ok {
+				return parsed
+			}
+		}
+	}
+	return false
+}
+
+func parseBoolValue(value interface{}) (bool, bool) {
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case string:
+		return parseBoolString(v)
+	case json.Number:
+		if num, err := v.Float64(); err == nil {
+			return num != 0, true
+		}
+	case float64:
+		return v != 0, true
+	case float32:
+		return v != 0, true
+	case int:
+		return v != 0, true
+	case int64:
+		return v != 0, true
+	case int32:
+		return v != 0, true
+	default:
+		str := strings.TrimSpace(stringify(v))
+		if str == "" {
+			return false, false
+		}
+		return parseBoolString(str)
+	}
+	return false, false
+}
+
+func parseBoolString(input string) (bool, bool) {
+	s := strings.TrimSpace(strings.ToLower(input))
+	if s == "" {
+		return false, false
+	}
+
+	switch s {
+	case "1", "true", "t", "yes", "y", "on", "open", "enabled", "enable":
+		return true, true
+	case "0", "false", "f", "no", "n", "off", "close", "closed", "disabled", "disable":
+		return false, true
+	default:
+		if num, err := strconv.ParseFloat(s, 64); err == nil {
+			return num != 0, true
+		}
+	}
+
+	return false, false
 }
 func looksLikeDate(val string) bool {
 	s := strings.TrimSpace(val)

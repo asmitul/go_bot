@@ -164,7 +164,21 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.12 `提款明细` - 查询四方支付提现列表
+### 1.12 `费率` - 查询四方支付通道状态
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:586`
+- **权限**: 所有群成员（需启用四方支付功能）
+- **触发**: 文本消息 `费率`
+- **前置条件**: 同 `账单` 命令
+- **主要功能**:
+  - 调用四方支付 `/channelstatus` 接口，读取通道启用状态、费率与限额信息
+  - 仅展示系统与商户皆启用的通道为 `✅`，否则标记为 `❌`
+  - 过滤通道代码以 `test` 结尾的测试通道，保持 API 返回顺序
+  - 将费率统一转为百分比字符串并以 `<pre>` 保持表格对齐
+- **Service**: SifangService (`internal/payment/service`)
+- **数据库**: 无
+
+### 1.13 `提款明细` - 查询四方支付提现列表
 
 - **文件位置**: `internal/telegram/features/sifang/feature.go:258`
 - **权限**: 所有群成员（需启用四方支付功能）
@@ -177,7 +191,7 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.13 `查询记账` - 拉取账单
+### 1.14 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -188,7 +202,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.14 `删除记账记录` - 打开删除菜单
+### 1.15 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -200,7 +214,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.15 `清零记账` - 清空账本
+### 1.16 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
