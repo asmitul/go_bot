@@ -19,6 +19,8 @@ env:
   SIFANG_ACCESS_KEY: ${{ secrets.SIFANG_ACCESS_KEY }}
   SIFANG_MASTER_KEY: ${{ secrets.SIFANG_MASTER_KEY }}
   SIFANG_TIMEOUT_SECONDS: ${{ secrets.SIFANG_TIMEOUT_SECONDS || '10' }}
+  XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+  XAI_MODEL: ${{ secrets.XAI_MODEL }}
 
 jobs:
   build-and-push:
@@ -90,6 +92,8 @@ jobs:
           SIFANG_ACCESS_KEY: ${{ env.SIFANG_ACCESS_KEY }}
           SIFANG_MASTER_KEY: ${{ env.SIFANG_MASTER_KEY }}
           SIFANG_TIMEOUT_SECONDS: ${{ env.SIFANG_TIMEOUT_SECONDS }}
+          XAI_API_KEY: ${{ env.XAI_API_KEY }}
+          XAI_MODEL: ${{ env.XAI_MODEL }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -97,7 +101,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,MONGO_DB_NAME,BOT_OWNER_IDS,CHANNEL_ID,SIFANG_BASE_URL,SIFANG_ACCESS_KEY,SIFANG_MASTER_KEY,SIFANG_TIMEOUT_SECONDS,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
+          envs: IMAGE_TAG,CONTAINER_NAME,TELEGRAM_TOKEN,MONGO_URI,MONGO_DB_NAME,BOT_OWNER_IDS,CHANNEL_ID,SIFANG_BASE_URL,SIFANG_ACCESS_KEY,SIFANG_MASTER_KEY,SIFANG_TIMEOUT_SECONDS,XAI_API_KEY,XAI_MODEL,GITHUB_ACTOR,GITHUB_TOKEN,LOG_LEVEL
           script: |
             # ✅ 登录 GHCR
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -137,6 +141,14 @@ jobs:
               SIFANG_OPTS="${SIFANG_OPTS} -e SIFANG_TIMEOUT_SECONDS=${SIFANG_TIMEOUT_SECONDS}"
             fi
 
+            XAI_OPTS=""
+            if [ -n "${XAI_API_KEY}" ]; then
+              XAI_OPTS="${XAI_OPTS} -e XAI_API_KEY=${XAI_API_KEY}"
+            fi
+            if [ -n "${XAI_MODEL}" ]; then
+              XAI_OPTS="${XAI_OPTS} -e XAI_MODEL=${XAI_MODEL}"
+            fi
+
             # ✅ 尝试启动新容器
             docker run -d \
               --name ${CONTAINER_NAME} \
@@ -149,6 +161,7 @@ jobs:
               ${LOG_OPT} \
               ${CHANNEL_OPT} \
               ${SIFANG_OPTS} \
+              ${XAI_OPTS} \
               --log-driver json-file \
               --log-opt max-size=10m \
               --log-opt max-file=3 \
