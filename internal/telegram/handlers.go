@@ -23,6 +23,8 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.handleStart))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/ping", bot.MatchTypeExact,
 		b.asyncHandler(b.handlePing))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleHelp)))
 
 	// 管理员命令（仅 Owner） - 异步执行
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/grant", bot.MatchTypePrefix,
@@ -171,6 +173,59 @@ func (b *Bot) handlePing(ctx context.Context, botInstance *bot.Bot, update *botM
 	}
 
 	b.sendMessage(ctx, update.Message.Chat.ID, "🏓 Pong!")
+}
+
+// handleHelp 处理 /help 命令（仅 Admin+）
+func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	var text strings.Builder
+	text.WriteString("<b>🆘 管理员帮助总览</b>\n\n")
+
+	text.WriteString("<b>通用命令（所有成员）</b>\n")
+	text.WriteString("/start - 与机器人建立会话并登记用户信息\n")
+	text.WriteString("/ping - 测试机器人连接状态\n\n")
+
+	text.WriteString("<b>管理员命令（Admin+）</b>\n")
+	text.WriteString("/help - 查看本帮助\n")
+	text.WriteString("/admins - 查看管理员列表\n")
+	text.WriteString("/userinfo &lt;user_id&gt; - 查询指定用户信息\n")
+	text.WriteString("/leave - 让机器人离开当前群组（仅限群组内执行）\n")
+	text.WriteString("/configs - 打开群组功能配置菜单（仅限群组内执行）\n")
+	text.WriteString("撤回 - 在群组中引用机器人的消息发送“撤回”以删除该消息\n\n")
+
+	text.WriteString("<b>Owner 专属命令</b>\n")
+	text.WriteString("/grant &lt;user_id&gt; - 授予管理员权限\n")
+	text.WriteString("/revoke &lt;user_id&gt; - 撤销管理员权限\n\n")
+
+	text.WriteString("<b>商户号管理（Admin+，群组）</b>\n")
+	text.WriteString("绑定 <code>[商户号]</code> - 绑定当前群组的四方商户号\n")
+	text.WriteString("解绑 - 解除已绑定的商户号\n")
+	text.WriteString("商户号 / 绑定状态 - 查看当前绑定情况\n\n")
+
+	text.WriteString("<b>四方支付查询（需开启“🏦 四方支付查询”功能并完成商户号绑定）</b>\n")
+	text.WriteString("余额[可选日期] - 查询余额，例如：余额、余额10月26\n")
+	text.WriteString("账单[可选日期] - 查询日汇总，例如：账单2023/10/26\n")
+	text.WriteString("通道账单[可选日期] - 查看通道维度汇总\n")
+	text.WriteString("提款明细[可选日期] - 查看提款记录\n")
+	text.WriteString("费率 - 查看通道费率\n")
+	text.WriteString("下发 <code>金额</code> [谷歌验证码] - 申请下发，支持表达式和谷歌验证码，需在 60 秒内按钮确认\n\n")
+
+	text.WriteString("<b>USDT 价格查询（需开启“💰 USDT价格查询”功能，群组）</b>\n")
+	text.WriteString("<code>[a|z|k|w][序号] [金额]</code> - a=全部、z=支付宝、k=银行卡、w=微信；示例：z3 100\n\n")
+
+	text.WriteString("<b>计算器（需开启“🧮 计算器功能”，群组）</b>\n")
+	text.WriteString("直接发送数学表达式，例如：<code>(100+20)*1.5</code>\n\n")
+
+	text.WriteString("<b>收支记账（需开启“💳 收支记账”功能，仅 Admin+，群组）</b>\n")
+	text.WriteString("查询记账 - 查看今日账单\n")
+	text.WriteString("删除记账记录 - 打开最近记录删除菜单\n")
+	text.WriteString("清零记账 - 清空所有记录\n")
+	text.WriteString("记账输入格式示例：<code>+100U</code>、<code>-50Y</code>、<code>入100*7.2</code>、<code>出50/2Y</code>\n")
+
+	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
 }
 
 // handleGrantAdmin 处理 /grant 命令（授予管理员权限）
