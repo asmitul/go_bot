@@ -65,21 +65,20 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 	}
 
 	processed := make(map[string]struct{})
-	count := 0
+	attempts := 0
 	for _, num := range numbers {
 		if _, exists := processed[num]; exists {
 			continue
 		}
 		processed[num] = struct{}{}
 
-		if count >= maxAutoOrderPerMessage {
+		if attempts >= maxAutoOrderPerMessage {
 			break
 		}
 
+		attempts++
 		composed := fmt.Sprintf("%d%s", merchantID, num)
-		if b.lookupAndSendOrder(ctx, msg, merchantID, num, composed) {
-			count++
-		}
+		b.lookupAndSendOrder(ctx, msg, merchantID, num, composed)
 	}
 }
 
