@@ -4,6 +4,7 @@ import (
 	"context"
 
 	botModels "github.com/go-telegram/bot/models"
+	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
 )
 
@@ -46,15 +47,15 @@ type Feature interface {
 	//   - msg: Telegram 消息
 	//   - group: 群组信息（包含配置）
 	// 返回:
-	//   - responseText: 响应文本(发送给用户的消息)
+	//   - response: 响应内容（包含文本和可选的 ReplyMarkup），用于发送给用户
 	//   - handled: 是否已完成处理(true 则停止后续功能的执行)
 	//   - error: 处理过程中的错误
 	//
 	// 返回值说明:
 	//   - (response, true, nil): 成功处理,发送响应,停止后续功能
-	//   - ("", false, nil): 不处理,继续执行下一个功能
-	//   - (errMsg, true, nil): 处理失败,发送错误消息,停止后续功能
-	Process(ctx context.Context, msg *botModels.Message, group *models.Group) (responseText string, handled bool, err error)
+	//   - (nil, false, nil): 不处理,继续执行下一个功能
+	//   - (response, true, err): 处理失败,可选地发送错误消息,并停止后续功能
+	Process(ctx context.Context, msg *botModels.Message, group *models.Group) (response *types.Response, handled bool, err error)
 
 	// Priority 返回功能优先级(1-100)
 	// 数值越小优先级越高,功能按优先级顺序执行
@@ -69,3 +70,6 @@ type Feature interface {
 	//   - 例如: AI 对话(优先级 90)应在计算器(优先级 20)之后执行
 	Priority() int
 }
+
+// Response 类型别名用于兼容旧引用，实际定义位于 types 包。
+type Response = types.Response

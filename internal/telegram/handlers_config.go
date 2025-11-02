@@ -96,7 +96,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 	// 权限检查：只有管理员可以操作
 	user, err := b.userService.GetUserInfo(ctx, userID)
 	if err != nil || !user.IsAdmin() {
-		b.answerCallback(ctx, botInstance, query.ID, "⚠️ 只有管理员可以操作配置")
+		b.answerCallback(ctx, botInstance, query.ID, "⚠️ 只有管理员可以操作配置", false)
 		logger.L().Warnf("Non-admin user %d attempted to use config callback in chat %d", userID, chatID)
 		return
 	}
@@ -111,7 +111,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
 	if err != nil {
 		logger.L().Errorf("Failed to get/create group: chat_id=%d, error=%v", chatID, err)
-		b.answerCallback(ctx, botInstance, query.ID, "❌ 获取群组信息失败")
+		b.answerCallback(ctx, botInstance, query.ID, "❌ 获取群组信息失败", false)
 		return
 	}
 
@@ -123,13 +123,13 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 
 	if err != nil {
 		logger.L().Errorf("Failed to handle config callback: data=%s, error=%v", callbackData, err)
-		b.answerCallback(ctx, botInstance, query.ID, "❌ 操作失败")
+		b.answerCallback(ctx, botInstance, query.ID, "❌ 操作失败", false)
 		return
 	}
 
 	// 回应回调查询（显示提示消息）
 	if message != "" {
-		b.answerCallback(ctx, botInstance, query.ID, message)
+		b.answerCallback(ctx, botInstance, query.ID, message, false)
 	}
 
 	// 如果需要更新菜单，重新构建并编辑消息
@@ -159,7 +159,7 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 	if callbackData == "config:close" {
 		_, err := botInstance.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    chatID,
-			MessageID:   messageID,
+			MessageID: messageID,
 		})
 		if err != nil {
 			logger.L().Errorf("Failed to delete config menu: %v", err)
@@ -168,12 +168,17 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 }
 
 // answerCallback 回应 callback query（显示顶部提示）
-func (b *Bot) answerCallback(ctx context.Context, botInstance *bot.Bot, callbackQueryID, text string) {
-	_, err := botInstance.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+func (b *Bot) answerCallback(ctx context.Context, botInstance *bot.Bot, callbackQueryID, text string, showAlert bool) {
+	params := &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: callbackQueryID,
-		Text:            text,
-		ShowAlert:       false, // 显示为顶部提示，不弹窗
-	})
+	}
+	if text != "" {
+		params.Text = text
+	}
+	if showAlert {
+		params.ShowAlert = true
+	}
+	_, err := botInstance.AnswerCallbackQuery(ctx, params)
 	if err != nil {
 		logger.L().Errorf("Failed to answer callback query: %v", err)
 	}

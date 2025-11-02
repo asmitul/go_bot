@@ -165,7 +165,19 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.12 `费率` - 查询四方支付通道状态
+### 1.12 `下发` - 发起四方支付提款
+
+- **文件位置**: `internal/telegram/features/sifang/feature.go:555`
+- **权限**: Admin+（通过 `UserService.CheckAdminPermission` 动态校验）
+- **触发**: `下发 <金额 或 表达式> [可选6位谷歌验证码]`（如 `下发 1000`、`下发 500*3 123456`）
+- **前置条件**: 群组启用了「四方支付查询」并已绑定商户号，部署环境配置四方支付 API 与签名参数
+- **主要功能**:
+  - 解析金额文本，支持四则运算与千分位，校验结果为正数，可附带空格分隔的 6 位谷歌验证码
+  - 在内存中创建 60 秒有效的待确认请求，返回包含 `✅确认/❌取消` 的 InlineKeyboard
+  - 限定只有触发命令的管理员可以操作回调；取消时清理待确认状态并提示“已取消下发…”
+  - 确认后调用 `paymentService.SendMoney` 发起下发，依据 API 回包格式化成功提示或展示错误原因
+
+### 1.13 `费率` - 查询四方支付通道状态
 
 - **文件位置**: `internal/telegram/features/sifang/feature.go:586`
 - **权限**: 所有群成员（需启用四方支付功能）
@@ -179,7 +191,7 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.13 `提款明细` - 查询四方支付提现列表
+### 1.14 `提款明细` - 查询四方支付提现列表
 
 - **文件位置**: `internal/telegram/features/sifang/feature.go:258`
 - **权限**: 所有群成员（需启用四方支付功能）
@@ -192,7 +204,7 @@
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
-### 1.14 `查询记账` - 拉取账单
+### 1.15 `查询记账` - 拉取账单
 
 - **文件位置**: `internal/telegram/handlers.go:744`
 - **权限**: 所有群成员
@@ -203,7 +215,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 
-### 1.15 `删除记账记录` - 打开删除菜单
+### 1.16 `删除记账记录` - 打开删除菜单
 
 - **文件位置**: `internal/telegram/handlers.go:780`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -215,7 +227,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `accounting_records`
 
-### 1.16 `清零记账` - 清空账本
+### 1.17 `清零记账` - 清空账本
 
 - **文件位置**: `internal/telegram/handlers.go:932`
 - **权限**: Admin+（通过 `RequireAdmin` 中间件）
@@ -227,7 +239,7 @@
 - **Service**: GroupService, AccountingService
 - **数据库**: 删除 `accounting_records`
 
-### 1.17 `撤回` - 管理员引用撤回机器人消息
+### 1.18 `撤回` - 管理员引用撤回机器人消息
 
 - **文件位置**: `internal/telegram/handlers.go:515`
 - **权限**: Admin+（动态校验 `CheckAdminPermission`）

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
@@ -43,6 +44,11 @@ func (b *Bot) registerHandlers() {
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "config:")
 	}, b.asyncHandler(b.handleConfigCallback))
+
+	// 四方下发确认回调处理器
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, sifang.SendMoneyCallbackPrefix)
+	}, b.asyncHandler(b.handleSifangSendMoneyCallback))
 
 	// 转发撤回回调处理器（如果转发服务已启用）
 	if b.forwardService != nil {
@@ -480,12 +486,16 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 
 	// 使用 Feature Manager 处理功能插件
 	// 这里替代了原来硬编码的计算器功能检测
-	responseText, handled, err := b.featureManager.Process(ctx, msg)
+	response, handled, err := b.featureManager.Process(ctx, msg)
 	if handled {
 		if err != nil {
-			b.sendErrorMessage(ctx, msg.Chat.ID, responseText, msg.ID)
-		} else if responseText != "" {
-			b.sendMessage(ctx, msg.Chat.ID, responseText, msg.ID)
+			if response != nil && response.Text != "" {
+				b.sendMessageWithMarkup(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+			} else {
+				b.sendErrorMessage(ctx, msg.Chat.ID, "处理失败，请稍后重试", msg.ID)
+			}
+		} else if response != nil && response.Text != "" {
+			b.sendMessageWithMarkup(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
 		}
 		return // 功能已处理，不再记录为普通消息
 	}
@@ -561,6 +571,47 @@ func (b *Bot) tryHandleRecallCommand(ctx context.Context, botInstance *bot.Bot, 
 	}
 
 	return true
+}
+
+func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	query := update.CallbackQuery
+	if query == nil {
+		return
+	}
+
+	if b.sifangFeature == nil {
+		b.answerCallback(ctx, botInstance, query.ID, "功能未启用", true)
+		return
+	}
+
+	data := strings.TrimPrefix(query.Data, sifang.SendMoneyCallbackPrefix)
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		b.answerCallback(ctx, botInstance, query.ID, "无效的操作", true)
+		return
+	}
+
+	action := parts[0]
+	token := parts[1]
+
+	result, err := b.sifangFeature.HandleSendMoneyCallback(ctx, query, action, token)
+	if err != nil {
+		logger.L().Errorf("handle sifang send money callback failed: action=%s token=%s err=%v", action, token, err)
+		b.answerCallback(ctx, botInstance, query.ID, "处理失败，请稍后重试", true)
+		return
+	}
+
+	if result != nil && result.ShouldEdit {
+		if msg := query.Message.Message; msg != nil {
+			b.editMessage(ctx, msg.Chat.ID, msg.ID, result.Text, result.Markup)
+		}
+	}
+
+	if result != nil {
+		b.answerCallback(ctx, botInstance, query.ID, result.Answer, result.ShowAlert)
+	} else {
+		b.answerCallback(ctx, botInstance, query.ID, "", false)
+	}
 }
 
 // handleMediaMessage 处理媒体消息

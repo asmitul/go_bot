@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"go_bot/internal/logger"
-	"go_bot/internal/telegram/models"
 	botModels "github.com/go-telegram/bot/models"
+	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features/types"
+	"go_bot/internal/telegram/models"
 )
 
 // CalculatorFeature 计算器功能插件
@@ -39,18 +40,22 @@ func (f *CalculatorFeature) Match(ctx context.Context, msg *botModels.Message) b
 }
 
 // Process 处理计算请求
-func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
+func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (*types.Response, bool, error) {
 	// 执行计算
 	result, err := Calculate(msg.Text)
 	if err != nil {
 		// 计算失败
 		logger.L().Warnf("Calculator failed: chat_id=%d, text=%s, error=%v", msg.Chat.ID, msg.Text, err)
-		return fmt.Sprintf("❌ 计算错误: %v", err), true, nil
+		return &types.Response{
+			Text: fmt.Sprintf("❌ 计算错误: %v", err),
+		}, true, nil
 	}
 
 	// 计算成功
 	logger.L().Infof("Calculator: %s = %g (chat_id=%d)", msg.Text, result, msg.Chat.ID)
-	return fmt.Sprintf("🧮 %s = %g", msg.Text, result), true, nil
+	return &types.Response{
+		Text: fmt.Sprintf("🧮 %s = %g", msg.Text, result),
+	}, true, nil
 }
 
 // Priority 返回优先级(20 = 高优先级)

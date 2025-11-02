@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
 
 	botModels "github.com/go-telegram/bot/models"
@@ -48,29 +49,31 @@ func (f *CryptoFeature) Match(ctx context.Context, msg *botModels.Message) bool 
 }
 
 // Process 处理价格查询请求
-func (f *CryptoFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
+func (f *CryptoFeature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (*types.Response, bool, error) {
 	// 解析命令
 	cmdInfo, err := ParseCommand(msg.Text)
 	if err != nil {
 		logger.L().Warnf("Crypto command parse failed: chat_id=%d, text=%s, error=%v", msg.Chat.ID, msg.Text, err)
-		return "❌ 命令格式错误", true, nil
+		return &types.Response{Text: "❌ 命令格式错误"}, true, nil
 	}
 
 	// 从 OKX 获取订单列表
 	orders, err := FetchC2COrders(ctx, cmdInfo.PaymentMethod)
 	if err != nil {
 		logger.L().Errorf("Failed to fetch OKX orders: payment_method=%s, error=%v", cmdInfo.PaymentMethod, err)
-		return "❌ 获取价格失败，请稍后重试", true, nil
+		return &types.Response{Text: "❌ 获取价格失败，请稍后重试"}, true, nil
 	}
 
 	// 检查订单数量
 	if len(orders) == 0 {
-		return "❌ 暂无可用订单", true, nil
+		return &types.Response{Text: "❌ 暂无可用订单"}, true, nil
 	}
 
 	// 检查序号是否超出范围
 	if cmdInfo.SerialNum > len(orders) {
-		return fmt.Sprintf("❌ 商家序号超出范围（最多 %d 个）", len(orders)), true, nil
+		return &types.Response{
+			Text: fmt.Sprintf("❌ 商家序号超出范围（最多 %d 个）", len(orders)),
+		}, true, nil
 	}
 
 	// 获取选中的订单（序号从 1 开始，数组从 0 开始）
@@ -78,7 +81,7 @@ func (f *CryptoFeature) Process(ctx context.Context, msg *botModels.Message, gro
 	selectedPrice, err := strconv.ParseFloat(selectedOrder.Price, 64)
 	if err != nil {
 		logger.L().Errorf("Failed to parse selected price: price=%s, error=%v", selectedOrder.Price, err)
-		return "❌ 价格解析失败", true, nil
+		return &types.Response{Text: "❌ 价格解析失败"}, true, nil
 	}
 
 	// 从群组配置读取浮动费率
@@ -129,7 +132,7 @@ func (f *CryptoFeature) Process(ctx context.Context, msg *botModels.Message, gro
 	logger.L().Infof("Crypto query: chat_id=%d, payment=%s, serial=%d, amount=%.0f, price=%.2f",
 		msg.Chat.ID, cmdInfo.PaymentMethod, cmdInfo.SerialNum, cmdInfo.Amount, finalPrice)
 
-	return response.String(), true, nil
+	return &types.Response{Text: response.String()}, true, nil
 }
 
 // Priority 返回优先级（30 = 中优先级）

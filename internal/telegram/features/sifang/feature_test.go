@@ -7,6 +7,8 @@ import (
 	"time"
 
 	paymentservice "go_bot/internal/payment/service"
+	"go_bot/internal/telegram/models"
+	"go_bot/internal/telegram/service"
 
 	botModels "github.com/go-telegram/bot/models"
 )
@@ -287,6 +289,17 @@ func TestMatchAcceptsWithdrawCommand(t *testing.T) {
 	}
 }
 
+func TestMatchAcceptsSendMoneyCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "下发 100",
+	}
+	if !f.Match(nil, msg) {
+		t.Fatalf("expected send money command to match")
+	}
+}
+
 func TestFormatWithdrawListMessage(t *testing.T) {
 	list := &paymentservice.WithdrawList{
 		Items: []*paymentservice.Withdraw{
@@ -312,6 +325,196 @@ func TestFormatWithdrawListMessage(t *testing.T) {
 	gotEmpty := formatWithdrawListMessage("2025-10-31", &paymentservice.WithdrawList{})
 	if gotEmpty != "💸 提款明细\n暂无提款记录" {
 		t.Fatalf("unexpected empty withdraw message:\n%s", gotEmpty)
+	}
+}
+
+func TestParseSendMoneyPayload_Number(t *testing.T) {
+	amount, code, err := parseSendMoneyPayload(" 1,234.5678 ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amount != 1234.57 {
+		t.Fatalf("expected rounded amount 1234.57, got %.2f", amount)
+	}
+	if code != "" {
+		t.Fatalf("expected empty google code, got %s", code)
+	}
+}
+
+func TestParseSendMoneyPayload_ExpressionWithGoogleCode(t *testing.T) {
+	amount, code, err := parseSendMoneyPayload("(1+2)*3  123456")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amount != 9 {
+		t.Fatalf("expected amount 9, got %.2f", amount)
+	}
+	if code != "123456" {
+		t.Fatalf("expected google code 123456, got %s", code)
+	}
+}
+
+func TestParseSendMoneyPayload_Invalid(t *testing.T) {
+	if _, _, err := parseSendMoneyPayload(""); err == nil {
+		t.Fatalf("expected error for empty payload")
+	}
+	if _, _, err := parseSendMoneyPayload("abc"); err == nil {
+		t.Fatalf("expected error for invalid payload")
+	}
+	if _, _, err := parseSendMoneyPayload("-100"); err == nil {
+		t.Fatalf("expected error for negative amount")
+	}
+}
+
+func TestFormatSendMoneyMessage(t *testing.T) {
+	result := &paymentservice.SendMoneyResult{
+		MerchantID: "2024164",
+		Withdraw: &paymentservice.Withdraw{
+			Amount: "0.00",
+		},
+	}
+
+	message := formatSendMoneyMessage(2024164, 21750, result)
+	expected := "已成功下发 21750 元给商户 2024164"
+	if message != expected {
+		t.Fatalf("unexpected send money message: %s", message)
+	}
+}
+
+func TestHandleSendMoneyCreatesPending(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 12",
+	}
+
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled true")
+	}
+	if resp == nil || resp.ReplyMarkup == nil {
+		t.Fatalf("expected inline keyboard response")
+	}
+
+	markup, ok := resp.ReplyMarkup.(*botModels.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("expected InlineKeyboardMarkup")
+	}
+	if len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 2 {
+		t.Fatalf("unexpected keyboard layout: %+v", markup.InlineKeyboard)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+	if token == "" {
+		t.Fatalf("expected pending token stored")
+	}
+
+	if fakeSvc.lastSendAmount != 0 {
+		t.Fatalf("expected no send to occur before confirmation")
+	}
+}
+
+func TestHandleSendMoneyCallbackConfirm(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{
+		sendMoneyResult: &paymentservice.SendMoneyResult{
+			MerchantID: "2023100",
+			Withdraw:   &paymentservice.Withdraw{Amount: "12.00", WithdrawNo: "NO1"},
+		},
+	}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 12",
+	}
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, msg.Text)
+	if err != nil || !handled || resp == nil {
+		t.Fatalf("unexpected setup result: resp=%v handled=%v err=%v", resp, handled, err)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+	if token == "" {
+		t.Fatalf("token not stored")
+	}
+
+	query := &botModels.CallbackQuery{
+		From:    botModels.User{ID: 123},
+		Message: botModels.MaybeInaccessibleMessage{Message: &botModels.Message{Chat: botModels.Chat{ID: -1}, ID: 99}},
+	}
+
+	result, err := feature.HandleSendMoneyCallback(ctx, query, sendMoneyActionConfirm, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.ShouldEdit {
+		t.Fatalf("expected edit result")
+	}
+	if !strings.Contains(result.Text, "已成功下发") {
+		t.Fatalf("unexpected success text: %s", result.Text)
+	}
+	if fakeSvc.lastSendAmount != 12 {
+		t.Fatalf("expected send amount 12, got %.2f", fakeSvc.lastSendAmount)
+	}
+}
+
+func TestHandleSendMoneyCallbackCancel(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -5, Type: "group"},
+		From: &botModels.User{ID: 555},
+		Text: "下发 20",
+	}
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2024001, msg.Text)
+	if err != nil || !handled || resp == nil {
+		t.Fatalf("unexpected setup result: resp=%v handled=%v err=%v", resp, handled, err)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+
+	query := &botModels.CallbackQuery{
+		From:    botModels.User{ID: 555},
+		Message: botModels.MaybeInaccessibleMessage{Message: &botModels.Message{Chat: botModels.Chat{ID: -5}, ID: 77}},
+	}
+
+	result, err := feature.HandleSendMoneyCallback(ctx, query, sendMoneyActionCancel, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.ShouldEdit {
+		t.Fatalf("expected edit result for cancel")
+	}
+	if !strings.Contains(result.Text, "已取消下发") {
+		t.Fatalf("unexpected cancel text: %s", result.Text)
+	}
+	if _, ok := feature.pending[token]; ok {
+		t.Fatalf("expected pending cleared")
 	}
 }
 
@@ -526,6 +729,9 @@ type fakePaymentService struct {
 	channelStatusResp  []*paymentservice.ChannelStatus
 	channelStatusErr   error
 	lastHistoryDays    int
+	sendMoneyResult    *paymentservice.SendMoneyResult
+	sendMoneyErr       error
+	lastSendAmount     float64
 }
 
 func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -578,4 +784,48 @@ func (f *fakePaymentService) GetChannelStatus(ctx context.Context, merchantID in
 		return nil, f.channelStatusErr
 	}
 	return f.channelStatusResp, nil
+}
+
+func (f *fakePaymentService) SendMoney(ctx context.Context, merchantID int64, amount float64, opts paymentservice.SendMoneyOptions) (*paymentservice.SendMoneyResult, error) {
+	f.lastSendAmount = amount
+	if f.sendMoneyErr != nil {
+		return nil, f.sendMoneyErr
+	}
+	return f.sendMoneyResult, nil
+}
+
+type stubUserService struct {
+	isAdmin bool
+}
+
+func (s *stubUserService) RegisterOrUpdateUser(ctx context.Context, info *service.TelegramUserInfo) error {
+	return nil
+}
+
+func (s *stubUserService) GrantAdminPermission(ctx context.Context, targetID, grantedBy int64) error {
+	return nil
+}
+
+func (s *stubUserService) RevokeAdminPermission(ctx context.Context, targetID, revokedBy int64) error {
+	return nil
+}
+
+func (s *stubUserService) GetUserInfo(ctx context.Context, telegramID int64) (*models.User, error) {
+	return nil, nil
+}
+
+func (s *stubUserService) ListAllAdmins(ctx context.Context) ([]*models.User, error) {
+	return nil, nil
+}
+
+func (s *stubUserService) CheckOwnerPermission(ctx context.Context, telegramID int64) (bool, error) {
+	return false, nil
+}
+
+func (s *stubUserService) CheckAdminPermission(ctx context.Context, telegramID int64) (bool, error) {
+	return s.isAdmin, nil
+}
+
+func (s *stubUserService) UpdateUserActivity(ctx context.Context, telegramID int64) error {
+	return nil
 }

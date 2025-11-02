@@ -352,3 +352,39 @@ func TestDecodeWithdrawList_Items(t *testing.T) {
 		t.Fatalf("unexpected second item status/time: %#v", second)
 	}
 }
+
+func TestDecodeSendMoney(t *testing.T) {
+	raw := map[string]interface{}{
+		"merchant_id":      "1001",
+		"balance_after":    "900.50",
+		"pending_withdraw": "100.00",
+		"frozen_today":     "20.00",
+		"fee":              "1.00",
+		"withdraw": map[string]interface{}{
+			"withdraw_no": "W2025",
+			"amount":      "100.00",
+			"status":      "processing",
+			"channel":     "ALIPAY",
+		},
+	}
+
+	result := decodeSendMoney(raw)
+	if result == nil {
+		t.Fatalf("expected result, got nil")
+	}
+	if result.MerchantID != "1001" || result.BalanceAfter != "900.50" {
+		t.Fatalf("unexpected basic fields: %#v", result)
+	}
+	if result.PendingWithdraw != "100.00" || result.FrozenToday != "20.00" || result.Fee != "1.00" {
+		t.Fatalf("unexpected amount fields: %#v", result)
+	}
+	if result.Withdraw == nil || result.Withdraw.WithdrawNo != "W2025" || result.Withdraw.Channel != "ALIPAY" {
+		t.Fatalf("unexpected withdraw: %#v", result.Withdraw)
+	}
+}
+
+func TestDecodeSendMoney_Empty(t *testing.T) {
+	if decodeSendMoney(map[string]interface{}{}) != nil {
+		t.Fatalf("expected nil for empty map")
+	}
+}

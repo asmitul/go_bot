@@ -18,10 +18,27 @@ type Service interface {
 	GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*SummaryByDayChannel, error)
 	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
+	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
 }
 
 type sifangService struct {
 	client *sifang.Client
+}
+
+// SendMoneyOptions 下发请求的可选参数
+type SendMoneyOptions struct {
+	BankID     string
+	GoogleCode string
+}
+
+// SendMoneyResult 表示下发接口的返回结果
+type SendMoneyResult struct {
+	MerchantID      string
+	Withdraw        *Withdraw
+	BalanceAfter    string
+	PendingWithdraw string
+	FrozenToday     string
+	Fee             string
 }
 
 // NewSifangService 创建基于四方支付的服务实现
@@ -185,6 +202,41 @@ func (s *sifangService) GetWithdrawList(ctx context.Context, merchantID int64, s
 	}
 
 	return decodeWithdrawList(raw)
+}
+
+func (s *sifangService) SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+
+	formattedAmount := fmt.Sprintf("%.2f", amount)
+
+	business := map[string]string{
+		"amount": formattedAmount,
+		"money":  formattedAmount,
+	}
+
+	if strings.TrimSpace(opts.BankID) != "" {
+		business["bank_id"] = strings.TrimSpace(opts.BankID)
+	}
+	if strings.TrimSpace(opts.GoogleCode) != "" {
+		business["google_code"] = strings.TrimSpace(opts.GoogleCode)
+	}
+
+	raw := make(map[string]interface{})
+	if err := s.client.Post(ctx, "sendmoney", merchantID, business, &raw); err != nil {
+		return nil, err
+	}
+
+	result := decodeSendMoney(raw)
+	if result != nil && strings.TrimSpace(result.MerchantID) == "" {
+		result.MerchantID = strconv.FormatInt(merchantID, 10)
+	}
+
+	return result, nil
 }
 
 // Balance 表示账户余额信息
@@ -471,6 +523,32 @@ func buildWithdraw(value interface{}) *Withdraw {
 	}
 
 	return withdraw
+}
+
+func decodeSendMoney(raw map[string]interface{}) *SendMoneyResult {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := &SendMoneyResult{
+		MerchantID:      stringify(raw["merchant_id"]),
+		BalanceAfter:    stringify(raw["balance_after"]),
+		PendingWithdraw: stringify(raw["pending_withdraw"]),
+		FrozenToday:     stringify(raw["frozen_today"]),
+		Fee:             stringify(raw["fee"]),
+	}
+
+	if withdrawRaw, ok := raw["withdraw"]; ok && withdrawRaw != nil {
+		if withdraw := buildWithdraw(withdrawRaw); withdraw != nil {
+			result.Withdraw = withdraw
+		}
+	}
+
+	if result.MerchantID == "" && result.Withdraw == nil && result.BalanceAfter == "" && result.PendingWithdraw == "" && result.Fee == "" && result.FrozenToday == "" {
+		return nil
+	}
+
+	return result
 }
 
 func extractChannelSummaries(value interface{}) []*SummaryByDayChannel {

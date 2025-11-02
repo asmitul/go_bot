@@ -4,9 +4,10 @@ import (
 	"context"
 	"sort"
 
-	"go_bot/internal/logger"
-	"go_bot/internal/telegram/service"
 	botModels "github.com/go-telegram/bot/models"
+	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features/types"
+	"go_bot/internal/telegram/service"
 )
 
 // Manager 功能管理器
@@ -43,13 +44,13 @@ func (m *Manager) Register(feature Feature) {
 //   - responseText: 响应文本(如果有功能处理)
 //   - handled: 是否已被某个功能处理
 //   - error: 处理过程中的错误
-func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (responseText string, handled bool, err error) {
+func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response *types.Response, handled bool, err error) {
 	// 获取群组配置
 	group, err := m.groupService.GetGroupInfo(ctx, msg.Chat.ID)
 	if err != nil {
 		// 群组不存在或获取失败,跳过功能处理
 		logger.L().Debugf("Skip feature processing: group not found or error, chat_id=%d", msg.Chat.ID)
-		return "", false, nil
+		return nil, false, nil
 	}
 
 	// 按优先级顺序执行功能
@@ -78,7 +79,7 @@ func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response
 	}
 
 	// 没有任何功能处理该消息
-	return "", false, nil
+	return nil, false, nil
 }
 
 // ListFeatures 列出所有已注册的功能(用于调试)

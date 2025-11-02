@@ -2,24 +2,51 @@ package sifang
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go_bot/internal/logger"
 	paymentservice "go_bot/internal/payment/service"
+	"go_bot/internal/payment/sifang"
+	"go_bot/internal/telegram/features/calculator"
+	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
+	"go_bot/internal/telegram/service"
 
 	botModels "github.com/go-telegram/bot/models"
 )
 
 var (
-	chinaLocation    = mustLoadChinaLocation()
-	dateSuffixRegexp = regexp.MustCompile(`^[0-9\s./\-年月日号]*$`)
+	chinaLocation          = mustLoadChinaLocation()
+	dateSuffixRegexp       = regexp.MustCompile(`^[0-9\s./\-年月日号]*$`)
+	googleCodeSuffixRegexp = regexp.MustCompile(`\s+(\d{6})$`)
 )
+
+const (
+	sendMoneyConfirmTTL     = 60 * time.Second
+	SendMoneyCallbackPrefix = "sifang:sendmoney:"
+	sendMoneyActionConfirm  = "confirm"
+	sendMoneyActionCancel   = "cancel"
+)
+
+type pendingSendMoney struct {
+	token      string
+	chatID     int64
+	userID     int64
+	merchantID int64
+	amount     float64
+	googleCode string
+	createdAt  time.Time
+}
 
 func mustLoadChinaLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Shanghai")
@@ -32,12 +59,17 @@ func mustLoadChinaLocation() *time.Location {
 // Feature 四方支付功能
 type Feature struct {
 	paymentService paymentservice.Service
+	userService    service.UserService
+	mu             sync.Mutex
+	pending        map[string]*pendingSendMoney
 }
 
 // New 创建四方支付功能实例
-func New(paymentSvc paymentservice.Service) *Feature {
+func New(paymentSvc paymentservice.Service, userSvc service.UserService) *Feature {
 	return &Feature{
 		paymentService: paymentSvc,
+		userService:    userSvc,
+		pending:        make(map[string]*pendingSendMoney),
 	}
 }
 
@@ -54,6 +86,7 @@ func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
 // Match 支持命令：
 //   - 余额
 //   - 账单 / 账单10月26（可指定日期）
+//   - 下发 [金额 or 表达式] [可选谷歌验证码]
 func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 	if msg.Chat.Type != "group" && msg.Chat.Type != "supergroup" {
 		return false
@@ -84,46 +117,59 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 		return true
 	}
 
+	if isSendMoneyCommand(text) {
+		return true
+	}
+
 	return false
 }
 
 // Process 执行四方支付查询
-func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
+func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (*types.Response, bool, error) {
 	if f.paymentService == nil {
-		return "❌ 未配置四方支付服务，请联系管理员", true, nil
+		return wrapResponse("❌ 未配置四方支付服务，请联系管理员"), true, nil
 	}
 
 	if msg.From == nil {
-		return "", false, nil
+		return nil, false, nil
 	}
 
 	merchantID := int64(group.Settings.MerchantID)
 	if merchantID == 0 {
-		return "ℹ️ 当前群组未绑定商户号，请先使用「绑定 [商户号]」命令", true, nil
+		return wrapResponse("ℹ️ 当前群组未绑定商户号，请先使用「绑定 [商户号]」命令"), true, nil
 	}
 
 	text := strings.TrimSpace(msg.Text)
 	if suffix, ok := extractDateSuffix(text, "余额"); ok {
-		return f.handleBalance(ctx, merchantID, suffix)
+		respText, handled, err := f.handleBalance(ctx, merchantID, suffix)
+		return wrapResponse(respText), handled, err
 	}
 
 	if text == "费率" {
-		return f.handleChannelRates(ctx, merchantID)
+		respText, handled, err := f.handleChannelRates(ctx, merchantID)
+		return wrapResponse(respText), handled, err
 	}
 
 	if _, ok := extractDateSuffix(text, "账单"); ok {
-		return f.handleSummary(ctx, merchantID, text)
+		respText, handled, err := f.handleSummary(ctx, merchantID, text)
+		return wrapResponse(respText), handled, err
 	}
 
 	if _, ok := extractDateSuffix(text, "通道账单"); ok {
-		return f.handleChannelSummary(ctx, merchantID, text)
+		respText, handled, err := f.handleChannelSummary(ctx, merchantID, text)
+		return wrapResponse(respText), handled, err
 	}
 
 	if _, ok := extractDateSuffix(text, "提款明细"); ok {
-		return f.handleWithdrawList(ctx, merchantID, text)
+		respText, handled, err := f.handleWithdrawList(ctx, merchantID, text)
+		return wrapResponse(respText), handled, err
 	}
 
-	return "", false, nil
+	if isSendMoneyCommand(text) {
+		return f.handleSendMoney(ctx, msg, merchantID, text)
+	}
+
+	return nil, false, nil
 }
 
 // Priority 设置为 25，介于商户绑定与行情功能之间
@@ -506,6 +552,119 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, merchantID int64, text string) (*types.Response, bool, error) {
+	if f.userService == nil {
+		logger.L().Error("Sifang send money: user service is nil")
+		return wrapResponse("❌ 未配置管理员校验服务，请联系管理员"), true, nil
+	}
+
+	isAdmin, err := f.userService.CheckAdminPermission(ctx, msg.From.ID)
+	if err != nil {
+		logger.L().Errorf("Sifang send money admin check failed: user_id=%d, err=%v", msg.From.ID, err)
+		return wrapResponse("❌ 权限检查失败，请稍后重试"), true, nil
+	}
+	if !isAdmin {
+		logger.L().Warnf("Sifang send money unauthorized: user_id=%d, chat_id=%d", msg.From.ID, msg.Chat.ID)
+		return wrapResponse("❌ 仅管理员可以下发"), true, nil
+	}
+
+	payload := strings.TrimSpace(strings.TrimPrefix(text, "下发"))
+	amount, googleCode, parseErr := parseSendMoneyPayload(payload)
+	if parseErr != nil {
+		return wrapResponse(fmt.Sprintf("❌ %v", parseErr)), true, nil
+	}
+
+	pending, err := f.createPendingSend(msg.Chat.ID, msg.From.ID, merchantID, amount, googleCode)
+	if err != nil {
+		logger.L().Errorf("Sifang create pending send failed: chat_id=%d, user_id=%d, err=%v", msg.Chat.ID, msg.From.ID, err)
+		return wrapResponse("❌ 创建下发确认状态失败，请稍后重试"), true, nil
+	}
+
+	merchantText := strconv.FormatInt(merchantID, 10)
+	message := fmt.Sprintf("是否确认下发 %s 元 | %s", html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText))
+	if googleCode != "" {
+		message += "\n🔐 将附带当前谷歌验证码"
+	}
+
+	markup := buildSendMoneyKeyboard(pending.token)
+
+	logger.L().Infof("Sifang send money pending confirmation: merchant_id=%d, user_id=%d, amount=%.2f, token=%s", merchantID, msg.From.ID, amount, pending.token)
+
+	return &types.Response{
+		Text:        message,
+		ReplyMarkup: markup,
+	}, true, nil
+}
+
+func parseSendMoneyPayload(raw string) (float64, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, "", fmt.Errorf("下发金额不能为空")
+	}
+
+	googleCode := ""
+	if matches := googleCodeSuffixRegexp.FindStringSubmatch(raw); len(matches) == 2 {
+		googleCode = matches[1]
+		raw = strings.TrimSpace(raw[:len(raw)-len(matches[0])])
+	}
+
+	if raw == "" {
+		return 0, "", fmt.Errorf("下发金额不能为空")
+	}
+
+	var (
+		amount float64
+		err    error
+	)
+
+	if calculator.IsMathExpression(raw) {
+		amount, err = calculator.Calculate(raw)
+		if err != nil {
+			return 0, "", fmt.Errorf("金额计算失败：%v", err)
+		}
+	} else {
+		amount, err = strconv.ParseFloat(strings.ReplaceAll(raw, ",", ""), 64)
+		if err != nil {
+			return 0, "", fmt.Errorf("金额格式错误")
+		}
+	}
+
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return 0, "", fmt.Errorf("金额计算结果异常")
+	}
+
+	amount = roundToTwoDecimals(amount)
+	if amount <= 0 {
+		return 0, "", fmt.Errorf("下发金额必须大于 0")
+	}
+
+	return amount, googleCode, nil
+}
+
+func roundToTwoDecimals(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func formatSendMoneyMessage(merchantID int64, requestAmount float64, result *paymentservice.SendMoneyResult) string {
+	amountText := formatFloat(requestAmount)
+	if result != nil && result.Withdraw != nil {
+		if amt := strings.TrimSpace(result.Withdraw.Amount); amt != "" {
+			if numeric, ok := parseAmountToFloat(amt); ok && numeric > 0 {
+				amountText = formatFloat(numeric)
+			}
+		}
+	}
+
+	merchantText := strconv.FormatInt(merchantID, 10)
+	if result != nil {
+		if id := strings.TrimSpace(result.MerchantID); id != "" {
+			merchantText = id
+		}
+	}
+
+	return fmt.Sprintf("已成功下发 %s 元给商户 %s", html.EscapeString(amountText), html.EscapeString(merchantText))
+}
+
 func combineAmounts(merchant, agent string) string {
 	merchant = strings.TrimSpace(merchant)
 	agent = strings.TrimSpace(agent)
@@ -600,6 +759,190 @@ func isValidDateSuffix(raw string) bool {
 		return true
 	}
 	return dateSuffixRegexp.MatchString(trimmed)
+}
+
+func isSendMoneyCommand(text string) bool {
+	if !strings.HasPrefix(text, "下发") {
+		return false
+	}
+	payload := strings.TrimSpace(strings.TrimPrefix(text, "下发"))
+	return payload != ""
+}
+
+func (f *Feature) createPendingSend(chatID, userID, merchantID int64, amount float64, googleCode string) (*pendingSendMoney, error) {
+	token, err := generateToken()
+	if err != nil {
+		return nil, err
+	}
+	pending := &pendingSendMoney{
+		token:      token,
+		chatID:     chatID,
+		userID:     userID,
+		merchantID: merchantID,
+		amount:     amount,
+		googleCode: googleCode,
+		createdAt:  time.Now(),
+	}
+
+	f.mu.Lock()
+	f.cleanupExpiredLocked()
+	for {
+		if _, exists := f.pending[pending.token]; !exists {
+			f.pending[pending.token] = pending
+			break
+		}
+		token, err = generateToken()
+		if err != nil {
+			f.mu.Unlock()
+			return nil, err
+		}
+		pending.token = token
+	}
+	f.mu.Unlock()
+
+	return pending, nil
+}
+
+func (f *Feature) getPendingByToken(token string) (*pendingSendMoney, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleanupExpiredLocked()
+	pending, ok := f.pending[token]
+	return pending, ok
+}
+
+func (f *Feature) deletePending(token string) {
+	f.mu.Lock()
+	delete(f.pending, token)
+	f.mu.Unlock()
+}
+
+func (f *Feature) cleanupExpiredLocked() {
+	if len(f.pending) == 0 {
+		return
+	}
+	now := time.Now()
+	for token, pending := range f.pending {
+		if now.Sub(pending.createdAt) > sendMoneyConfirmTTL {
+			delete(f.pending, token)
+		}
+	}
+}
+
+func generateToken() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func buildSendMoneyKeyboard(token string) *botModels.InlineKeyboardMarkup {
+	confirmData := sendMoneyCallbackData(sendMoneyActionConfirm, token)
+	cancelData := sendMoneyCallbackData(sendMoneyActionCancel, token)
+	keyboard := [][]botModels.InlineKeyboardButton{
+		{
+			{
+				Text:         "❌取消",
+				CallbackData: cancelData,
+			},
+			{
+				Text:         "✅确认",
+				CallbackData: confirmData,
+			},
+		},
+	}
+	return &botModels.InlineKeyboardMarkup{InlineKeyboard: keyboard}
+}
+
+func sendMoneyCallbackData(action, token string) string {
+	return SendMoneyCallbackPrefix + action + ":" + token
+}
+
+// SendMoneyCallbackResult 表示处理回调后的结果
+type SendMoneyCallbackResult struct {
+	ShouldEdit bool
+	Text       string
+	Markup     botModels.ReplyMarkup
+	Answer     string
+	ShowAlert  bool
+}
+
+// HandleSendMoneyCallback 处理确认/取消回调
+func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.CallbackQuery, action, token string) (*SendMoneyCallbackResult, error) {
+	result := &SendMoneyCallbackResult{
+		Markup: nil,
+	}
+
+	pending, ok := f.getPendingByToken(token)
+	if !ok {
+		result.ShouldEdit = true
+		result.Text = "下发请求已过期"
+		result.Answer = "操作已过期"
+		return result, nil
+	}
+
+	if query.From.ID != pending.userID {
+		result.ShouldEdit = false
+		result.Answer = "仅原管理员可以操作此下发"
+		result.ShowAlert = true
+		return result, nil
+	}
+
+	switch action {
+	case sendMoneyActionCancel:
+		f.deletePending(token)
+		result.ShouldEdit = true
+		merchantText := strconv.FormatInt(pending.merchantID, 10)
+		result.Text = fmt.Sprintf("已取消下发 %s 元给商户 %s", html.EscapeString(formatFloat(pending.amount)), html.EscapeString(merchantText))
+		result.Answer = "已取消"
+		return result, nil
+	case sendMoneyActionConfirm:
+		f.deletePending(token)
+		opts := paymentservice.SendMoneyOptions{GoogleCode: pending.googleCode}
+		sendResult, err := f.paymentService.SendMoney(ctx, pending.merchantID, pending.amount, opts)
+		if err != nil {
+			logger.L().Errorf("Sifang send money (callback) failed: merchant_id=%d, user_id=%d, amount=%.2f, err=%v", pending.merchantID, pending.userID, pending.amount, err)
+			var apiErr *sifang.APIError
+			if errors.As(err, &apiErr) {
+				logger.L().Errorf("Sifang send money API error detail: code=%d message=%s", apiErr.Code, apiErr.Message)
+				result.Text = fmt.Sprintf("下发失败：%s", html.EscapeString(apiErr.Message))
+			} else {
+				result.Text = fmt.Sprintf("下发失败：%s", html.EscapeString(err.Error()))
+			}
+			result.ShouldEdit = true
+			result.Answer = "下发失败"
+			return result, nil
+		}
+
+		message := formatSendMoneyMessage(pending.merchantID, pending.amount, sendResult)
+		if sendResult != nil && sendResult.Withdraw != nil {
+			logger.L().Infof("Sifang send money response detail: merchant_id=%d, withdraw_no=%s, response_amount=%s, status=%s",
+				pending.merchantID,
+				strings.TrimSpace(sendResult.Withdraw.WithdrawNo),
+				strings.TrimSpace(sendResult.Withdraw.Amount),
+				strings.TrimSpace(sendResult.Withdraw.Status),
+			)
+		}
+		logger.L().Infof("Sifang send money success: merchant_id=%d, user_id=%d, amount=%.2f", pending.merchantID, pending.userID, pending.amount)
+
+		result.ShouldEdit = true
+		result.Text = message
+		result.Answer = "下发成功"
+		return result, nil
+	default:
+		result.ShouldEdit = false
+		result.Answer = "未知操作"
+		result.ShowAlert = true
+		return result, nil
+	}
+}
+
+func wrapResponse(text string) *types.Response {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return &types.Response{Text: text}
 }
 
 func (f *Feature) handleChannelRates(ctx context.Context, merchantID int64) (string, bool, error) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go_bot/internal/logger"
+	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
 
@@ -52,37 +53,40 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 }
 
 // Process 处理商户号命令
-func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (string, bool, error) {
+func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *models.Group) (*types.Response, bool, error) {
 	// 权限检查: 仅 Admin+ 可操作
 	isAdmin, err := f.userService.CheckAdminPermission(ctx, msg.From.ID)
 	if err != nil {
 		logger.L().Errorf("Failed to check admin permission: user_id=%d, err=%v", msg.From.ID, err)
-		return "❌ 权限检查失败", true, nil
+		return resp("❌ 权限检查失败"), true, nil
 	}
 
 	if !isAdmin {
 		logger.L().Warnf("Unauthorized merchant operation attempt: user_id=%d, chat_id=%d", msg.From.ID, msg.Chat.ID)
-		return "❌ 仅管理员可以操作商户号绑定", true, nil
+		return resp("❌ 仅管理员可以操作商户号绑定"), true, nil
 	}
 
 	text := strings.TrimSpace(msg.Text)
 
 	// 绑定命令
 	if strings.HasPrefix(text, "绑定 ") {
-		return f.handleBind(ctx, msg, text)
+		respText, handled, err := f.handleBind(ctx, msg, text)
+		return resp(respText), handled, err
 	}
 
 	// 解绑命令
 	if text == "解绑" {
-		return f.handleUnbind(ctx, msg)
+		respText, handled, err := f.handleUnbind(ctx, msg)
+		return resp(respText), handled, err
 	}
 
 	// 查询命令
 	if text == "商户号" || text == "绑定状态" {
-		return f.handleQuery(ctx, msg)
+		respText, handled, err := f.handleQuery(ctx, msg)
+		return resp(respText), handled, err
 	}
 
-	return "", false, nil
+	return nil, false, nil
 }
 
 // Priority 返回功能优先级 (1-100，数字越小优先级越高)
@@ -186,4 +190,11 @@ func (f *Feature) handleQuery(ctx context.Context, msg *botModels.Message) (stri
 	}
 
 	return fmt.Sprintf("✅ 当前绑定商户号: %d\n\n使用「解绑」可以解除绑定", group.Settings.MerchantID), true, nil
+}
+
+func resp(text string) *types.Response {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return &types.Response{Text: text}
 }
