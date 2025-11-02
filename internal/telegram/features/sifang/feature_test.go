@@ -240,7 +240,7 @@ func TestMatchIgnoresNonCommand(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "账单不对呀",
 	}
-	if f.Match(nil, msg) {
+	if f.Match(context.Background(), msg) {
 		t.Fatalf("expected non-command to be ignored")
 	}
 }
@@ -251,7 +251,7 @@ func TestMatchAcceptsChannelCommand(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "通道账单10月26",
 	}
-	if !f.Match(nil, msg) {
+	if !f.Match(context.Background(), msg) {
 		t.Fatalf("expected command to match")
 	}
 }
@@ -262,7 +262,7 @@ func TestMatchAcceptsBalanceWithDate(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "余额10月30",
 	}
-	if !f.Match(nil, msg) {
+	if !f.Match(context.Background(), msg) {
 		t.Fatalf("expected balance command with date to match")
 	}
 }
@@ -273,7 +273,7 @@ func TestMatchAcceptsRateCommand(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "费率",
 	}
-	if !f.Match(nil, msg) {
+	if !f.Match(context.Background(), msg) {
 		t.Fatalf("expected rate command to match")
 	}
 }
@@ -284,7 +284,7 @@ func TestMatchAcceptsWithdrawCommand(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "提款明细",
 	}
-	if !f.Match(nil, msg) {
+	if !f.Match(context.Background(), msg) {
 		t.Fatalf("expected withdraw command to match")
 	}
 }
@@ -295,7 +295,7 @@ func TestMatchAcceptsSendMoneyCommand(t *testing.T) {
 		Chat: botModels.Chat{Type: "group"},
 		Text: "下发 100",
 	}
-	if !f.Match(nil, msg) {
+	if !f.Match(context.Background(), msg) {
 		t.Fatalf("expected send money command to match")
 	}
 }

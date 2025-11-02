@@ -229,7 +229,7 @@ func (s *ConfigMenuService) handleInput(ctx context.Context, chatID, userID int6
 		ChatID:     chatID,
 		Action:     fmt.Sprintf("input:%s", configID),
 		ExpiresAt:  time.Now().Add(5 * time.Minute).Unix(), // 5分钟过期
-		RetryCount: 0,                                       // 初始化重试次数
+		RetryCount: 0,                                      // 初始化重试次数
 		Context:    ctx,
 	}
 	s.SetUserState(chatID, userID, state)
@@ -359,17 +359,6 @@ func (s *ConfigMenuService) GetUserState(chatID, userID int64) *models.UserState
 func (s *ConfigMenuService) ClearUserState(chatID, userID int64) {
 	key := fmt.Sprintf("%d:%d", chatID, userID)
 	s.userStates.Delete(key)
-}
-
-// --- 辅助函数 ---
-
-// groupItemsByCategory 按分类分组配置项
-func groupItemsByCategory(items []models.ConfigItem) map[string][]models.ConfigItem {
-	result := make(map[string][]models.ConfigItem)
-	for _, item := range items {
-		result[item.Category] = append(result[item.Category], item)
-	}
-	return result
 }
 
 // findItemByID 根据 ID 查找配置项
