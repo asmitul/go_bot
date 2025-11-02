@@ -388,3 +388,105 @@ func TestDecodeSendMoney_Empty(t *testing.T) {
 		t.Fatalf("expected nil for empty map")
 	}
 }
+
+func TestDecodeOrderList_Items(t *testing.T) {
+	payload := map[string]interface{}{
+		"page":      1,
+		"page_size": 20,
+		"total":     1,
+		"items": []map[string]interface{}{
+			{
+				"merchant_order_no": "M123",
+				"platform_order_no": "P456",
+				"amount":            "100.00",
+				"real_amount":       "95.00",
+				"status_text":       "成功",
+				"pay_status":        "paid",
+				"notify_status":     "done",
+				"channel_name":      "ALIPAY",
+				"created_at":        "2024-10-26 12:00:00",
+				"pay_time":          "2024-10-26 12:01:00",
+			},
+		},
+		"summary": map[string]interface{}{
+			"order_count":     "1",
+			"total_amount":    "100.00",
+			"success_amount":  "95.00",
+			"merchant_income": "95.00",
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	list, err := decodeOrderList(data)
+	if err != nil {
+		t.Fatalf("decode order list: %v", err)
+	}
+
+	if list.Page != 1 || list.PageSize != 20 || list.Total != 1 {
+		t.Fatalf("unexpected paging info: %#v", list)
+	}
+	if list.Summary == nil || list.Summary.TotalCount != "1" || list.Summary.TotalAmount != "100.00" {
+		t.Fatalf("unexpected summary: %#v", list.Summary)
+	}
+
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 order, got %d", len(list.Items))
+	}
+
+	order := list.Items[0]
+	if order.MerchantOrderNo != "M123" || order.PlatformOrderNo != "P456" {
+		t.Fatalf("unexpected order numbers: %#v", order)
+	}
+	if order.Amount != "100.00" || order.RealAmount != "95.00" {
+		t.Fatalf("unexpected order amounts: %#v", order)
+	}
+	if order.Channel != "ALIPAY" || order.PayStatus != "paid" || order.NotifyStatus != "done" {
+		t.Fatalf("unexpected order fields: %#v", order)
+	}
+	if order.PaidAt != "2024-10-26 12:01:00" {
+		t.Fatalf("unexpected paid at: %s", order.PaidAt)
+	}
+}
+
+func TestDecodeOrderList_MapStructure(t *testing.T) {
+	payload := map[string]interface{}{
+		"orders": map[string]interface{}{
+			"001": map[string]interface{}{
+				"order_no":       "O-001",
+				"trade_no":       "SYS-001",
+				"money":          "50.00",
+				"merchant_money": "49.00",
+				"status":         "pending",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	list, err := decodeOrderList(data)
+	if err != nil {
+		t.Fatalf("decode order list: %v", err)
+	}
+
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 order, got %d", len(list.Items))
+	}
+
+	order := list.Items[0]
+	if order.MerchantOrderNo != "O-001" || order.PlatformOrderNo != "SYS-001" {
+		t.Fatalf("unexpected order numbers: %#v", order)
+	}
+	if order.Amount != "50.00" || order.RealAmount != "49.00" {
+		t.Fatalf("unexpected amounts: %#v", order)
+	}
+	if order.Status != "pending" || order.StatusText != "pending" {
+		t.Fatalf("unexpected status: %#v", order)
+	}
+}
