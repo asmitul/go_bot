@@ -39,6 +39,7 @@ type Bot struct {
 	ownerIDs             []int64
 	messageRetentionDays int // 消息保留天数
 	workerPool           *WorkerPool
+	startTime            time.Time
 
 	// Service 层（业务逻辑）
 	userService       service.UserService
@@ -119,6 +120,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		ownerIDs:             cfg.OwnerIDs,
 		messageRetentionDays: cfg.MessageRetentionDays,
 		workerPool:           workerPool,
+		startTime:            time.Now(),
 		userService:          userService,
 		groupService:         groupService,
 		messageService:       messageService,

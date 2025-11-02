@@ -172,7 +172,8 @@ func (b *Bot) handlePing(ctx context.Context, botInstance *bot.Bot, update *botM
 		_ = b.userService.UpdateUserActivity(ctx, update.Message.From.ID)
 	}
 
-	b.sendMessage(ctx, update.Message.Chat.ID, "🏓 Pong!")
+	message := b.buildPingMessage(ctx)
+	b.sendMessage(ctx, update.Message.Chat.ID, message)
 }
 
 // handleHelp 处理 /help 命令（仅 Admin+）
