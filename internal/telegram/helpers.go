@@ -14,11 +14,6 @@ func (b *Bot) sendMessage(ctx context.Context, chatID int64, text string, replyT
 	_, _ = b.sendMessageWithMarkupAndMessage(ctx, chatID, text, nil, replyTo...)
 }
 
-// sendMessageWithMarkup 发送带自定义 ReplyMarkup 的消息
-func (b *Bot) sendMessageWithMarkup(ctx context.Context, chatID int64, text string, markup botModels.ReplyMarkup, replyTo ...int) {
-	_, _ = b.sendMessageWithMarkupAndMessage(ctx, chatID, text, markup, replyTo...)
-}
-
 // sendMessageWithMarkupAndMessage 发送消息并返回 Telegram Message
 func (b *Bot) sendMessageWithMarkupAndMessage(ctx context.Context, chatID int64, text string, markup botModels.ReplyMarkup, replyTo ...int) (*botModels.Message, error) {
 	params := &bot.SendMessageParams{
