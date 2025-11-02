@@ -25,6 +25,13 @@ type WorkerPool struct {
 	workers   int
 }
 
+// WorkerPoolStats 工作池状态信息
+type WorkerPoolStats struct {
+	Workers       int
+	QueueLength   int
+	QueueCapacity int
+}
+
 // NewWorkerPool 创建工作池
 // workers: worker 协程数量
 // queueSize: 任务队列大小
@@ -82,6 +89,19 @@ func (p *WorkerPool) Submit(task HandlerTask) {
 	default:
 		// 任务队列已满，记录警告
 		logger.L().Warnf("Worker pool queue is full, task dropped")
+	}
+}
+
+// Stats 返回当前工作池的运行状态
+func (p *WorkerPool) Stats() WorkerPoolStats {
+	if p == nil {
+		return WorkerPoolStats{}
+	}
+
+	return WorkerPoolStats{
+		Workers:       p.workers,
+		QueueLength:   len(p.taskQueue),
+		QueueCapacity: cap(p.taskQueue),
 	}
 }
 
