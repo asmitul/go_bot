@@ -103,6 +103,11 @@ func (b *Bot) registerHandlers() {
 			msg.Voice != nil || msg.Audio != nil || msg.Sticker != nil || msg.Animation != nil
 	}, b.asyncHandler(b.handleMediaMessage))
 
+	// 新成员加入
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.Message != nil && update.Message.NewChatMembers != nil
+	}, b.asyncHandler(b.handleNewChatMembers))
+
 	// 成员离开
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.Message != nil && update.Message.LeftChatMember != nil
@@ -431,6 +436,8 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		return
 	}
 
+	b.registerUserFromTelegram(ctx, msg.From)
+
 	// 排除命令消息（以 / 开头）
 	if strings.HasPrefix(msg.Text, "/") {
 		return
@@ -621,6 +628,12 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	}
 
 	msg := update.Message
+
+	if msg.From == nil {
+		return
+	}
+
+	b.registerUserFromTelegram(ctx, msg.From)
 	var messageType, fileID, mimeType string
 	var fileSize int64
 
@@ -754,6 +767,18 @@ func (b *Bot) handleEditedChannelPost(ctx context.Context, botInstance *bot.Bot,
 	}
 }
 
+// handleNewChatMembers 处理新成员加入系统消息
+func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil || update.Message.NewChatMembers == nil {
+		return
+	}
+
+	for i := range update.Message.NewChatMembers {
+		member := update.Message.NewChatMembers[i]
+		b.registerUserFromTelegram(ctx, &member)
+	}
+}
+
 // handleLeftChatMember 处理成员离开系统消息
 func (b *Bot) handleLeftChatMember(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
 	if update.Message == nil || update.Message.LeftChatMember == nil {
@@ -796,6 +821,25 @@ func (b *Bot) handleRecallCallback(ctx context.Context, botInstance *bot.Bot, up
 		forwardSvc.HandleRecallCancelCallback(ctx, botInstance, query)
 	} else if strings.HasPrefix(data, "recall:") {
 		forwardSvc.HandleRecallCallback(ctx, botInstance, query)
+	}
+}
+
+func (b *Bot) registerUserFromTelegram(ctx context.Context, tgUser *botModels.User) {
+	if tgUser == nil {
+		return
+	}
+
+	userInfo := &service.TelegramUserInfo{
+		TelegramID:   tgUser.ID,
+		Username:     tgUser.Username,
+		FirstName:    tgUser.FirstName,
+		LastName:     tgUser.LastName,
+		LanguageCode: tgUser.LanguageCode,
+		IsPremium:    tgUser.IsPremium,
+	}
+
+	if err := b.userService.RegisterOrUpdateUser(ctx, userInfo); err != nil {
+		logger.L().Warnf("Failed to auto register user %d: %v", tgUser.ID, err)
 	}
 }
 
