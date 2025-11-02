@@ -77,6 +77,38 @@ func TestParseBalanceDate_RewritesErrorMessage(t *testing.T) {
 	}
 }
 
+func TestExpirePending(t *testing.T) {
+	feature := New(nil, nil)
+
+	pending, err := feature.createPendingSend(100, 200, 300, 123.45, "")
+	if err != nil {
+		t.Fatalf("unexpected error creating pending send: %v", err)
+	}
+
+	feature.mu.Lock()
+	feature.pending[pending.token].createdAt = time.Now().Add(-SendMoneyConfirmTTL - time.Second)
+	feature.mu.Unlock()
+
+	if !feature.ExpirePending(pending.token) {
+		t.Fatalf("expected pending send to expire")
+	}
+
+	// 再次调用应返回 false，因为已删除
+	if feature.ExpirePending(pending.token) {
+		t.Fatalf("expected no pending record after expiration")
+	}
+
+	// 新的 pending 仍在有效期内，不应过期
+	active, err := feature.createPendingSend(100, 200, 300, 50, "")
+	if err != nil {
+		t.Fatalf("unexpected error creating active pending: %v", err)
+	}
+
+	if feature.ExpirePending(active.token) {
+		t.Fatalf("expected active pending not to expire yet")
+	}
+}
+
 func TestCalculateHistoryDays(t *testing.T) {
 	loc := mustLoadChinaLocation()
 	now := time.Date(2024, 11, 5, 12, 0, 0, 0, loc)

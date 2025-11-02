@@ -32,7 +32,7 @@ var (
 )
 
 const (
-	sendMoneyConfirmTTL     = 60 * time.Second
+	SendMoneyConfirmTTL     = 60 * time.Second
 	SendMoneyCallbackPrefix = "sifang:sendmoney:"
 	sendMoneyActionConfirm  = "confirm"
 	sendMoneyActionCancel   = "cancel"
@@ -823,10 +823,29 @@ func (f *Feature) cleanupExpiredLocked() {
 	}
 	now := time.Now()
 	for token, pending := range f.pending {
-		if now.Sub(pending.createdAt) > sendMoneyConfirmTTL {
+		if now.Sub(pending.createdAt) > SendMoneyConfirmTTL {
 			delete(f.pending, token)
 		}
 	}
+}
+
+// ExpirePending 在确认超时后删除待处理请求
+func (f *Feature) ExpirePending(token string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	pending, ok := f.pending[token]
+	if !ok {
+		return false
+	}
+
+	if time.Since(pending.createdAt) < SendMoneyConfirmTTL {
+		return false
+	}
+
+	delete(f.pending, token)
+	logger.L().Infof("Sifang send money pending expired: token=%s user_id=%d merchant_id=%d amount=%.2f", token, pending.userID, pending.merchantID, pending.amount)
+	return true
 }
 
 func generateToken() (string, error) {

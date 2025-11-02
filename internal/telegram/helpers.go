@@ -11,11 +11,16 @@ import (
 
 // sendMessage 发送消息（统一错误处理，使用 HTML 格式）
 func (b *Bot) sendMessage(ctx context.Context, chatID int64, text string, replyTo ...int) {
-	b.sendMessageWithMarkup(ctx, chatID, text, nil, replyTo...)
+	_, _ = b.sendMessageWithMarkupAndMessage(ctx, chatID, text, nil, replyTo...)
 }
 
 // sendMessageWithMarkup 发送带自定义 ReplyMarkup 的消息
 func (b *Bot) sendMessageWithMarkup(ctx context.Context, chatID int64, text string, markup botModels.ReplyMarkup, replyTo ...int) {
+	_, _ = b.sendMessageWithMarkupAndMessage(ctx, chatID, text, markup, replyTo...)
+}
+
+// sendMessageWithMarkupAndMessage 发送消息并返回 Telegram Message
+func (b *Bot) sendMessageWithMarkupAndMessage(ctx context.Context, chatID int64, text string, markup botModels.ReplyMarkup, replyTo ...int) (*botModels.Message, error) {
 	params := &bot.SendMessageParams{
 		ChatID:    chatID,
 		Text:      text,
@@ -32,9 +37,13 @@ func (b *Bot) sendMessageWithMarkup(ctx context.Context, chatID int64, text stri
 		params.ReplyMarkup = markup
 	}
 
-	if _, err := b.bot.SendMessage(ctx, params); err != nil {
+	msg, err := b.bot.SendMessage(ctx, params)
+	if err != nil {
 		logger.L().Errorf("Failed to send message to chat %d: %v", chatID, err)
+		return nil, err
 	}
+
+	return msg, nil
 }
 
 // sendErrorMessage 发送错误消息
