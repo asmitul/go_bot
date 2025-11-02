@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"go_bot/internal/ai/xai"
 	"go_bot/internal/config"
 	"go_bot/internal/logger"
 	paymentservice "go_bot/internal/payment/service"
@@ -30,6 +31,7 @@ type Config struct {
 	Debug                bool    // 是否开启调试模式
 	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
 	ChannelID            int64   // 源频道 ID（用于转发功能）
+	OrderNumberExtractor func(ctx context.Context, text string) ([]string, error)
 }
 
 // Bot Telegram Bot 服务
@@ -60,6 +62,8 @@ type Bot struct {
 	messageRepo       repository.MessageRepository
 	forwardRecordRepo repository.ForwardRecordRepository
 	accountingRepo    repository.AccountingRepository
+
+	orderNumberExtractor func(ctx context.Context, text string) ([]string, error)
 }
 
 // New 创建 Telegram Bot 实例
@@ -134,6 +138,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		messageRepo:          messageRepo,
 		forwardRecordRepo:    forwardRecordRepo,
 		accountingRepo:       accountingRepo,
+		orderNumberExtractor: cfg.OrderNumberExtractor,
 	}
 
 	// 初始化 owners
@@ -179,6 +184,15 @@ func InitFromConfig(cfg *config.Config, db *mongo.Database, paymentSvc paymentse
 		MessageRetentionDays: cfg.MessageRetentionDays,
 		ChannelID:            cfg.ChannelID,
 	}
+
+	if cfg.AI.XAI.APIKey != "" {
+		xaiClient, err := xai.NewClient(cfg.AI.XAI)
+		if err != nil {
+			return nil, fmt.Errorf("init xai client failed: %w", err)
+		}
+		telegramCfg.OrderNumberExtractor = xaiClient.ExtractOrderNumbers
+	}
+
 	return New(telegramCfg, db, paymentSvc)
 }
 

@@ -19,6 +19,7 @@ type Service interface {
 	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
+	GetOrders(ctx context.Context, merchantID int64, filter OrderFilter) (*OrderList, error)
 }
 
 type sifangService struct {
@@ -39,6 +40,15 @@ type SendMoneyResult struct {
 	PendingWithdraw string
 	FrozenToday     string
 	Fee             string
+}
+
+// OrderFilter 订单查询条件
+type OrderFilter struct {
+	MerchantOrderNo string
+	PlatformOrderNo string
+	Status          string
+	Page            int
+	PageSize        int
 }
 
 // NewSifangService 创建基于四方支付的服务实现
@@ -204,6 +214,45 @@ func (s *sifangService) GetWithdrawList(ctx context.Context, merchantID int64, s
 	return decodeWithdrawList(raw)
 }
 
+func (s *sifangService) GetOrders(ctx context.Context, merchantID int64, filter OrderFilter) (*OrderList, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+
+	business := make(map[string]string)
+	if strings.TrimSpace(filter.MerchantOrderNo) != "" {
+		business["merchant_order_no"] = strings.TrimSpace(filter.MerchantOrderNo)
+	}
+	if strings.TrimSpace(filter.PlatformOrderNo) != "" {
+		business["platform_order_no"] = strings.TrimSpace(filter.PlatformOrderNo)
+	}
+	if strings.TrimSpace(filter.Status) != "" {
+		business["status"] = strings.TrimSpace(filter.Status)
+	}
+
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	business["page"] = strconv.Itoa(page)
+	business["page_size"] = strconv.Itoa(pageSize)
+
+	var raw json.RawMessage
+	if err := s.client.Post(ctx, "orders", merchantID, business, &raw); err != nil {
+		return nil, err
+	}
+
+	return decodeOrderList(raw)
+}
+
 func (s *sifangService) SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error) {
 	if merchantID == 0 {
 		return nil, fmt.Errorf("merchant id is required")
@@ -305,6 +354,39 @@ type WithdrawList struct {
 	Total      int
 	TotalPages int
 	Items      []*Withdraw
+}
+
+// Order 表示订单信息
+type Order struct {
+	MerchantOrderNo string
+	PlatformOrderNo string
+	Amount          string
+	RealAmount      string
+	Status          string
+	StatusText      string
+	PayStatus       string
+	NotifyStatus    string
+	Channel         string
+	CreatedAt       string
+	PaidAt          string
+}
+
+// OrderSummary 表示订单汇总信息
+type OrderSummary struct {
+	TotalCount     string
+	TotalAmount    string
+	SuccessAmount  string
+	MerchantIncome string
+}
+
+// OrderList 表示订单列表数据
+type OrderList struct {
+	Page       int
+	PageSize   int
+	Total      int
+	TotalPages int
+	Items      []*Order
+	Summary    *OrderSummary
 }
 
 func decodeBalance(raw map[string]interface{}) *Balance {
@@ -523,6 +605,162 @@ func buildWithdraw(value interface{}) *Withdraw {
 	}
 
 	return withdraw
+}
+
+func decodeOrderList(data json.RawMessage) (*OrderList, error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return &OrderList{Items: []*Order{}}, nil
+	}
+
+	var payload interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal order list failed: %w", err)
+	}
+
+	list := &OrderList{
+		Items: make([]*Order, 0),
+	}
+
+	populateOrderList(payload, list)
+
+	if len(list.Items) == 0 {
+		if order := buildOrder(payload); order != nil {
+			list.Items = append(list.Items, order)
+		}
+	}
+
+	return list, nil
+}
+
+func populateOrderList(value interface{}, list *OrderList) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if page := parseInt(v["page"], 0); page > 0 && list.Page == 0 {
+			list.Page = page
+		}
+		if size := parseInt(v["page_size"], 0); size > 0 && list.PageSize == 0 {
+			list.PageSize = size
+		}
+		if total := parseInt(v["total"], 0); total > 0 && list.Total == 0 {
+			list.Total = total
+		}
+		if pages := parseInt(v["total_pages"], 0); pages > 0 && list.TotalPages == 0 {
+			list.TotalPages = pages
+		}
+
+		keys := []string{"items", "list", "data", "rows", "orders", "result"}
+		handled := make(map[string]struct{}, len(keys))
+		hasNested := false
+		for _, key := range keys {
+			nested, ok := v[key]
+			if !ok || nested == nil {
+				continue
+			}
+			hasNested = true
+			handled[key] = struct{}{}
+			appendOrders(nested, list)
+		}
+
+		if summary := buildOrderSummary(v["summary"]); summary != nil {
+			list.Summary = summary
+		} else if list.Summary == nil {
+			if summary := buildOrderSummary(v); summary != nil {
+				list.Summary = summary
+			}
+		}
+
+		for key, nested := range v {
+			if _, skip := handled[key]; skip || key == "summary" || nested == nil {
+				continue
+			}
+			appendOrders(nested, list)
+		}
+
+		if !hasNested {
+			if order := buildOrder(v); order != nil {
+				list.Items = append(list.Items, order)
+			}
+		}
+
+	case []interface{}:
+		for _, elem := range v {
+			appendOrders(elem, list)
+		}
+	}
+}
+
+func appendOrders(value interface{}, list *OrderList) {
+	switch v := value.(type) {
+	case []interface{}:
+		for _, elem := range v {
+			if order := buildOrder(elem); order != nil {
+				list.Items = append(list.Items, order)
+			} else {
+				populateOrderList(elem, list)
+			}
+		}
+	case map[string]interface{}:
+		if order := buildOrder(v); order != nil {
+			list.Items = append(list.Items, order)
+		} else {
+			populateOrderList(v, list)
+		}
+	}
+}
+
+func buildOrder(value interface{}) *Order {
+	item, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	order := &Order{
+		MerchantOrderNo: pickString(item, "merchant_order_no", "order_no", "mer_order_no", "merchant_order", "merchantno", "orderid"),
+		PlatformOrderNo: pickString(item, "platform_order_no", "platform_no", "trade_no", "sys_order_no", "order_id", "system_order_no", "transaction_id"),
+		Amount:          pickString(item, "amount", "money", "order_amount", "total_amount", "price", "pay_amount"),
+		RealAmount:      pickString(item, "real_amount", "merchant_amount", "merchant_money", "success_amount", "merchant_income", "real_money", "paid_amount"),
+		Status:          pickString(item, "status", "order_status"),
+		StatusText:      pickString(item, "status_text", "status_desc", "status_label", "state_text", "status_name"),
+		PayStatus:       pickString(item, "pay_status", "paystate", "payment_status"),
+		NotifyStatus:    pickString(item, "notify_status", "notify_state", "callback_status"),
+		Channel:         pickString(item, "channel", "channel_name", "channel_code"),
+		CreatedAt:       pickString(item, "created_at", "create_time", "order_time", "ctime", "created_time"),
+		PaidAt:          pickString(item, "paid_at", "pay_time", "payment_time", "payed_at"),
+	}
+
+	if order.StatusText == "" {
+		order.StatusText = pickString(item, "status_message", "statusmsg")
+	}
+	if order.StatusText == "" {
+		order.StatusText = order.Status
+	}
+
+	if order.MerchantOrderNo == "" && order.PlatformOrderNo == "" && order.Amount == "" && order.StatusText == "" && order.Status == "" {
+		return nil
+	}
+
+	return order
+}
+
+func buildOrderSummary(value interface{}) *OrderSummary {
+	item, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	summary := &OrderSummary{
+		TotalCount:     pickString(item, "total_count", "order_count", "count", "total_orders", "sum_count"),
+		TotalAmount:    pickString(item, "total_amount", "amount_total", "sum_amount", "order_amount_total"),
+		SuccessAmount:  pickString(item, "success_amount", "success_money", "paid_amount", "success_total_amount"),
+		MerchantIncome: pickString(item, "merchant_income", "merchant_amount", "merchant_money", "merchant_total"),
+	}
+
+	if summary.TotalCount == "" && summary.TotalAmount == "" && summary.SuccessAmount == "" && summary.MerchantIncome == "" {
+		return nil
+	}
+
+	return summary
 }
 
 func decodeSendMoney(raw map[string]interface{}) *SendMoneyResult {

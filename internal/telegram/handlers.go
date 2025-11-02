@@ -488,6 +488,8 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 
 	msg := update.Message
 
+	b.maybeHandleAutoOrderLookup(ctx, msg, msg.Text)
+
 	if msg.From == nil {
 		return
 	}
@@ -751,6 +753,11 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	}
 
 	msg := update.Message
+
+	parts := extractMediaOrderParts(msg)
+	if len(parts) > 0 {
+		b.maybeHandleAutoOrderLookup(ctx, msg, parts...)
+	}
 
 	if msg.From == nil {
 		return

@@ -17,11 +17,25 @@ type Config struct {
 	MessageRetentionDays int     // 消息保留天数（过期自动删除）
 	ChannelID            int64   // 源频道 ID（用于转发功能）
 	Payment              PaymentConfig
+	AI                   AIConfig
 }
 
 // PaymentConfig 支付相关配置
 type PaymentConfig struct {
 	Sifang SifangConfig
+}
+
+// AIConfig AI 相关配置
+type AIConfig struct {
+	XAI XAIConfig
+}
+
+// XAIConfig xAI API 配置
+type XAIConfig struct {
+	APIKey  string
+	BaseURL string
+	Model   string
+	Timeout time.Duration
 }
 
 // SifangConfig 四方支付配置
@@ -89,6 +103,12 @@ func Load() (*Config, error) {
 	}
 	cfg.Payment.Sifang = sifangCfg
 
+	xaiCfg, err := loadXAIConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.AI.XAI = xaiCfg
+
 	return cfg, nil
 }
 
@@ -141,6 +161,33 @@ func loadSifangConfig() (SifangConfig, error) {
 		cfg.MerchantKeys = parsed
 	} else {
 		cfg.MerchantKeys = map[int64]string{}
+	}
+
+	return cfg, nil
+}
+
+func loadXAIConfig() (XAIConfig, error) {
+	var cfg XAIConfig
+
+	cfg.APIKey = strings.TrimSpace(os.Getenv("XAI_API_KEY"))
+	cfg.BaseURL = strings.TrimSpace(os.Getenv("XAI_BASE_URL"))
+	cfg.Model = strings.TrimSpace(os.Getenv("XAI_MODEL"))
+
+	if timeoutStr := strings.TrimSpace(os.Getenv("XAI_TIMEOUT_SECONDS")); timeoutStr != "" {
+		seconds, err := strconv.Atoi(timeoutStr)
+		if err != nil || seconds <= 0 {
+			return XAIConfig{}, fmt.Errorf("invalid XAI_TIMEOUT_SECONDS: %s", timeoutStr)
+		}
+		cfg.Timeout = time.Duration(seconds) * time.Second
+	} else {
+		cfg.Timeout = 15 * time.Second
+	}
+
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://api.x.ai/v1"
+	}
+	if cfg.Model == "" {
+		cfg.Model = "grok-beta"
 	}
 
 	return cfg, nil
