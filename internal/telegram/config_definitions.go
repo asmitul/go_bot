@@ -215,23 +215,3 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 		// },
 	}
 }
-
-// getConfigItemByID 根据 ID 获取配置项
-func (b *Bot) getConfigItemByID(id string) *models.ConfigItem {
-	items := b.getConfigItems()
-	for i := range items {
-		if items[i].ID == id {
-			return &items[i]
-		}
-	}
-	return nil
-}
-
-// getConfigItemsByCategory 按分类分组配置项
-func getConfigItemsByCategory(items []models.ConfigItem) map[string][]models.ConfigItem {
-	result := make(map[string][]models.ConfigItem)
-	for _, item := range items {
-		result[item.Category] = append(result[item.Category], item)
-	}
-	return result
-}
