@@ -556,12 +556,18 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	if handled {
 		if err != nil {
 			if response != nil && response.Text != "" {
-				b.sendMessageWithMarkup(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+				sent, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+				if sendErr == nil {
+					b.tryScheduleSifangSendMoneyExpiration(sent, response.ReplyMarkup)
+				}
 			} else {
 				b.sendErrorMessage(ctx, msg.Chat.ID, "处理失败，请稍后重试", msg.ID)
 			}
 		} else if response != nil && response.Text != "" {
-			b.sendMessageWithMarkup(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+			sent, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+			if sendErr == nil {
+				b.tryScheduleSifangSendMoneyExpiration(sent, response.ReplyMarkup)
+			}
 		}
 		return // 功能已处理，不再记录为普通消息
 	}
@@ -678,6 +684,63 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 	} else {
 		b.answerCallback(ctx, botInstance, query.ID, "", false)
 	}
+}
+
+func (b *Bot) tryScheduleSifangSendMoneyExpiration(sentMsg *botModels.Message, markup botModels.ReplyMarkup) {
+	if b.sifangFeature == nil || sentMsg == nil || markup == nil {
+		return
+	}
+
+	inline, ok := markup.(*botModels.InlineKeyboardMarkup)
+	if !ok {
+		return
+	}
+
+	var token string
+	for _, row := range inline.InlineKeyboard {
+		for _, button := range row {
+			if !strings.HasPrefix(button.CallbackData, sifang.SendMoneyCallbackPrefix) {
+				continue
+			}
+			rest := strings.TrimPrefix(button.CallbackData, sifang.SendMoneyCallbackPrefix)
+			parts := strings.SplitN(rest, ":", 2)
+			if len(parts) == 2 {
+				token = parts[1]
+				break
+			}
+		}
+		if token != "" {
+			break
+		}
+	}
+
+	if token == "" {
+		return
+	}
+
+	b.scheduleSifangSendMoneyExpiration(sentMsg.Chat.ID, sentMsg.ID, token)
+}
+
+func (b *Bot) scheduleSifangSendMoneyExpiration(chatID int64, messageID int, token string) {
+	go func() {
+		timer := time.NewTimer(sifang.SendMoneyConfirmTTL)
+		defer timer.Stop()
+
+		<-timer.C
+
+		if b.sifangFeature == nil {
+			return
+		}
+
+		if !b.sifangFeature.ExpirePending(token) {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		b.editMessage(ctx, chatID, messageID, "⚠️ 由于 60 秒内没有操作，下发请求已失效，请重新下发。", nil)
+	}()
 }
 
 // handleMediaMessage 处理媒体消息
