@@ -436,6 +436,10 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		return
 	}
 
+	if msg.From.IsBot {
+		return
+	}
+
 	b.registerUserFromTelegram(ctx, msg.From)
 
 	// 排除命令消息（以 / 开头）
@@ -633,6 +637,10 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		return
 	}
 
+	if msg.From.IsBot {
+		return
+	}
+
 	b.registerUserFromTelegram(ctx, msg.From)
 	var messageType, fileID, mimeType string
 	var fileSize int64
@@ -775,6 +783,9 @@ func (b *Bot) handleNewChatMembers(ctx context.Context, botInstance *bot.Bot, up
 
 	for i := range update.Message.NewChatMembers {
 		member := update.Message.NewChatMembers[i]
+		if member.IsBot {
+			continue
+		}
 		b.registerUserFromTelegram(ctx, &member)
 	}
 }
@@ -826,6 +837,10 @@ func (b *Bot) handleRecallCallback(ctx context.Context, botInstance *bot.Bot, up
 
 func (b *Bot) registerUserFromTelegram(ctx context.Context, tgUser *botModels.User) {
 	if tgUser == nil {
+		return
+	}
+
+	if tgUser.IsBot {
 		return
 	}
 
