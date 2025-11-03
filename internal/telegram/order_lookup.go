@@ -6,6 +6,7 @@ import (
 	"html"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -64,6 +65,8 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 		return
 	}
 
+	merchantPrefix := fmt.Sprintf("%d", merchantID)
+
 	processed := make(map[string]struct{})
 	count := 0
 	for _, num := range numbers {
@@ -76,7 +79,10 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 			break
 		}
 
-		composed := fmt.Sprintf("%d%s", merchantID, num)
+		composed := num
+		if !strings.HasPrefix(composed, merchantPrefix) {
+			composed = merchantPrefix + composed
+		}
 		if b.lookupAndSendOrder(ctx, msg, merchantID, num, composed) {
 			count++
 		}
@@ -216,8 +222,17 @@ func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, me
 	lookupCtx, cancel := context.WithTimeout(ctx, autoOrderLookupTimeout)
 	defer cancel()
 
+	merchantPrefix := strconv.FormatInt(merchantID, 10)
+	queryOrder := original
+	if strings.HasPrefix(queryOrder, merchantPrefix) {
+		trimmed := strings.TrimPrefix(queryOrder, merchantPrefix)
+		if trimmed != "" {
+			queryOrder = trimmed
+		}
+	}
+
 	filter := paymentservice.OrderFilter{
-		MerchantOrderNo: composed,
+		MerchantOrderNo: queryOrder,
 		Page:            1,
 		PageSize:        1,
 	}
@@ -229,17 +244,17 @@ func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, me
 	}
 
 	if orders == nil || len(orders.Items) == 0 {
-		logger.L().Infof("auto order lookup empty result: merchant=%d order=%s", merchantID, composed)
-		b.sendAutoOrderMessage(ctx, msg, merchantID, original, composed, nil)
+		logger.L().Infof("auto order lookup empty result: merchant=%d order=%s query=%s", merchantID, composed, queryOrder)
+		b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, nil)
 		return true
 	}
 
 	order := orders.Items[0]
-	b.sendAutoOrderMessage(ctx, msg, merchantID, original, composed, order)
+	b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, order)
 	return true
 }
 
-func (b *Bot) sendAutoOrderMessage(ctx context.Context, msg *botModels.Message, merchantID int64, original, composed string, order *paymentservice.Order) {
+func (b *Bot) sendAutoOrderMessage(ctx context.Context, msg *botModels.Message, merchantID int64, original, queryOrder, composed string, order *paymentservice.Order) {
 	var lines []string
 	lines = append(lines, "📦 <b>订单自动查询</b>")
 	lines = append(lines, fmt.Sprintf("商户号：<code>%d</code>", merchantID))
@@ -249,7 +264,7 @@ func (b *Bot) sendAutoOrderMessage(ctx context.Context, msg *botModels.Message, 
 	if order == nil {
 		lines = append(lines, "<b>未找到相关订单信息。</b>")
 	} else {
-		if order.MerchantOrderNo != "" && order.MerchantOrderNo != composed {
+		if order.MerchantOrderNo != "" && order.MerchantOrderNo != queryOrder {
 			lines = append(lines, fmt.Sprintf("返回商户订单号：<code>%s</code>", html.EscapeString(order.MerchantOrderNo)))
 		}
 		if order.PlatformOrderNo != "" {
