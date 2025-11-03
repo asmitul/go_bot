@@ -334,6 +334,7 @@
   - Sticker（贴纸）
   - Animation（GIF 动画）
 - **主要功能**:
+  - 对媒体 caption/文件名执行自动查单前置逻辑（详见 TextMessage）
   - 自动识别媒体类型
   - 提取媒体元数据（file_id, file_size, mime_type）
   - 提取 caption（媒体说明文字）
@@ -388,6 +389,14 @@
   - 排除 NewChatMembers/LeftChatMember 系统消息
   - 排除媒体消息（Photo/Video/Document/Voice/Audio/Sticker/Animation）
 - **主要功能**（按优先级顺序）:
+  0. **自动查单**：`maybeHandleAutoOrderLookup`
+     - 触发条件：群组/超级群组文本中匹配到 6 位以上的数字/字母组合，或媒体 caption / 文件名出现疑似订单号
+     - 前置要求：群组已绑定商户号且开启「四方支付查询」功能
+     - 查询策略：
+       - 自动为纯数字订单补齐商户号前缀
+       - 逐个调用四方支付 `orders` 接口获取详情（每条消息最多 3 条）
+       - 返回商户订单号、平台订单号、金额、实收金额、状态、支付/通知状态等信息
+     - 智能提取：配置 `XAI_API_KEY` 后，会调用 xAI 服务解析长文本、截图说明等非结构化内容中的订单号
   1. **管理员撤回命令**：`tryHandleRecallCommand` 拦截管理员回复的 `撤回`
      - 仅允许 Admin+ 操作
      - 只处理由本 Bot 发送的消息，并尝试删除触发命令
