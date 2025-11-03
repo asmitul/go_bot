@@ -230,7 +230,8 @@ func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, me
 
 	if orders == nil || len(orders.Items) == 0 {
 		logger.L().Infof("auto order lookup empty result: merchant=%d order=%s", merchantID, composed)
-		return false
+		b.sendAutoOrderMessage(ctx, msg, merchantID, original, composed, nil)
+		return true
 	}
 
 	order := orders.Items[0]
@@ -245,7 +246,9 @@ func (b *Bot) sendAutoOrderMessage(ctx context.Context, msg *botModels.Message, 
 	lines = append(lines, fmt.Sprintf("检测到订单号：<code>%s</code>", html.EscapeString(original)))
 	lines = append(lines, fmt.Sprintf("查询订单号：<code>%s</code>", html.EscapeString(composed)))
 
-	if order != nil {
+	if order == nil {
+		lines = append(lines, "<b>未找到相关订单信息。</b>")
+	} else {
 		if order.MerchantOrderNo != "" && order.MerchantOrderNo != composed {
 			lines = append(lines, fmt.Sprintf("返回商户订单号：<code>%s</code>", html.EscapeString(order.MerchantOrderNo)))
 		}
