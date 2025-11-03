@@ -1,32 +1,31 @@
-# Repository Guidelines
+# Agent Onboarding Guide
 
-## Project Structure & Module Organization
-- `cmd/bot/main.go` boots the service, wiring configuration, logging, and graceful shutdown flow.
-- `internal/app` orchestrates dependency startup, delegating to `internal/config`, `internal/logger`, `internal/mongo`, and `internal/telegram`; each subpackage is focused on one concern.
-- Feature logic for the Telegram bot lives under `internal/telegram`, with `features/`, `repository/`, and `service/` mirroring the layered design; Go tests currently sit beside features, e.g. `internal/telegram/features/calculator`.
-- Docker assets are under `deployments/docker/`, while `data/` is reserved for MongoDB volumes when the local stack is launched.
+Welcome to the `go_bot` repository. This document captures the house rules that every agent must follow when touching any file in this repo.
 
-## Build, Test, and Development Commands
-- `make local-up` starts the MongoDB + bot stack using `docker-compose.local.yml` and `.env.local`.
-- `make local-down` or `make local-clean` stops containers; the latter also prunes bound data.
-- `go run ./cmd/bot` runs the bot against your current environment variables, useful for iterative debugging.
-- `go test ./... -cover` executes unit tests across the repo and reports coverage; prefer running before every push.
+## Repository Topography
+- `cmd/bot/main.go`: application entrypoint that wires configuration, logging, graceful shutdown, and Telegram bot bootstrap.
+- `internal/app`: dependency bootstrap (config, logger, Mongo, Telegram client). Subpackages each own their concern.
+- `internal/telegram`: feature logic lives here, split into `features/`, `repository/`, and `service/` to mirror the layered design. Tests sit beside the code they exercise.
+- `deployments/docker`: Docker Compose and runtime assets. Mongo data volumes live under `data/` when the local stack is running.
 
-## Coding Style & Naming Conventions
-- Follow standard Go formatting (tabs for indentation, 100-ish character lines). Always run `gofmt` or `go fmt ./...` prior to committing; `goimports` keeps imports sorted.
-- Package names stay lower_snake (e.g., `telegram`), exported identifiers use PascalCase, and internal helpers remain unexported unless shared.
-- Log with the structured logger in `internal/logger` and propagate `context.Context` rather than global state whenever feasible.
+## Local Development Workflow
+1. Duplicate `.env.local.example` to `.env.local` and populate `TELEGRAM_TOKEN`, `BOT_OWNER_IDS`, and Mongo credentials before spinning anything up.
+2. Use `make local-up` to start the MongoDB + bot stack with `docker-compose.local.yml`. Tear it down with `make local-down`, or use `make local-clean` to also prune bound data.
+3. For quick iteration run `go run ./cmd/bot` with the desired environment variables exported.
 
-## Testing Guidelines
-- Keep tests adjacent to the code they exercise using the `_test.go` suffix, with table-driven cases for new handlers or services.
-- Use `go test ./internal/telegram/...` while focusing on bot behavior, and favor deterministic fakes over hitting the real API.
-- Maintain or raise the current coverage; highlight risk areas in the PR if a feature cannot be unit-tested.
+## Coding Standards
+- Always run `gofmt`/`go fmt ./...` (and preferably `goimports`) before committing; keep line length around 100 characters and use tabs for indentation.
+- Package names stay lowercase with no underscores. Exported identifiers use PascalCase, helpers remain unexported unless shared.
+- Prefer contextual logging via the structured logger in `internal/logger`. Pass `context.Context` explicitly instead of relying on globals.
 
-## Commit & Pull Request Guidelines
-- Adopt Conventional Commit prefixes (`feat:`, `fix:`, `chore:`, `docs:`) as seen in the existing history.
-- Squash small fixups locally and ensure each commit builds and tests cleanly.
-- PRs should include: concise summary, linked issue or context, explicit test command output (`go test ./...` or `make local-up` smoke check), and screenshots/log excerpts when altering bot interactions; documentation touching contribution practices must link back to this guide.
+## Testing Expectations
+- Co-locate Go tests (`*_test.go`) beside the code under test. Favor table-driven tests for handlers or services.
+- Run `go test ./... -cover` before every commit. When focused on Telegram features, `go test ./internal/telegram/...` is a quick subset.
+- Keep coverage steady or increasing; call out any gaps in your PR if something cannot be reasonably tested.
 
-## Environment & Secrets
-- Copy `.env.local.example` to `.env.local`, then provide `TELEGRAM_TOKEN`, `BOT_OWNER_IDS`, and Mongo credentials before running `make local-up`.
-- GitHub Actions depend on matching secrets (`TELEGRAM_TOKEN`, `MONGO_URI`, `VPS_*`, `SIFANG_*`); new deployments should validate that these stay in sync with the service configuration.
+## Git & PR Etiquette
+- Use Conventional Commit prefixes (`feat:`, `fix:`, `chore:`, `docs:`). Squash trivial fixups locally so every commit is green.
+- PR descriptions must include: a concise summary, context/issue link if applicable, explicit test command output (e.g., `go test ./...` or `make local-up` smoke check), and screenshots/log excerpts when altering bot interactions or UX.
+- Documentation changes that affect contributor workflows should point back to this guide.
+
+These instructions apply repository-wide unless a subdirectory overrides them with its own `AGENTS.md`.
