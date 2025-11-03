@@ -26,12 +26,17 @@ import (
 
 // Config Telegram Bot 配置
 type Config struct {
-	Token                string  // Bot Token
-	OwnerIDs             []int64 // Owner 用户 IDs
-	Debug                bool    // 是否开启调试模式
-	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
-	ChannelID            int64   // 源频道 ID（用于转发功能）
-	OrderNumberExtractor func(ctx context.Context, text string) ([]string, error)
+	Token                       string  // Bot Token
+	OwnerIDs                    []int64 // Owner 用户 IDs
+	Debug                       bool    // 是否开启调试模式
+	MessageRetentionDays        int     // 消息保留天数（用于 TTL 索引）
+	ChannelID                   int64   // 源频道 ID（用于转发功能）
+	OrderNumberExtractor        func(ctx context.Context, text string) ([]string, error)
+	AutoOrderLookupTimeout      time.Duration
+	AutoOrderLookupConcurrency  int
+	OrderLookupCacheTTL         time.Duration
+	GroupCacheTTL               time.Duration
+	OrderNumberExtractorTimeout time.Duration
 }
 
 // Bot Telegram Bot 服务
@@ -64,6 +69,12 @@ type Bot struct {
 	accountingRepo    repository.AccountingRepository
 
 	orderNumberExtractor func(ctx context.Context, text string) ([]string, error)
+
+	autoOrderLookupTimeout      time.Duration
+	autoOrderLookupConcurrency  int
+	orderLookupCache            *orderLookupCache
+	groupCache                  *groupCache
+	orderNumberExtractorTimeout time.Duration
 }
 
 // New 创建 Telegram Bot 实例
@@ -118,27 +129,57 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
+	autoLookupTimeout := cfg.AutoOrderLookupTimeout
+	if autoLookupTimeout <= 0 {
+		autoLookupTimeout = 5 * time.Second
+	}
+
+	concurrency := cfg.AutoOrderLookupConcurrency
+	if concurrency <= 0 {
+		concurrency = maxAutoOrderPerMessage
+	}
+
+	orderCacheTTL := cfg.OrderLookupCacheTTL
+	if orderCacheTTL <= 0 {
+		orderCacheTTL = 45 * time.Second
+	}
+
+	groupCacheTTL := cfg.GroupCacheTTL
+	if groupCacheTTL <= 0 {
+		groupCacheTTL = 2 * time.Minute
+	}
+
+	extractorTimeout := cfg.OrderNumberExtractorTimeout
+	if extractorTimeout <= 0 {
+		extractorTimeout = 5 * time.Second
+	}
+
 	telegramBot := &Bot{
-		bot:                  b,
-		db:                   db,
-		ownerIDs:             cfg.OwnerIDs,
-		messageRetentionDays: cfg.MessageRetentionDays,
-		workerPool:           workerPool,
-		startTime:            time.Now(),
-		userService:          userService,
-		groupService:         groupService,
-		messageService:       messageService,
-		configMenuService:    configMenuService,
-		forwardService:       forwardService,
-		accountingService:    accountingService,
-		paymentService:       paymentSvc,
-		featureManager:       featureManager,
-		userRepo:             userRepo,
-		groupRepo:            groupRepo,
-		messageRepo:          messageRepo,
-		forwardRecordRepo:    forwardRecordRepo,
-		accountingRepo:       accountingRepo,
-		orderNumberExtractor: cfg.OrderNumberExtractor,
+		bot:                         b,
+		db:                          db,
+		ownerIDs:                    cfg.OwnerIDs,
+		messageRetentionDays:        cfg.MessageRetentionDays,
+		workerPool:                  workerPool,
+		startTime:                   time.Now(),
+		userService:                 userService,
+		groupService:                groupService,
+		messageService:              messageService,
+		configMenuService:           configMenuService,
+		forwardService:              forwardService,
+		accountingService:           accountingService,
+		paymentService:              paymentSvc,
+		featureManager:              featureManager,
+		userRepo:                    userRepo,
+		groupRepo:                   groupRepo,
+		messageRepo:                 messageRepo,
+		forwardRecordRepo:           forwardRecordRepo,
+		accountingRepo:              accountingRepo,
+		orderNumberExtractor:        cfg.OrderNumberExtractor,
+		autoOrderLookupTimeout:      autoLookupTimeout,
+		autoOrderLookupConcurrency:  concurrency,
+		orderLookupCache:            newOrderLookupCache(orderCacheTTL),
+		groupCache:                  newGroupCache(groupCacheTTL),
+		orderNumberExtractorTimeout: extractorTimeout,
 	}
 
 	// 初始化 owners
@@ -178,19 +219,26 @@ func (b *Bot) asyncHandler(handler bot.HandlerFunc) bot.HandlerFunc {
 // InitFromConfig 从应用配置初始化 Telegram Bot
 func InitFromConfig(cfg *config.Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bot, error) {
 	telegramCfg := Config{
-		Token:                cfg.TelegramToken,
-		OwnerIDs:             cfg.BotOwnerIDs,
-		Debug:                false, // 可根据需要从环境变量读取
-		MessageRetentionDays: cfg.MessageRetentionDays,
-		ChannelID:            cfg.ChannelID,
+		Token:                       cfg.TelegramToken,
+		OwnerIDs:                    cfg.BotOwnerIDs,
+		Debug:                       false, // 可根据需要从环境变量读取
+		MessageRetentionDays:        cfg.MessageRetentionDays,
+		ChannelID:                   cfg.ChannelID,
+		AutoOrderLookupTimeout:      cfg.AutoOrderLookup.Timeout,
+		AutoOrderLookupConcurrency:  cfg.AutoOrderLookup.MaxConcurrency,
+		OrderLookupCacheTTL:         cfg.AutoOrderLookup.CacheTTL,
+		GroupCacheTTL:               cfg.AutoOrderLookup.GroupCacheTTL,
+		OrderNumberExtractorTimeout: cfg.AutoOrderLookup.ExtractorTimeout,
 	}
 
-	if cfg.AI.XAI.APIKey != "" {
+	if !cfg.AutoOrderLookup.DisableXAI && cfg.AI.XAI.APIKey != "" {
 		xaiClient, err := xai.NewClient(cfg.AI.XAI)
 		if err != nil {
 			return nil, fmt.Errorf("init xai client failed: %w", err)
 		}
 		telegramCfg.OrderNumberExtractor = xaiClient.ExtractOrderNumbers
+	} else if cfg.AutoOrderLookup.DisableXAI {
+		logger.L().Info("auto order lookup: XAI extractor disabled via config")
 	}
 
 	return New(telegramCfg, db, paymentSvc)

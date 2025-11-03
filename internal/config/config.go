@@ -18,6 +18,7 @@ type Config struct {
 	ChannelID            int64   // 源频道 ID（用于转发功能）
 	Payment              PaymentConfig
 	AI                   AIConfig
+	AutoOrderLookup      AutoOrderLookupConfig
 }
 
 // PaymentConfig 支付相关配置
@@ -28,6 +29,16 @@ type PaymentConfig struct {
 // AIConfig AI 相关配置
 type AIConfig struct {
 	XAI XAIConfig
+}
+
+// AutoOrderLookupConfig 自动查单相关配置
+type AutoOrderLookupConfig struct {
+	Timeout          time.Duration
+	MaxConcurrency   int
+	CacheTTL         time.Duration
+	GroupCacheTTL    time.Duration
+	ExtractorTimeout time.Duration
+	DisableXAI       bool
 }
 
 // XAIConfig xAI API 配置
@@ -108,6 +119,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.AI.XAI = xaiCfg
+
+	autoLookupCfg, err := loadAutoOrderLookupConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.AutoOrderLookup = autoLookupCfg
 
 	return cfg, nil
 }
@@ -191,6 +208,91 @@ func loadXAIConfig() (XAIConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadAutoOrderLookupConfig() (AutoOrderLookupConfig, error) {
+	timeout, err := readDurationSeconds("AUTO_LOOKUP_TIMEOUT_SECONDS", 5*time.Second)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	cacheTTL, err := readDurationSeconds("AUTO_LOOKUP_CACHE_TTL_SECONDS", 45*time.Second)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	groupCacheTTL, err := readDurationSeconds("AUTO_LOOKUP_GROUP_CACHE_TTL_SECONDS", 120*time.Second)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	extractorTimeout, err := readDurationSeconds("AUTO_LOOKUP_XAI_TIMEOUT_SECONDS", 5*time.Second)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	concurrency, err := readNonNegativeInt("AUTO_LOOKUP_MAX_CONCURRENCY", 3)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	disableXAI, err := readBool("AUTO_LOOKUP_XAI_DISABLED", false)
+	if err != nil {
+		return AutoOrderLookupConfig{}, err
+	}
+
+	return AutoOrderLookupConfig{
+		Timeout:          timeout,
+		MaxConcurrency:   concurrency,
+		CacheTTL:         cacheTTL,
+		GroupCacheTTL:    groupCacheTTL,
+		ExtractorTimeout: extractorTimeout,
+		DisableXAI:       disableXAI,
+	}, nil
+}
+
+func readDurationSeconds(env string, defaultValue time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(env))
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 {
+		return 0, fmt.Errorf("invalid %s: %s", env, value)
+	}
+
+	return time.Duration(seconds) * time.Second, nil
+}
+
+func readNonNegativeInt(env string, defaultValue int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(env))
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("invalid %s: %s", env, value)
+	}
+
+	return parsed, nil
+}
+
+func readBool(env string, defaultValue bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(env))
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "y", "on":
+		return true, nil
+	case "0", "false", "no", "n", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid %s: %s", env, value)
+	}
 }
 
 // parseMerchantKeys 解析格式为 "1001:secret,1002:secret2" 的字符串
