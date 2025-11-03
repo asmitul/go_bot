@@ -75,11 +75,16 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 
 	processed := make(map[string]struct{})
 	requests := make([]orderLookupRequest, 0, len(numbers))
+	requests := make([]orderLookupRequest, 0, maxAutoOrderPerMessage)
 	for _, num := range numbers {
 		if _, exists := processed[num]; exists {
 			continue
 		}
 		processed[num] = struct{}{}
+
+		if len(requests) >= maxAutoOrderPerMessage {
+			break
+		}
 
 		composed := num
 		if !strings.HasPrefix(composed, merchantPrefix) {
@@ -145,6 +150,31 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 					return
 				}
 			}
+		}()
+	}
+
+		for _, req := range requests {
+			b.lookupAndSendOrder(ctx, msg, merchantID, req.original, req.composed)
+		}
+		return
+	}
+
+	var wg sync.WaitGroup
+	limiter := make(chan struct{}, concurrency)
+	for _, req := range requests {
+		req := req
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case limiter <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-limiter }()
+
+			b.lookupAndSendOrder(ctx, msg, merchantID, req.original, req.composed)
 		}()
 	}
 
