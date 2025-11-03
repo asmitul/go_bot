@@ -8,11 +8,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"go_bot/internal/logger"
 	paymentservice "go_bot/internal/payment/service"
+	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
 
 	botModels "github.com/go-telegram/bot/models"
@@ -21,8 +23,12 @@ import (
 var (
 	orderNumberRegexp      = regexp.MustCompile(`(?i)[a-z0-9]{6,}`)
 	maxAutoOrderPerMessage = 3
-	autoOrderLookupTimeout = 10 * time.Second
 )
+
+type orderLookupRequest struct {
+	original string
+	composed string
+}
 
 func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Message, parts ...string) {
 	if msg == nil || msg.Chat.ID == 0 {
@@ -54,7 +60,7 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 		Username: msg.Chat.Username,
 	}
 
-	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
+	group, err := b.getOrCreateGroupCached(ctx, chatInfo)
 	if err != nil {
 		logger.L().Warnf("auto order lookup: get group failed chat=%d err=%v", msg.Chat.ID, err)
 		return
@@ -68,25 +74,81 @@ func (b *Bot) maybeHandleAutoOrderLookup(ctx context.Context, msg *botModels.Mes
 	merchantPrefix := fmt.Sprintf("%d", merchantID)
 
 	processed := make(map[string]struct{})
-	count := 0
+	requests := make([]orderLookupRequest, 0, len(numbers))
 	for _, num := range numbers {
 		if _, exists := processed[num]; exists {
 			continue
 		}
 		processed[num] = struct{}{}
 
-		if count >= maxAutoOrderPerMessage {
-			break
-		}
-
 		composed := num
 		if !strings.HasPrefix(composed, merchantPrefix) {
 			composed = merchantPrefix + composed
 		}
-		if b.lookupAndSendOrder(ctx, msg, merchantID, num, composed) {
-			count++
-		}
+		requests = append(requests, orderLookupRequest{original: num, composed: composed})
 	}
+
+	if len(requests) == 0 {
+		return
+	}
+
+	maxSuccess := int32(maxAutoOrderPerMessage)
+	if maxSuccess <= 0 {
+		maxSuccess = 1
+	}
+
+	concurrency := b.autoOrderLookupConcurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+
+	if concurrency == 1 || len(requests) == 1 {
+		var successCount int32
+		for _, req := range requests {
+			if successCount >= maxSuccess {
+				break
+			}
+			if b.lookupAndSendOrder(ctx, msg, merchantID, req.original, req.composed) {
+				successCount++
+				if successCount >= maxSuccess {
+					break
+				}
+			}
+		}
+		return
+	}
+
+	var wg sync.WaitGroup
+	limiter := make(chan struct{}, concurrency)
+	var successCount atomic.Int32
+	for _, req := range requests {
+		if successCount.Load() >= maxSuccess {
+			break
+		}
+		req := req
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case limiter <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-limiter }()
+
+			if successCount.Load() >= maxSuccess {
+				return
+			}
+			if b.lookupAndSendOrder(ctx, msg, merchantID, req.original, req.composed) {
+				if successCount.Add(1) >= maxSuccess {
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
 }
 
 func extractMediaOrderParts(msg *botModels.Message) []string {
@@ -166,7 +228,10 @@ func (b *Bot) extractOrderNumbers(ctx context.Context, content string) []string 
 	}
 
 	if b.orderNumberExtractor != nil {
-		extracted, err := b.orderNumberExtractor(ctx, content)
+		extractCtx, cancel := context.WithTimeout(ctx, b.orderNumberExtractorTimeout)
+		defer cancel()
+
+		extracted, err := b.orderNumberExtractor(extractCtx, content)
 		if err != nil {
 			logger.L().Warnf("auto order lookup: xai extraction failed err=%v", err)
 		} else {
@@ -219,7 +284,7 @@ func isValidOrderCandidate(value string) bool {
 }
 
 func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, merchantID int64, original, composed string) bool {
-	lookupCtx, cancel := context.WithTimeout(ctx, autoOrderLookupTimeout)
+	lookupCtx, cancel := context.WithTimeout(ctx, b.autoOrderLookupTimeout)
 	defer cancel()
 
 	merchantPrefix := strconv.FormatInt(merchantID, 10)
@@ -229,6 +294,16 @@ func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, me
 		if trimmed != "" {
 			queryOrder = trimmed
 		}
+	}
+
+	if order, found, ok := b.orderLookupCache.Get(merchantID, queryOrder); ok {
+		if !found {
+			b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, nil)
+			return true
+		}
+
+		b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, order)
+		return true
 	}
 
 	filter := paymentservice.OrderFilter{
@@ -245,13 +320,33 @@ func (b *Bot) lookupAndSendOrder(ctx context.Context, msg *botModels.Message, me
 
 	if orders == nil || len(orders.Items) == 0 {
 		logger.L().Infof("auto order lookup empty result: merchant=%d order=%s query=%s", merchantID, composed, queryOrder)
+		b.orderLookupCache.Set(merchantID, queryOrder, nil, false)
 		b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, nil)
 		return true
 	}
 
 	order := orders.Items[0]
+	b.orderLookupCache.Set(merchantID, queryOrder, order, true)
 	b.sendAutoOrderMessage(ctx, msg, merchantID, original, queryOrder, composed, order)
 	return true
+}
+
+func (b *Bot) getOrCreateGroupCached(ctx context.Context, chatInfo *service.TelegramChatInfo) (*models.Group, error) {
+	if chatInfo == nil {
+		return nil, fmt.Errorf("chat info is required")
+	}
+
+	if group, ok := b.groupCache.Get(chatInfo.ChatID); ok {
+		return group, nil
+	}
+
+	group, err := b.groupService.GetOrCreateGroup(ctx, chatInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	b.groupCache.Set(chatInfo.ChatID, group)
+	return group, nil
 }
 
 func (b *Bot) sendAutoOrderMessage(ctx context.Context, msg *botModels.Message, merchantID int64, original, queryOrder, composed string, order *paymentservice.Order) {
