@@ -6,7 +6,7 @@ import (
 	"unicode"
 )
 
-var orderNumberRegexp = regexp.MustCompile(`(?i)\b[a-z0-9]{6,32}\b`)
+var orderNumberRegexp = regexp.MustCompile(`(?i)\b[a-z0-9]{10,60}\b`)
 
 // ExtractOrderNumbers 从多个字符串片段中提取订单号，支持字母+数字组合并去重。
 // 返回结果按照首次出现顺序排序。
@@ -25,7 +25,7 @@ func ExtractOrderNumbers(parts ...string) []string {
 		}
 
 		for _, match := range matches {
-			if !containsLetterAndDigit(match) {
+			if !containsDigit(match) {
 				continue
 			}
 
@@ -56,18 +56,9 @@ func NormalizeFileName(name string) string {
 	return replacer.Replace(trimmed)
 }
 
-func containsLetterAndDigit(s string) bool {
-	hasLetter := false
-	hasDigit := false
-
+func containsDigit(s string) bool {
 	for _, r := range s {
 		if unicode.IsDigit(r) {
-			hasDigit = true
-		} else if unicode.IsLetter(r) {
-			hasLetter = true
-		}
-
-		if hasLetter && hasDigit {
 			return true
 		}
 	}
