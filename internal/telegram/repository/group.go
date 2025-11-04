@@ -57,12 +57,13 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 			"bot_joined_at": now,
 			"created_at":    now,
 			"settings": models.GroupSettings{
-				CalculatorEnabled: true,  // 新群组默认启用计算器功能
-				CryptoEnabled:     true,  // 新群组默认启用加密货币功能
-				CryptoFloatRate:   0.12,  // 新群组默认浮动费率 0.12
-				ForwardEnabled:    true,  // 新群组默认接收频道转发消息
-				AccountingEnabled: false, // 新群组默认关闭收支记账功能
-				SifangEnabled:     true,  // 新群组默认启用四方支付功能
+				CalculatorEnabled:       true,  // 新群组默认启用计算器功能
+				CryptoEnabled:           true,  // 新群组默认启用加密货币功能
+				CryptoFloatRate:         0.12,  // 新群组默认浮动费率 0.12
+				ForwardEnabled:          true,  // 新群组默认接收频道转发消息
+				AccountingEnabled:       false, // 新群组默认关闭收支记账功能
+				SifangEnabled:           true,  // 新群组默认启用四方支付功能
+				SifangAutoLookupEnabled: true,  // 新群组默认启用四方自动查单
 			},
 			"stats": models.GroupStats{
 				TotalMessages: 0,

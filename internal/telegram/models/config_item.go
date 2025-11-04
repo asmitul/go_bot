@@ -29,19 +29,20 @@ type ConfigItem struct {
 	Category string         // 分类（用于分组显示）
 
 	// Toggle 类型专用
-	ToggleGetter func(*Group) bool              // 获取当前状态
-	ToggleSetter func(*GroupSettings, bool)     // 设置状态
+	ToggleGetter   func(*Group) bool           // 获取当前状态
+	ToggleSetter   func(*GroupSettings, bool)  // 设置状态
+	ToggleDisabled func(*Group) (bool, string) // 是否禁用开关及原因（返回 true 表示禁用）
 
 	// Select 类型专用
-	SelectGetter  func(*Group) string            // 获取当前选项
-	SelectOptions []SelectOption                 // 可选项
-	SelectSetter  func(*GroupSettings, string)   // 设置选项
+	SelectGetter  func(*Group) string          // 获取当前选项
+	SelectOptions []SelectOption               // 可选项
+	SelectSetter  func(*GroupSettings, string) // 设置选项
 
 	// Input 类型专用
-	InputGetter    func(*Group) string           // 获取当前值
-	InputSetter    func(*GroupSettings, string)  // 设置值
-	InputPrompt    string                        // 输入提示文本
-	InputValidator func(string) error            // 输入验证器
+	InputGetter    func(*Group) string          // 获取当前值
+	InputSetter    func(*GroupSettings, string) // 设置值
+	InputPrompt    string                       // 输入提示文本
+	InputValidator func(string) error           // 输入验证器
 
 	// Action 类型专用
 	// ActionHandler 的参数：(ctx, chatID, userID)
