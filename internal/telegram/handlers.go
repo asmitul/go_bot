@@ -209,6 +209,7 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("<b>四方支付查询（需开启“🏦 四方支付查询”功能并完成商户号绑定）</b>\n")
 	text.WriteString("余额[可选日期] - 查询余额，例如：余额、余额10月26\n")
 	text.WriteString("账单[可选日期] - 查询日汇总，例如：账单2023/10/26\n")
+	text.WriteString("每日00:00:05（北京时间）自动向已绑定商户号的群推送昨日账单\n")
 	text.WriteString("通道账单[可选日期] - 查看通道维度汇总\n")
 	text.WriteString("提款明细[可选日期] - 查看提款记录\n")
 	text.WriteString("费率 - 查看通道费率\n")
