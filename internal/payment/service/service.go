@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ type Service interface {
 	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
+	GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderDetail, error)
 }
 
 type sifangService struct {
@@ -40,6 +42,93 @@ type SendMoneyResult struct {
 	FrozenToday     string
 	Fee             string
 }
+
+// OrderDetail 订单详情结构
+type OrderDetail struct {
+	Order      *Order
+	Extended   *OrderExtended
+	NotifyLogs []*NotifyLog
+}
+
+// Order 订单基础信息
+type Order struct {
+	MerchantOrderNo  string
+	PlatformOrderNo  string
+	Amount           string
+	RealAmount       string
+	Status           string
+	StatusText       string
+	NotifyStatus     string
+	NotifyStatusText string
+	NotifyTimes      string
+	NotifyLastError  string
+	ChannelCode      string
+	ChannelName      string
+	CreatedAt        string
+	PaidAt           string
+	CompletedAt      string
+	ExpiredAt        string
+	NotifyURL        string
+	ReturnURL        string
+	Description      string
+	Attach           string
+	ClientIP         string
+	Currency         string
+	UserID           string
+	PaymentURL       string
+	BankCode         string
+	BankAccount      string
+	BankAccountName  string
+	BankBranch       string
+	BuyerName        string
+	BuyerID          string
+	Extra            map[string]string
+}
+
+// OrderExtended 订单扩展信息
+type OrderExtended struct {
+	OrderID          string
+	MerchantID       string
+	ChannelID        string
+	ChannelFee       string
+	ChannelFeeRate   string
+	ChannelCost      string
+	DeductStatus     string
+	DeductStatusText string
+	DeductAmount     string
+	DeductReason     string
+	RiskFlag         bool
+	Manual           bool
+	Remark           string
+	CreatedAt        string
+	UpdatedAt        string
+}
+
+// NotifyLog 订单回调日志
+type NotifyLog struct {
+	Status      string
+	StatusText  string
+	Request     string
+	Response    string
+	URL         string
+	AttemptedAt string
+	Duration    string
+	Retry       string
+}
+
+// OrderNumberType 标识订单号类型
+type OrderNumberType string
+
+const (
+	// OrderNumberTypeMerchant 使用商户订单号查询
+	OrderNumberTypeMerchant OrderNumberType = "merchant"
+	// OrderNumberTypePlatform 使用平台订单号查询
+	OrderNumberTypePlatform OrderNumberType = "platform"
+	// OrderNumberTypeAuto 优先使用商户订单号，失败时回退到平台订单号
+	OrderNumberTypeAuto OrderNumberType = "auto"
+)
+
+const orderDetailTimeout = 8 * time.Second
 
 // NewSifangService 创建基于四方支付的服务实现
 func NewSifangService(client *sifang.Client) Service {
@@ -239,6 +328,104 @@ func (s *sifangService) SendMoney(ctx context.Context, merchantID int64, amount 
 	return result, nil
 }
 
+func (s *sifangService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderDetail, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return nil, fmt.Errorf("order number is required")
+	}
+
+	if numberType == "" {
+		numberType = OrderNumberTypeAuto
+	}
+
+	lookupOrder := resolveOrderNumberTypes(numberType)
+	var lastErr error
+
+	for idx, kind := range lookupOrder {
+		business := map[string]string{
+			"with_notify_logs": "1",
+		}
+
+		switch kind {
+		case OrderNumberTypeMerchant:
+			business["merchant_order_no"] = orderNo
+		case OrderNumberTypePlatform:
+			business["platform_order_no"] = orderNo
+		default:
+			continue
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx, orderDetailTimeout)
+		raw := make(map[string]interface{})
+		err := s.client.Post(reqCtx, "orderdetail", merchantID, business, &raw)
+		cancel()
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("get order detail timed out (%s number)", describeOrderNumberType(kind))
+			}
+
+			var apiErr *sifang.APIError
+			if errors.As(err, &apiErr) {
+				lastErr = fmt.Errorf("get order detail failed with sifang error (%s number): %w", describeOrderNumberType(kind), err)
+			} else {
+				lastErr = fmt.Errorf("get order detail failed (%s number): %w", describeOrderNumberType(kind), err)
+			}
+
+			if idx < len(lookupOrder)-1 {
+				continue
+			}
+
+			return nil, lastErr
+		}
+
+		detail := decodeOrderDetail(raw)
+		if detail == nil || detail.Order == nil {
+			lastErr = fmt.Errorf("order detail is empty (%s number)", describeOrderNumberType(kind))
+			if idx < len(lookupOrder)-1 {
+				continue
+			}
+
+			return nil, lastErr
+		}
+
+		return detail, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fmt.Errorf("order detail lookup failed")
+}
+
+func resolveOrderNumberTypes(numberType OrderNumberType) []OrderNumberType {
+	switch numberType {
+	case OrderNumberTypeMerchant:
+		return []OrderNumberType{OrderNumberTypeMerchant}
+	case OrderNumberTypePlatform:
+		return []OrderNumberType{OrderNumberTypePlatform}
+	case OrderNumberTypeAuto:
+		fallthrough
+	default:
+		return []OrderNumberType{OrderNumberTypeMerchant, OrderNumberTypePlatform}
+	}
+}
+
+func describeOrderNumberType(numberType OrderNumberType) string {
+	switch numberType {
+	case OrderNumberTypeMerchant:
+		return "merchant"
+	case OrderNumberTypePlatform:
+		return "platform"
+	default:
+		return string(numberType)
+	}
+}
+
 // Balance 表示账户余额信息
 type Balance struct {
 	MerchantID      string
@@ -317,6 +504,294 @@ func decodeBalance(raw map[string]interface{}) *Balance {
 		HistoryDays:     parseInt(raw["history_days"], 0),
 		HistoryBalance:  stringify(raw["history_balance"]),
 	}
+}
+
+func decodeOrderDetail(raw map[string]interface{}) *OrderDetail {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	detail := &OrderDetail{
+		NotifyLogs: make([]*NotifyLog, 0),
+	}
+
+	if orderVal, ok := raw["order"]; ok {
+		if order := buildOrder(orderVal); order != nil {
+			detail.Order = order
+		}
+	}
+
+	if extendedVal, ok := raw["extended"]; ok {
+		if extended := buildOrderExtended(extendedVal); extended != nil {
+			detail.Extended = extended
+		}
+	}
+
+	if logsVal, ok := raw["notify_logs"]; ok {
+		detail.NotifyLogs = append(detail.NotifyLogs, buildNotifyLogs(logsVal)...)
+	}
+
+	if detail.Order == nil && detail.Extended == nil && len(detail.NotifyLogs) == 0 {
+		return nil
+	}
+
+	return detail
+}
+
+func buildOrder(value interface{}) *Order {
+	m, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	order := &Order{
+		MerchantOrderNo:  pickString(m, "merchant_order_no", "order_no", "merchant_no", "orderid"),
+		PlatformOrderNo:  pickString(m, "platform_order_no", "platform_no", "sys_order_no", "trade_no", "upstream_order_no"),
+		Amount:           pickString(m, "amount", "order_amount", "money", "total_amount", "price"),
+		RealAmount:       pickString(m, "real_amount", "merchant_amount", "success_amount", "real_money", "merchant_real"),
+		Status:           pickString(m, "status", "order_status", "pay_status", "state"),
+		StatusText:       pickString(m, "status_text", "status_desc", "status_name", "order_status_name"),
+		NotifyStatus:     pickString(m, "notify_status", "notify_state", "notify_result"),
+		NotifyStatusText: pickString(m, "notify_status_text", "notify_desc", "notify_status_name"),
+		NotifyTimes:      pickString(m, "notify_times", "notify_count", "notify_num"),
+		NotifyLastError:  pickString(m, "notify_last_error", "notify_error", "notify_message"),
+		ChannelCode:      pickString(m, "channel_code", "channel", "pay_channel", "pay_type"),
+		ChannelName:      pickString(m, "channel_name", "channel_display", "channel_title", "pay_channel_name"),
+		CreatedAt:        pickString(m, "created_at", "create_time", "created_time", "ctime", "order_time"),
+		PaidAt:           pickString(m, "paid_at", "pay_time", "payment_time", "success_time"),
+		CompletedAt:      pickString(m, "completed_at", "finish_time", "complete_time"),
+		ExpiredAt:        pickString(m, "expired_at", "expire_time", "overdue_time"),
+		NotifyURL:        pickString(m, "notify_url", "callback_url", "notify"),
+		ReturnURL:        pickString(m, "return_url", "back_url"),
+		Description:      pickString(m, "description", "body", "subject", "product_name", "goods_name"),
+		Attach:           pickString(m, "attach", "remark", "extra", "metadata"),
+		ClientIP:         pickString(m, "client_ip", "ip", "customer_ip"),
+		Currency:         pickString(m, "currency", "money_type"),
+		UserID:           pickString(m, "user_id", "uid", "member_id"),
+		PaymentURL:       pickString(m, "payment_url", "pay_url", "url", "cashier_url"),
+		BankCode:         pickString(m, "bank_code", "bank"),
+		BankAccount:      pickString(m, "bank_account", "account", "card_number"),
+		BankAccountName:  pickString(m, "bank_account_name", "account_name", "card_name"),
+		BankBranch:       pickString(m, "bank_branch", "branch"),
+		BuyerName:        pickString(m, "buyer_name", "customer_name", "payer_name"),
+		BuyerID:          pickString(m, "buyer_id", "customer_id"),
+		Extra:            make(map[string]string),
+	}
+
+	knownKeys := map[string]struct{}{
+		"merchant_order_no":  {},
+		"order_no":           {},
+		"merchant_no":        {},
+		"orderid":            {},
+		"platform_order_no":  {},
+		"platform_no":        {},
+		"sys_order_no":       {},
+		"trade_no":           {},
+		"upstream_order_no":  {},
+		"amount":             {},
+		"order_amount":       {},
+		"money":              {},
+		"total_amount":       {},
+		"price":              {},
+		"real_amount":        {},
+		"merchant_amount":    {},
+		"success_amount":     {},
+		"real_money":         {},
+		"merchant_real":      {},
+		"status":             {},
+		"order_status":       {},
+		"pay_status":         {},
+		"state":              {},
+		"status_text":        {},
+		"status_desc":        {},
+		"status_name":        {},
+		"order_status_name":  {},
+		"notify_status":      {},
+		"notify_state":       {},
+		"notify_result":      {},
+		"notify_status_text": {},
+		"notify_desc":        {},
+		"notify_status_name": {},
+		"notify_times":       {},
+		"notify_count":       {},
+		"notify_num":         {},
+		"notify_last_error":  {},
+		"notify_error":       {},
+		"notify_message":     {},
+		"channel_code":       {},
+		"channel":            {},
+		"pay_channel":        {},
+		"pay_type":           {},
+		"channel_name":       {},
+		"channel_display":    {},
+		"channel_title":      {},
+		"pay_channel_name":   {},
+		"created_at":         {},
+		"create_time":        {},
+		"created_time":       {},
+		"ctime":              {},
+		"order_time":         {},
+		"paid_at":            {},
+		"pay_time":           {},
+		"payment_time":       {},
+		"success_time":       {},
+		"completed_at":       {},
+		"finish_time":        {},
+		"complete_time":      {},
+		"expired_at":         {},
+		"expire_time":        {},
+		"overdue_time":       {},
+		"notify_url":         {},
+		"callback_url":       {},
+		"notify":             {},
+		"return_url":         {},
+		"back_url":           {},
+		"description":        {},
+		"body":               {},
+		"subject":            {},
+		"product_name":       {},
+		"goods_name":         {},
+		"attach":             {},
+		"remark":             {},
+		"extra":              {},
+		"metadata":           {},
+		"client_ip":          {},
+		"ip":                 {},
+		"customer_ip":        {},
+		"currency":           {},
+		"money_type":         {},
+		"user_id":            {},
+		"uid":                {},
+		"member_id":          {},
+		"payment_url":        {},
+		"pay_url":            {},
+		"url":                {},
+		"cashier_url":        {},
+		"bank_code":          {},
+		"bank":               {},
+		"bank_account":       {},
+		"account":            {},
+		"card_number":        {},
+		"bank_account_name":  {},
+		"account_name":       {},
+		"card_name":          {},
+		"bank_branch":        {},
+		"branch":             {},
+		"buyer_name":         {},
+		"customer_name":      {},
+		"payer_name":         {},
+		"buyer_id":           {},
+		"customer_id":        {},
+	}
+
+	for key, val := range m {
+		if _, exists := knownKeys[key]; exists {
+			continue
+		}
+		str := strings.TrimSpace(stringify(val))
+		if str == "" {
+			continue
+		}
+		order.Extra[key] = str
+	}
+
+	if len(order.Extra) == 0 {
+		order.Extra = nil
+	}
+
+	if order.MerchantOrderNo == "" && order.PlatformOrderNo == "" && order.Amount == "" && order.Status == "" && order.ChannelCode == "" && order.ChannelName == "" && order.RealAmount == "" && order.PaymentURL == "" {
+		return nil
+	}
+
+	return order
+}
+
+func buildOrderExtended(value interface{}) *OrderExtended {
+	m, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	extended := &OrderExtended{
+		OrderID:          pickString(m, "order_id", "id"),
+		MerchantID:       pickString(m, "merchant_id", "mid", "merchant"),
+		ChannelID:        pickString(m, "channel_id", "cid"),
+		ChannelFee:       pickString(m, "channel_fee", "fee", "poundage"),
+		ChannelFeeRate:   pickString(m, "channel_fee_rate", "fee_rate", "channel_rate"),
+		ChannelCost:      pickString(m, "channel_cost", "cost"),
+		DeductStatus:     pickString(m, "deduct_status", "deduct_state", "deduct"),
+		DeductStatusText: pickString(m, "deduct_status_text", "deduct_desc", "deduct_status_name"),
+		DeductAmount:     pickString(m, "deduct_amount", "deduct_money", "deduct_fee"),
+		DeductReason:     pickString(m, "deduct_reason", "deduct_remark", "deduct_msg"),
+		RiskFlag:         pickBool(m, "risk_flag", "is_risk", "risk"),
+		Manual:           pickBool(m, "manual", "is_manual", "manual_flag"),
+		Remark:           pickString(m, "remark", "memo", "note"),
+		CreatedAt:        pickString(m, "created_at", "create_time", "ctime"),
+		UpdatedAt:        pickString(m, "updated_at", "update_time", "utime"),
+	}
+
+	if extended.OrderID == "" && extended.MerchantID == "" && extended.ChannelFee == "" && extended.DeductStatus == "" && extended.DeductAmount == "" && !extended.RiskFlag && !extended.Manual {
+		return nil
+	}
+
+	return extended
+}
+
+func buildNotifyLogs(value interface{}) []*NotifyLog {
+	if value == nil {
+		return nil
+	}
+
+	logs := make([]*NotifyLog, 0)
+
+	switch v := value.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if log := buildNotifyLog(item); log != nil {
+				logs = append(logs, log)
+			}
+		}
+	case []map[string]interface{}:
+		for _, item := range v {
+			if log := buildNotifyLog(item); log != nil {
+				logs = append(logs, log)
+			}
+		}
+	case map[string]interface{}:
+		for _, item := range v {
+			if log := buildNotifyLog(item); log != nil {
+				logs = append(logs, log)
+			}
+		}
+	default:
+		// ignore unsupported types
+	}
+
+	return logs
+}
+
+func buildNotifyLog(value interface{}) *NotifyLog {
+	m, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	log := &NotifyLog{
+		Status:      pickString(m, "status", "state", "result"),
+		StatusText:  pickString(m, "status_text", "status_desc", "result_desc"),
+		Request:     pickString(m, "request", "request_body", "payload"),
+		Response:    pickString(m, "response", "response_body", "reply"),
+		URL:         pickString(m, "url", "notify_url", "callback_url"),
+		AttemptedAt: pickString(m, "attempted_at", "created_at", "notify_time", "time"),
+		Duration:    pickString(m, "duration", "cost", "elapsed"),
+		Retry:       pickString(m, "retry", "retry_count", "times"),
+	}
+
+	if log.Status == "" && log.StatusText == "" && log.Request == "" && log.Response == "" && log.URL == "" && log.AttemptedAt == "" {
+		return nil
+	}
+
+	return log
 }
 
 func decodeSummaryByDay(data json.RawMessage) (*SummaryByDay, error) {
