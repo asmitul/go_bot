@@ -161,6 +161,28 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
+		// 四方支付自动查单开关
+		{
+			ID:       "sifang_auto_lookup_enabled",
+			Name:     "四方自动查单",
+			Icon:     "🔍",
+			Type:     models.ConfigTypeToggle,
+			Category: "功能管理",
+			ToggleGetter: func(g *models.Group) bool {
+				return g.Settings.SifangAutoLookupEnabled
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.SifangAutoLookupEnabled = val
+			},
+			ToggleDisabled: func(g *models.Group) (bool, string) {
+				if !g.Settings.SifangEnabled {
+					return true, "需先开启四方支付"
+				}
+				return false, ""
+			},
+			RequireAdmin: true,
+		},
+
 		// ========== 扩展示例（已注释）==========
 		//
 		// 需要更多配置？取消注释或添加新配置项即可：

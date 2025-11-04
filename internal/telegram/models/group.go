@@ -40,13 +40,14 @@ type Group struct {
 
 // GroupSettings 群组配置
 type GroupSettings struct {
-	CalculatorEnabled bool    `bson:"calculator_enabled"` // 是否启用计算器功能
-	CryptoEnabled     bool    `bson:"crypto_enabled"`     // 是否启用加密货币价格查询功能
-	CryptoFloatRate   float64 `bson:"crypto_float_rate"`  // 加密货币价格浮动费率（默认 0.12）
-	ForwardEnabled    bool    `bson:"forward_enabled"`    // 是否接收频道转发消息
-	AccountingEnabled bool    `bson:"accounting_enabled"` // 是否启用收支记账功能
-	MerchantID        int32   `bson:"merchant_id"`        // 商户号（数字类型，0 表示未绑定）
-	SifangEnabled     bool    `bson:"sifang_enabled"`     // 是否启用四方支付功能
+	CalculatorEnabled       bool    `bson:"calculator_enabled"`         // 是否启用计算器功能
+	CryptoEnabled           bool    `bson:"crypto_enabled"`             // 是否启用加密货币价格查询功能
+	CryptoFloatRate         float64 `bson:"crypto_float_rate"`          // 加密货币价格浮动费率（默认 0.12）
+	ForwardEnabled          bool    `bson:"forward_enabled"`            // 是否接收频道转发消息
+	AccountingEnabled       bool    `bson:"accounting_enabled"`         // 是否启用收支记账功能
+	MerchantID              int32   `bson:"merchant_id"`                // 商户号（数字类型，0 表示未绑定）
+	SifangEnabled           bool    `bson:"sifang_enabled"`             // 是否启用四方支付功能
+	SifangAutoLookupEnabled bool    `bson:"sifang_auto_lookup_enabled"` // 是否启用四方支付自动查单
 }
 
 // GroupStats 群组统计信息

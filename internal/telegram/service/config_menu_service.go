@@ -57,11 +57,16 @@ func (s *ConfigMenuService) BuildMainMenu(ctx context.Context, group *models.Gro
 // buildButtonForItem 为单个配置项构建按钮
 func (s *ConfigMenuService) buildButtonForItem(item models.ConfigItem, group *models.Group) botModels.InlineKeyboardButton {
 	var statusText string
+	var disabled bool
+	var disabledReason string
 
 	switch item.Type {
 	case models.ConfigTypeToggle:
 		// 开关型：显示当前状态 ON/OFF
 		enabled := item.ToggleGetter(group)
+		if item.ToggleDisabled != nil {
+			disabled, disabledReason = item.ToggleDisabled(group)
+		}
 		if enabled {
 			statusText = "✅"
 		} else {
@@ -89,6 +94,9 @@ func (s *ConfigMenuService) buildButtonForItem(item models.ConfigItem, group *mo
 
 	// 按钮文本格式：图标 + 名称 + 状态
 	buttonText := fmt.Sprintf("%s %s %s", item.Icon, item.Name, statusText)
+	if disabled && disabledReason != "" {
+		buttonText = fmt.Sprintf("%s %s（%s） %s", item.Icon, item.Name, disabledReason, statusText)
+	}
 	callbackData := fmt.Sprintf("config:%s:%s", item.Type, item.ID)
 
 	return botModels.InlineKeyboardButton{
@@ -161,6 +169,15 @@ func (s *ConfigMenuService) handleToggle(ctx context.Context, group *models.Grou
 	item := findItemByID(items, configID)
 	if item == nil {
 		return "❌ 配置项不存在", false, fmt.Errorf("config item not found: %s", configID)
+	}
+
+	if item.ToggleDisabled != nil {
+		if disabled, reason := item.ToggleDisabled(group); disabled {
+			if reason == "" {
+				reason = "当前功能不可用"
+			}
+			return fmt.Sprintf("⚠️ %s", reason), false, nil
+		}
 	}
 
 	// 切换状态
