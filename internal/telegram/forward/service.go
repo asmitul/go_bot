@@ -3,6 +3,7 @@ package forward
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -345,6 +346,7 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 	for i, msg := range messages {
 		messageIDs[i] = msg.ID
 	}
+	sort.Ints(messageIDs)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
