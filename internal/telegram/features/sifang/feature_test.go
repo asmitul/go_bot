@@ -651,6 +651,39 @@ func TestHandleSummaryIncludesWithdrawAndBalance(t *testing.T) {
 	}
 }
 
+func TestBuildSummaryMessageMatchesHandleSummary(t *testing.T) {
+	now := time.Now().In(chinaLocation)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, chinaLocation)
+
+	fake := &fakePaymentService{
+		balanceResp: &paymentservice.Balance{
+			Balance:        "5000",
+			HistoryBalance: "4000",
+		},
+		withdrawResp: &paymentservice.WithdrawList{
+			Items: []*paymentservice.Withdraw{
+				{Amount: "100", CreatedAt: today.Format("2006-01-02") + " 10:00:00"},
+			},
+		},
+	}
+
+	feature := &Feature{paymentService: fake}
+
+	expected, _, err := feature.handleSummary(context.Background(), 1001, "账单")
+	if err != nil {
+		t.Fatalf("unexpected error from handleSummary: %v", err)
+	}
+
+	actual, err := feature.BuildSummaryMessage(context.Background(), 1001, today)
+	if err != nil {
+		t.Fatalf("unexpected error from BuildSummaryMessage: %v", err)
+	}
+
+	if expected != actual {
+		t.Fatalf("expected messages to match\nhandleSummary: %s\nBuildSummaryMessage: %s", expected, actual)
+	}
+}
+
 func TestHandleSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
 	fake := &fakePaymentService{
 		balanceResp: &paymentservice.Balance{

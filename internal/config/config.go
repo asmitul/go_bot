@@ -16,6 +16,7 @@ type Config struct {
 	MongoDBName          string  // MongoDB数据库名称
 	MessageRetentionDays int     // 消息保留天数（过期自动删除）
 	ChannelID            int64   // 源频道 ID（用于转发功能）
+	DailyBillPushEnabled bool    // 是否启用每日账单推送
 	Payment              PaymentConfig
 }
 
@@ -42,9 +43,18 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
-		MongoURI:      os.Getenv("MONGO_URI"),
-		MongoDBName:   mongoDBName,
+		TelegramToken:        os.Getenv("TELEGRAM_TOKEN"),
+		MongoURI:             os.Getenv("MONGO_URI"),
+		MongoDBName:          mongoDBName,
+		DailyBillPushEnabled: true,
+	}
+
+	if enabled := strings.TrimSpace(os.Getenv("DAILY_BILL_PUSH_ENABLED")); enabled != "" {
+		value, err := strconv.ParseBool(enabled)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse DAILY_BILL_PUSH_ENABLED: %w", err)
+		}
+		cfg.DailyBillPushEnabled = value
 	}
 
 	// 解析BOT_OWNER_IDS
