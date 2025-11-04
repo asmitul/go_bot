@@ -12,7 +12,7 @@ import (
 	"go_bot/internal/telegram/features/calculator"
 	"go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/merchant"
-	"go_bot/internal/telegram/features/sifang"
+	sifangfeature "go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
@@ -52,7 +52,7 @@ type Bot struct {
 
 	// 功能管理器
 	featureManager *features.Manager
-	sifangFeature  *sifang.Feature
+	sifangFeature  *sifangfeature.Feature
 
 	// Repository 层（仅用于初始化）
 	userRepo          repository.UserRepository
@@ -281,7 +281,7 @@ func (b *Bot) registerFeatures() {
 	b.featureManager.Register(merchant.New(b.groupService, b.userService))
 
 	// 注册四方支付功能
-	b.sifangFeature = sifang.New(b.paymentService, b.userService)
+	b.sifangFeature = sifangfeature.New(b.paymentService, b.userService)
 	b.featureManager.Register(b.sifangFeature)
 
 	// 注册加密货币价格查询功能

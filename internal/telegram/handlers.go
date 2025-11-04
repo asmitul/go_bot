@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"go_bot/internal/logger"
-	"go_bot/internal/telegram/features/sifang"
+	sifangfeature "go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
@@ -49,7 +49,7 @@ func (b *Bot) registerHandlers() {
 
 	// 四方下发确认回调处理器
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
-		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, sifang.SendMoneyCallbackPrefix)
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, sifangfeature.SendMoneyCallbackPrefix)
 	}, b.asyncHandler(b.handleSifangSendMoneyCallback))
 
 	// 转发撤回回调处理器（如果转发服务已启用）
@@ -592,6 +592,8 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	if err := b.messageService.HandleTextMessage(ctx, textMsg); err != nil {
 		logger.L().Errorf("Failed to handle text message: %v", err)
 	}
+
+	b.tryTriggerSifangAutoLookup(ctx, msg)
 }
 
 // tryHandleRecallCommand 处理管理员引用撤回命令
@@ -657,7 +659,7 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 		return
 	}
 
-	data := strings.TrimPrefix(query.Data, sifang.SendMoneyCallbackPrefix)
+	data := strings.TrimPrefix(query.Data, sifangfeature.SendMoneyCallbackPrefix)
 	parts := strings.SplitN(data, ":", 2)
 	if len(parts) != 2 {
 		b.answerCallback(ctx, botInstance, query.ID, "无效的操作", true)
@@ -700,10 +702,10 @@ func (b *Bot) tryScheduleSifangSendMoneyExpiration(sentMsg *botModels.Message, m
 	var token string
 	for _, row := range inline.InlineKeyboard {
 		for _, button := range row {
-			if !strings.HasPrefix(button.CallbackData, sifang.SendMoneyCallbackPrefix) {
+			if !strings.HasPrefix(button.CallbackData, sifangfeature.SendMoneyCallbackPrefix) {
 				continue
 			}
-			rest := strings.TrimPrefix(button.CallbackData, sifang.SendMoneyCallbackPrefix)
+			rest := strings.TrimPrefix(button.CallbackData, sifangfeature.SendMoneyCallbackPrefix)
 			parts := strings.SplitN(rest, ":", 2)
 			if len(parts) == 2 {
 				token = parts[1]
@@ -724,7 +726,7 @@ func (b *Bot) tryScheduleSifangSendMoneyExpiration(sentMsg *botModels.Message, m
 
 func (b *Bot) scheduleSifangSendMoneyExpiration(chatID int64, messageID int, token string) {
 	go func() {
-		timer := time.NewTimer(sifang.SendMoneyConfirmTTL)
+		timer := time.NewTimer(sifangfeature.SendMoneyConfirmTTL)
 		defer timer.Stop()
 
 		<-timer.C
@@ -763,6 +765,7 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	b.registerUserFromTelegram(ctx, msg.From)
 	var messageType, fileID, mimeType string
 	var fileSize int64
+	var fileNames []string
 
 	// 判断媒体类型并提取信息
 	if len(msg.Photo) > 0 {
@@ -775,11 +778,17 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		fileID = msg.Video.FileID
 		fileSize = int64(msg.Video.FileSize)
 		mimeType = msg.Video.MimeType
+		if msg.Video.FileName != "" {
+			fileNames = append(fileNames, msg.Video.FileName)
+		}
 	} else if msg.Document != nil {
 		messageType = models.MessageTypeDocument
 		fileID = msg.Document.FileID
 		fileSize = int64(msg.Document.FileSize)
 		mimeType = msg.Document.MimeType
+		if msg.Document.FileName != "" {
+			fileNames = append(fileNames, msg.Document.FileName)
+		}
 	} else if msg.Voice != nil {
 		messageType = models.MessageTypeVoice
 		fileID = msg.Voice.FileID
@@ -790,6 +799,9 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		fileID = msg.Audio.FileID
 		fileSize = int64(msg.Audio.FileSize)
 		mimeType = msg.Audio.MimeType
+		if msg.Audio.FileName != "" {
+			fileNames = append(fileNames, msg.Audio.FileName)
+		}
 	} else if msg.Sticker != nil {
 		messageType = models.MessageTypeSticker
 		fileID = msg.Sticker.FileID
@@ -799,6 +811,9 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		fileID = msg.Animation.FileID
 		fileSize = int64(msg.Animation.FileSize)
 		mimeType = msg.Animation.MimeType
+		if msg.Animation.FileName != "" {
+			fileNames = append(fileNames, msg.Animation.FileName)
+		}
 	} else {
 		return // 不是支持的媒体类型
 	}
@@ -820,6 +835,8 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	if err := b.messageService.HandleMediaMessage(ctx, mediaMsg); err != nil {
 		logger.L().Errorf("Failed to handle media message: %v", err)
 	}
+
+	b.tryTriggerSifangAutoLookup(ctx, msg, fileNames...)
 }
 
 // handleEditedMessage 处理消息编辑事件
