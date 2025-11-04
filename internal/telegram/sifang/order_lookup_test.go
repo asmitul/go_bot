@@ -10,18 +10,18 @@ func TestExtractOrderNumbers(t *testing.T) {
 	}{
 		{
 			name:     "deduplicates and preserves order",
-			parts:    []string{"Order ABC12345 ready", "abc12345 again", "Ref XY9Z01"},
-			expected: []string{"ABC12345", "XY9Z01"},
+			parts:    []string{"Order ABC1234567 ready", "abc1234567 again", "Ref XY9Z01ABCD"},
+			expected: []string{"ABC1234567", "XY9Z01ABCD"},
 		},
 		{
-			name:     "ignores single charset matches",
-			parts:    []string{"numbers 123456 only", "letters ABCDEF only"},
-			expected: nil,
+			name:     "accepts digits only and ignores letters only",
+			parts:    []string{"numbers 1234567890 only", "letters ABCDEFGHIJ only"},
+			expected: []string{"1234567890"},
 		},
 		{
 			name:     "mix of lower and upper case",
-			parts:    []string{"code ab12cd and XY34ZT"},
-			expected: []string{"ab12cd", "XY34ZT"},
+			parts:    []string{"code ab12cd34ef and XY34ZT78AB"},
+			expected: []string{"ab12cd34ef", "XY34ZT78AB"},
 		},
 	}
 
