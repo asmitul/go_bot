@@ -30,6 +30,7 @@ type Config struct {
 	Debug                bool    // 是否开启调试模式
 	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
 	ChannelID            int64   // 源频道 ID（用于转发功能）
+	DailyBillPushEnabled bool    // 是否启用每日账单自动推送
 }
 
 // Bot Telegram Bot 服务
@@ -53,6 +54,8 @@ type Bot struct {
 	// 功能管理器
 	featureManager *features.Manager
 	sifangFeature  *sifangfeature.Feature
+
+	dailySummaryScheduler *dailySummaryScheduler
 
 	// Repository 层（仅用于初始化）
 	userRepo          repository.UserRepository
@@ -152,6 +155,8 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		return nil, fmt.Errorf("failed to ensure indexes: %w", err)
 	}
 
+	telegramBot.initDailySummaryScheduler(cfg.DailyBillPushEnabled)
+
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
 }
@@ -178,6 +183,7 @@ func InitFromConfig(cfg *config.Config, db *mongo.Database, paymentSvc paymentse
 		Debug:                false, // 可根据需要从环境变量读取
 		MessageRetentionDays: cfg.MessageRetentionDays,
 		ChannelID:            cfg.ChannelID,
+		DailyBillPushEnabled: cfg.DailyBillPushEnabled,
 	}
 	return New(telegramCfg, db, paymentSvc)
 }
@@ -197,6 +203,11 @@ func (b *Bot) Stop(ctx context.Context) error {
 	// 关闭 worker pool
 	if b.workerPool != nil {
 		b.workerPool.Shutdown()
+	}
+
+	if b.dailySummaryScheduler != nil {
+		b.dailySummaryScheduler.stop()
+		b.dailySummaryScheduler = nil
 	}
 
 	// bot.Stop() 通过 context 取消实现
@@ -270,6 +281,27 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 	logger.L().Debug("Accounting indexes ensured")
 
 	return nil
+}
+
+func (b *Bot) initDailySummaryScheduler(enabled bool) {
+	if !enabled {
+		logger.L().Info("Daily bill push disabled via config")
+		return
+	}
+
+	if b.paymentService == nil {
+		logger.L().Warn("Daily bill push not started: payment service is not configured")
+		return
+	}
+
+	if b.sifangFeature == nil {
+		logger.L().Warn("Daily bill push not started: sifang feature is unavailable")
+		return
+	}
+
+	scheduler := newDailySummaryScheduler(b)
+	b.dailySummaryScheduler = scheduler
+	scheduler.start()
 }
 
 // registerFeatures 注册所有功能插件

@@ -224,14 +224,31 @@ func (f *Feature) handleSummary(ctx context.Context, merchantID int64, text stri
 		return fmt.Sprintf("❌ %v", err), true, nil
 	}
 
+	message, err := f.buildSummaryMessage(ctx, merchantID, targetDate, now)
+	if err != nil {
+		return fmt.Sprintf("❌ %v", err), true, nil
+	}
+
+	return message, true, nil
+}
+
+// BuildSummaryMessage 构建指定日期的账单消息
+func (f *Feature) BuildSummaryMessage(ctx context.Context, merchantID int64, targetDate time.Time) (string, error) {
+	now := time.Now().In(chinaLocation)
+	return f.buildSummaryMessage(ctx, merchantID, targetDate.In(chinaLocation), now)
+}
+
+func (f *Feature) buildSummaryMessage(ctx context.Context, merchantID int64, targetDate, now time.Time) (string, error) {
+	targetDate = time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, targetDate.Location())
+
 	summary, err := f.paymentService.GetSummaryByDay(ctx, merchantID, targetDate)
 	if err != nil {
 		logger.L().Errorf("Sifang summary query failed: merchant_id=%d, date=%s, err=%v", merchantID, targetDate.Format("2006-01-02"), err)
-		return fmt.Sprintf("❌ 查询账单失败：%v", err), true, nil
+		return "", fmt.Errorf("查询账单失败：%w", err)
 	}
 
 	if summary == nil {
-		return fmt.Sprintf("ℹ️ %s 暂无账单数据", targetDate.Format("2006-01-02")), true, nil
+		return fmt.Sprintf("ℹ️ %s 暂无账单数据", targetDate.Format("2006-01-02")), nil
 	}
 
 	if strings.TrimSpace(summary.Date) == "" {
@@ -257,7 +274,7 @@ func (f *Feature) handleSummary(ctx context.Context, merchantID int64, text stri
 		message = fmt.Sprintf("%s\n\n余额：%s", message, balanceAmount)
 	}
 
-	return message, true, nil
+	return message, nil
 }
 
 func (f *Feature) queryBalanceAmount(ctx context.Context, merchantID int64, historyDays int) (string, error) {

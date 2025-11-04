@@ -150,6 +150,9 @@
   - 格式化订单笔数、总金额、商户实收、代理收益等信息后返回
   - 同步返回目标日期的提款明细（含总计与逐笔列表）与余额（仅金额）
   - 当日无数据时提示“暂无账单数据”
+- **自动推送**:
+  - `internal/telegram/daily_summary_scheduler.go` 中的调度器会在每天北京时间 00:00:05 触发，将昨日账单推送给所有已绑定商户号且启用了「四方支付查询」功能的活跃群组
+  - 通过环境变量 `DAILY_BILL_PUSH_ENABLED=false` 可关闭该功能
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
