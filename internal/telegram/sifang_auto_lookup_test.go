@@ -1,111 +1,67 @@
 package telegram
 
 import (
-	"context"
-	"sync/atomic"
+	"strings"
 	"testing"
-	"time"
 
 	paymentservice "go_bot/internal/payment/service"
-	"go_bot/internal/telegram/models"
-	"go_bot/internal/telegram/service"
-
-	botModels "github.com/go-telegram/bot/models"
 )
 
-type stubGroupService struct {
-	group *models.Group
-	err   error
-}
-
-func (s *stubGroupService) CreateOrUpdateGroup(ctx context.Context, group *models.Group) error {
-	return nil
-}
-
-func (s *stubGroupService) GetGroupInfo(ctx context.Context, telegramID int64) (*models.Group, error) {
-	return s.group, s.err
-}
-
-func (s *stubGroupService) GetOrCreateGroup(ctx context.Context, chatInfo *service.TelegramChatInfo) (*models.Group, error) {
-	return s.group, s.err
-}
-
-func (s *stubGroupService) MarkBotLeft(ctx context.Context, telegramID int64) error { return nil }
-func (s *stubGroupService) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
-	return nil, nil
-}
-func (s *stubGroupService) UpdateGroupSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
-	return nil
-}
-func (s *stubGroupService) LeaveGroup(ctx context.Context, telegramID int64) error { return nil }
-func (s *stubGroupService) HandleBotAddedToGroup(ctx context.Context, group *models.Group) error {
-	return nil
-}
-func (s *stubGroupService) HandleBotRemovedFromGroup(ctx context.Context, telegramID int64, reason string) error {
-	return nil
-}
-
-type countingPaymentService struct {
-	calls int32
-}
-
-func (c *countingPaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*paymentservice.SummaryByDay, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*paymentservice.SummaryByDayChannel, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) GetChannelStatus(ctx context.Context, merchantID int64) ([]*paymentservice.ChannelStatus, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*paymentservice.WithdrawList, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) SendMoney(ctx context.Context, merchantID int64, amount float64, opts paymentservice.SendMoneyOptions) (*paymentservice.SendMoneyResult, error) {
-	return nil, nil
-}
-func (c *countingPaymentService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderDetail, error) {
-	atomic.AddInt32(&c.calls, 1)
-	return nil, context.Canceled
-}
-
-func TestTryTriggerSifangAutoLookupDisabled(t *testing.T) {
-	paymentStub := &countingPaymentService{}
-	b := &Bot{
-		groupService:   &stubGroupService{group: &models.Group{Settings: models.GroupSettings{SifangEnabled: false}}},
-		paymentService: paymentStub,
+func TestFormatLookupSuccess_WithNotifyFailure(t *testing.T) {
+	detail := &paymentservice.OrderDetail{
+		Order: &paymentservice.Order{
+			Status:           "paid",
+			StatusText:       "已支付",
+			NotifyStatus:     "failed",
+			NotifyStatusText: "通知失败",
+			NotifyLastError:  "HTTP 500 Internal Server Error",
+			PlatformOrderNo:  "PF-123",
+		},
+		NotifyLogs: []*paymentservice.NotifyLog{
+			{
+				Status:      "failed",
+				StatusText:  "失败",
+				URL:         "https://callback.example.com/v1/notify",
+				Response:    "{\"code\":500,\"msg\":\"error\"}",
+				AttemptedAt: "2024-03-18 12:00:00",
+			},
+		},
 	}
 
-	msg := &botModels.Message{
-		Chat: botModels.Chat{ID: 1, Type: "group"},
-		Text: "ORDER123",
+	result := formatLookupSuccess("M-123", detail)
+
+	if !strings.Contains(result, "<b>通知失败详情</b>") {
+		t.Fatalf("expected failure section in result: %s", result)
 	}
-
-	b.tryTriggerSifangAutoLookup(context.Background(), msg)
-
-	if atomic.LoadInt32(&paymentStub.calls) != 0 {
-		t.Fatalf("expected GetOrderDetail not to be called when disabled")
+	if !strings.Contains(result, "最后错误：HTTP 500 Internal Server Error") {
+		t.Fatalf("expected last error in result: %s", result)
+	}
+	if !strings.Contains(result, "响应：{&#34;code&#34;:500,&#34;msg&#34;:&#34;error&#34;}") {
+		t.Fatalf("expected response snippet in result: %s", result)
 	}
 }
 
-func TestTryTriggerSifangAutoLookupNoOrders(t *testing.T) {
-	paymentStub := &countingPaymentService{}
-	b := &Bot{
-		groupService:   &stubGroupService{group: &models.Group{Settings: models.GroupSettings{SifangEnabled: true, SifangAutoLookupEnabled: true, MerchantID: 100}}},
-		paymentService: paymentStub,
+func TestFormatLookupSuccess_WithoutNotifyFailure(t *testing.T) {
+	detail := &paymentservice.OrderDetail{
+		Order: &paymentservice.Order{
+			Status:           "paid",
+			StatusText:       "已支付",
+			NotifyStatus:     "success",
+			NotifyStatusText: "通知成功",
+			PlatformOrderNo:  "PF-456",
+		},
+		NotifyLogs: []*paymentservice.NotifyLog{
+			{
+				Status:      "success",
+				StatusText:  "成功",
+				AttemptedAt: "2024-03-18 12:00:00",
+			},
+		},
 	}
 
-	msg := &botModels.Message{
-		Chat: botModels.Chat{ID: 1, Type: "supergroup"},
-		Text: "纯文本没有订单",
-	}
+	result := formatLookupSuccess("M-456", detail)
 
-	b.tryTriggerSifangAutoLookup(context.Background(), msg)
-
-	if atomic.LoadInt32(&paymentStub.calls) != 0 {
-		t.Fatalf("expected GetOrderDetail not to be called when no orders found")
+	if strings.Contains(result, "通知失败详情") {
+		t.Fatalf("did not expect failure section in result: %s", result)
 	}
 }
