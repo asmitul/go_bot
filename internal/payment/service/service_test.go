@@ -1,8 +1,16 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
+
+	"go_bot/internal/config"
+	"go_bot/internal/payment/sifang"
 )
 
 func TestDecodeBalance(t *testing.T) {
@@ -223,6 +231,218 @@ func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
 	}
 	if item.TotalAmount != "1234.56" || item.MerchantIncome != "1200.00" || item.AgentIncome != "34.56" {
 		t.Fatalf("unexpected amounts: %#v", item)
+	}
+}
+
+func TestDecodeOrderDetail(t *testing.T) {
+	raw := map[string]interface{}{
+		"order": map[string]interface{}{
+			"merchant_order_no": "M1001",
+			"platform_order_no": "P2002",
+			"amount":            "100.00",
+			"status":            "1",
+			"custom_field":      "custom-value",
+		},
+		"extended": map[string]interface{}{
+			"order_id":    "OID-1",
+			"channel_fee": "1.23",
+			"risk_flag":   1,
+		},
+		"notify_logs": []map[string]interface{}{
+			{
+				"status":      "success",
+				"notify_url":  "https://callback",
+				"notify_time": "2024-10-26 12:00:00",
+			},
+		},
+	}
+
+	detail := decodeOrderDetail(raw)
+	if detail == nil {
+		t.Fatalf("expected detail, got nil")
+	}
+
+	if detail.Order == nil {
+		t.Fatalf("expected order, got nil")
+	}
+
+	if detail.Order.MerchantOrderNo != "M1001" || detail.Order.PlatformOrderNo != "P2002" {
+		t.Fatalf("unexpected order numbers: %#v", detail.Order)
+	}
+
+	if detail.Order.Extra == nil || detail.Order.Extra["custom_field"] != "custom-value" {
+		t.Fatalf("expected extra field, got %#v", detail.Order.Extra)
+	}
+
+	if detail.Extended == nil || detail.Extended.OrderID != "OID-1" || detail.Extended.ChannelFee != "1.23" || !detail.Extended.RiskFlag {
+		t.Fatalf("unexpected extended: %#v", detail.Extended)
+	}
+
+	if len(detail.NotifyLogs) != 1 {
+		t.Fatalf("expected 1 notify log, got %d", len(detail.NotifyLogs))
+	}
+}
+
+func TestDecodeOrderDetail_MapNotifyLogs(t *testing.T) {
+	raw := map[string]interface{}{
+		"notify_logs": map[string]interface{}{
+			"1": map[string]interface{}{
+				"result": "ok",
+				"time":   "2024-10-26 12:00:00",
+			},
+			"2": map[string]interface{}{
+				"result": "fail",
+				"time":   "2024-10-26 12:05:00",
+			},
+		},
+	}
+
+	detail := decodeOrderDetail(raw)
+	if detail == nil {
+		t.Fatalf("expected detail, got nil")
+	}
+	if detail.Order != nil {
+		t.Fatalf("expected no order, got %#v", detail.Order)
+	}
+	if len(detail.NotifyLogs) != 2 {
+		t.Fatalf("expected 2 notify logs, got %d", len(detail.NotifyLogs))
+	}
+}
+
+func TestDecodeOrderDetail_Empty(t *testing.T) {
+	if detail := decodeOrderDetail(map[string]interface{}{}); detail != nil {
+		t.Fatalf("expected nil detail, got %#v", detail)
+	}
+}
+
+func TestSifangService_GetOrderDetail_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("merchant_order_no"); got != "MER-1" {
+			t.Fatalf("unexpected merchant order no: %s", got)
+		}
+
+		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"merchant_order_no":"MER-1","platform_order_no":"PF-9","amount":"10.00","status":"1"},"extended":{"order_id":"OID-9","channel_fee":"0.50"},"notify_logs":[{"status":"success","notify_url":"https://callback","notify_time":"2024-10-26 12:00:00"}]}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	detail, err := svc.GetOrderDetail(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant)
+	if err != nil {
+		t.Fatalf("GetOrderDetail returned error: %v", err)
+	}
+
+	if detail.Order == nil || detail.Order.PlatformOrderNo != "PF-9" {
+		t.Fatalf("unexpected order detail: %#v", detail.Order)
+	}
+
+	if detail.Extended == nil || detail.Extended.ChannelFee != "0.50" {
+		t.Fatalf("unexpected extended: %#v", detail.Extended)
+	}
+}
+
+func TestSifangService_GetOrderDetail_Fallback(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+
+		if r.Form.Get("merchant_order_no") != "" {
+			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+			return
+		}
+
+		if r.Form.Get("platform_order_no") != "PLAT-1" {
+			t.Fatalf("unexpected platform order number: %s", r.Form.Get("platform_order_no"))
+		}
+
+		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"platform_order_no":"PLAT-1","status":"1"}}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	detail, err := svc.GetOrderDetail(context.Background(), 1001, "PLAT-1", OrderNumberTypeAuto)
+	if err != nil {
+		t.Fatalf("GetOrderDetail returned error: %v", err)
+	}
+
+	if detail.Order == nil || detail.Order.PlatformOrderNo != "PLAT-1" {
+		t.Fatalf("unexpected order: %#v", detail.Order)
+	}
+
+	if requestCount != 2 {
+		t.Fatalf("expected 2 requests, got %d", requestCount)
+	}
+}
+
+func TestSifangService_GetOrderDetail_NoData(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	if _, err := svc.GetOrderDetail(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant); err == nil {
+		t.Fatalf("expected error for empty detail")
+	}
+}
+
+func TestSifangService_GetOrderDetail_APIError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"code":500,"message":"server error","data":null}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	if _, err := svc.GetOrderDetail(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant); err == nil {
+		t.Fatalf("expected api error")
 	}
 }
 

@@ -764,6 +764,8 @@ type fakePaymentService struct {
 	sendMoneyResult    *paymentservice.SendMoneyResult
 	sendMoneyErr       error
 	lastSendAmount     float64
+	orderDetailResp    *paymentservice.OrderDetail
+	orderDetailErr     error
 }
 
 func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -824,6 +826,13 @@ func (f *fakePaymentService) SendMoney(ctx context.Context, merchantID int64, am
 		return nil, f.sendMoneyErr
 	}
 	return f.sendMoneyResult, nil
+}
+
+func (f *fakePaymentService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderDetail, error) {
+	if f.orderDetailErr != nil {
+		return nil, f.orderDetailErr
+	}
+	return f.orderDetailResp, nil
 }
 
 type stubUserService struct {
