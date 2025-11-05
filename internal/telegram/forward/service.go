@@ -72,12 +72,19 @@ func (s *Service) HandleChannelMessage(ctx context.Context, botInterface interfa
 		return fmt.Errorf("failed to list active groups: %w", err)
 	}
 
-	// 过滤启用转发且已绑定商户号的群组
+	// 过滤启用转发的目标群组，排除私聊
 	var targetGroups []*models.Group
 	for _, group := range groups {
-		if group.Settings.ForwardEnabled {
-			targetGroups = append(targetGroups, group)
+		if !group.Settings.ForwardEnabled {
+			continue
 		}
+
+		if group.Type == "private" {
+			logger.L().Debugf("Skipping private chat from forward targets: chat_id=%d", group.TelegramID)
+			continue
+		}
+
+		targetGroups = append(targetGroups, group)
 	}
 
 	if len(targetGroups) == 0 {
