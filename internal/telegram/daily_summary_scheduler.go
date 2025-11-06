@@ -2,9 +2,13 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -111,45 +115,75 @@ func (s *dailySummaryScheduler) dispatch(parent context.Context) {
 
 	logger.L().Infof("Daily bill push started for %d groups, target_date=%s", len(eligible), targetDate.Format("2006-01-02"))
 
+	const workerLimit = 8
+
 	successCount := 0
 	failureDetails := make([]string, 0)
 	aborted := false
+	var mu sync.Mutex
+
+	groupRunner, groupCtx := errgroup.WithContext(runCtx)
+	groupRunner.SetLimit(workerLimit)
 
 	for _, group := range eligible {
-		if runCtx.Err() != nil {
+		group := group
+		merchantID := int64(group.Settings.MerchantID)
+
+		groupRunner.Go(func() error {
+			if groupCtx.Err() != nil {
+				return groupCtx.Err()
+			}
+
+			ctxWithTimeout, cancelGroup := context.WithTimeout(groupCtx, 15*time.Second)
+			defer cancelGroup()
+
+			message, err := s.bot.sifangFeature.BuildSummaryMessage(ctxWithTimeout, merchantID, targetDate)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				logger.L().Errorf("Daily bill push failed: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, err)
+				mu.Lock()
+				failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: %v", group.TelegramID, merchantID, err))
+				mu.Unlock()
+				return nil
+			}
+
+			if message == "" {
+				logger.L().Warnf("Daily bill push produced empty message: chat_id=%d", group.TelegramID)
+				mu.Lock()
+				failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d: 生成的消息为空", group.TelegramID))
+				mu.Unlock()
+				return nil
+			}
+
+			if _, sendErr := s.bot.sendMessageWithMarkupAndMessage(ctxWithTimeout, group.TelegramID, message, nil); sendErr != nil {
+				if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
+					return sendErr
+				}
+				logger.L().Errorf("Daily bill push failed to send: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, sendErr)
+				mu.Lock()
+				failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: 发送失败 (%v)", group.TelegramID, merchantID, sendErr))
+				mu.Unlock()
+				return nil
+			}
+
+			logger.L().Infof("Daily bill push sent: chat_id=%d, merchant_id=%d, target_date=%s", group.TelegramID, merchantID, targetDate.Format("2006-01-02"))
+			mu.Lock()
+			successCount++
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	if err := groupRunner.Wait(); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("Daily bill push aborted: context canceled")
 			aborted = true
-			break
+		} else {
+			logger.L().Warnf("Daily bill push encountered unexpected error: %v", err)
 		}
-
-		merchantID := int64(group.Settings.MerchantID)
-		groupCtx, cancelGroup := context.WithTimeout(runCtx, 15*time.Second)
-
-		message, err := s.bot.sifangFeature.BuildSummaryMessage(groupCtx, merchantID, targetDate)
-		if err != nil {
-			cancelGroup()
-			logger.L().Errorf("Daily bill push failed: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, err)
-			failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: %v", group.TelegramID, merchantID, err))
-			continue
-		}
-
-		if message == "" {
-			cancelGroup()
-			logger.L().Warnf("Daily bill push produced empty message: chat_id=%d", group.TelegramID)
-			failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d: 生成的消息为空", group.TelegramID))
-			continue
-		}
-
-		if _, sendErr := s.bot.sendMessageWithMarkupAndMessage(groupCtx, group.TelegramID, message, nil); sendErr != nil {
-			cancelGroup()
-			logger.L().Errorf("Daily bill push failed to send: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, sendErr)
-			failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: 发送失败 (%v)", group.TelegramID, merchantID, sendErr))
-			continue
-		}
-
-		logger.L().Infof("Daily bill push sent: chat_id=%d, merchant_id=%d, target_date=%s", group.TelegramID, merchantID, targetDate.Format("2006-01-02"))
-		successCount++
-		cancelGroup()
 	}
 
 	duration := time.Since(startTime)
