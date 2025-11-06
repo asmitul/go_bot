@@ -139,6 +139,9 @@ func (s *dailySummaryScheduler) dispatch(parent context.Context) {
 
 			message, err := s.bot.sifangFeature.BuildSummaryMessage(ctxWithTimeout, merchantID, targetDate)
 			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
 				logger.L().Errorf("Daily bill push failed: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, err)
 				mu.Lock()
 				failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: %v", group.TelegramID, merchantID, err))
@@ -155,6 +158,9 @@ func (s *dailySummaryScheduler) dispatch(parent context.Context) {
 			}
 
 			if _, sendErr := s.bot.sendMessageWithMarkupAndMessage(ctxWithTimeout, group.TelegramID, message, nil); sendErr != nil {
+				if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
+					return sendErr
+				}
 				logger.L().Errorf("Daily bill push failed to send: chat_id=%d, merchant_id=%d, err=%v", group.TelegramID, merchantID, sendErr)
 				mu.Lock()
 				failureDetails = append(failureDetails, fmt.Sprintf("chat_id=%d, merchant_id=%d: 发送失败 (%v)", group.TelegramID, merchantID, sendErr))
