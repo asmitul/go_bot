@@ -76,6 +76,7 @@ func TestFilterEligibleMerchantGroups(t *testing.T) {
 		nil,
 		{
 			TelegramID: 1,
+			Tier:       models.GroupTierMerchant,
 			BotStatus:  models.BotStatusActive,
 			Settings: models.GroupSettings{
 				MerchantID:    123,
@@ -84,6 +85,7 @@ func TestFilterEligibleMerchantGroups(t *testing.T) {
 		},
 		{
 			TelegramID: 2,
+			Tier:       models.GroupTierMerchant,
 			BotStatus:  models.BotStatusLeft,
 			Settings: models.GroupSettings{
 				MerchantID:    456,
@@ -92,6 +94,7 @@ func TestFilterEligibleMerchantGroups(t *testing.T) {
 		},
 		{
 			TelegramID: 3,
+			Tier:       models.GroupTierMerchant,
 			BotStatus:  models.BotStatusActive,
 			Settings: models.GroupSettings{
 				MerchantID:    0,
@@ -100,21 +103,35 @@ func TestFilterEligibleMerchantGroups(t *testing.T) {
 		},
 		{
 			TelegramID: 4,
+			Tier:       models.GroupTierUpstream,
 			BotStatus:  models.BotStatusActive,
 			Settings: models.GroupSettings{
 				MerchantID:    789,
 				SifangEnabled: false,
 			},
 		},
+		{
+			TelegramID: 5,
+			Tier:       "",
+			BotStatus:  models.BotStatusActive,
+			Settings: models.GroupSettings{
+				MerchantID:    321,
+				SifangEnabled: true,
+			},
+		},
 	}
 
 	eligible := filterEligibleMerchantGroups(groups)
-	if len(eligible) != 1 {
-		t.Fatalf("expected 1 eligible group, got %d", len(eligible))
+	if len(eligible) != 2 {
+		t.Fatalf("expected 2 eligible groups, got %d", len(eligible))
 	}
 
-	if eligible[0].TelegramID != 1 {
-		t.Fatalf("expected group 1 to be eligible, got %d", eligible[0].TelegramID)
+	expectedIDs := map[int64]struct{}{1: {}, 5: {}}
+	for _, g := range eligible {
+		if _, ok := expectedIDs[g.TelegramID]; !ok {
+			t.Fatalf("unexpected eligible group: %d", g.TelegramID)
+		}
+		delete(expectedIDs, g.TelegramID)
 	}
 }
 

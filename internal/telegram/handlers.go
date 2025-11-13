@@ -206,6 +206,11 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("解绑 - 解除已绑定的商户号\n")
 	text.WriteString("商户号 / 绑定状态 - 查看当前绑定情况\n\n")
 
+	text.WriteString("<b>接口 ID 管理（Admin+，群组）</b>\n")
+	text.WriteString("绑定接口 <code>[接口ID]</code> - 绑定上游接口，可重复执行绑定多个接口\n")
+	text.WriteString("解绑接口 <code>[接口ID]</code> - 解除指定接口；仅发送“解绑接口”可清空全部\n")
+	text.WriteString("接口ID / 接口状态 - 查看当前已绑定的接口列表\n\n")
+
 	text.WriteString("<b>四方支付查询（需开启“🏦 四方支付查询”功能并完成商户号绑定）</b>\n")
 	text.WriteString("余额[可选日期] - 查询余额，例如：余额、余额10月26\n")
 	text.WriteString("账单[可选日期] - 查询日汇总，例如：账单2023/10/26\n")

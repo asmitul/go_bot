@@ -27,6 +27,8 @@ type ConfigItem struct {
 	Icon     string         // 图标，如 "🎉"
 	Type     ConfigItemType // 配置类型
 	Category string         // 分类（用于分组显示）
+	// AllowedTiers 限定哪些群组等级可见此配置；为空表示所有等级
+	AllowedTiers []GroupTier
 
 	// Toggle 类型专用
 	ToggleGetter   func(*Group) bool           // 获取当前状态

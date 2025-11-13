@@ -39,6 +39,7 @@ func (s *GroupServiceImpl) GetGroupInfo(ctx context.Context, telegramID int64) (
 		logger.L().Errorf("Failed to get group info for %d: %v", telegramID, err)
 		return nil, fmt.Errorf("获取群组信息失败")
 	}
+	ensureGroupTier(group)
 	return group, nil
 }
 
@@ -47,6 +48,7 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 	// 先尝试获取
 	group, err := s.groupRepo.GetByTelegramID(ctx, chatInfo.ChatID)
 	if err == nil {
+		ensureGroupTier(group)
 		return group, nil
 	}
 
@@ -59,6 +61,7 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		Title:      chatInfo.Title,
 		Username:   chatInfo.Username,
 		BotStatus:  models.BotStatusActive,
+		Tier:       models.GroupTierBasic,
 		Settings: models.GroupSettings{
 			CalculatorEnabled:       true,
 			CryptoEnabled:           true,
@@ -83,6 +86,7 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		logger.L().Errorf("Failed to reload group %d after creation: %v", chatInfo.ChatID, err)
 		return nil, fmt.Errorf("自动创建群组失败")
 	}
+	ensureGroupTier(createdGroup)
 
 	logger.L().Infof("Auto-created group record: chat_id=%d, title=%s", chatInfo.ChatID, chatInfo.Title)
 	return createdGroup, nil
@@ -106,17 +110,28 @@ func (s *GroupServiceImpl) ListActiveGroups(ctx context.Context) ([]*models.Grou
 		logger.L().Errorf("Failed to list active groups: %v", err)
 		return nil, fmt.Errorf("获取活跃群组列表失败")
 	}
+	for _, group := range groups {
+		ensureGroupTier(group)
+	}
 	return groups, nil
 }
 
 // UpdateGroupSettings 更新群组配置
 func (s *GroupServiceImpl) UpdateGroupSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
-	if err := s.groupRepo.UpdateSettings(ctx, telegramID, settings); err != nil {
+	settings.InterfaceIDs = models.NormalizeInterfaceIDs(settings.InterfaceIDs)
+
+	tier, err := models.DetermineGroupTier(settings)
+	if err != nil {
+		logger.L().Warnf("Failed to determine tier for group %d: %v", telegramID, err)
+		return fmt.Errorf("更新群组配置失败: %w", err)
+	}
+
+	if err := s.groupRepo.UpdateSettings(ctx, telegramID, settings, tier); err != nil {
 		logger.L().Errorf("Failed to update group settings for %d: %v", telegramID, err)
 		return fmt.Errorf("更新群组配置失败: %w", err)
 	}
 
-	logger.L().Infof("Group settings updated: group_id=%d", telegramID)
+	logger.L().Infof("Group settings updated: group_id=%d tier=%s", telegramID, tier)
 	return nil
 }
 
@@ -161,19 +176,29 @@ func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegr
 		status = models.BotStatusLeft
 	}
 
-	// 获取群组信息以检查商户号绑定
+	// 获取群组信息以检查绑定状态
 	group, err := s.groupRepo.GetByTelegramID(ctx, telegramID)
-	if err == nil && group.Settings.MerchantID != 0 {
-		// 自动解绑商户号
-		oldMerchantID := group.Settings.MerchantID
+	if err == nil && group != nil {
+		ensureGroupTier(group)
 		settings := group.Settings
-		settings.MerchantID = 0
+		changed := false
 
-		if err := s.groupRepo.UpdateSettings(ctx, telegramID, settings); err != nil {
-			logger.L().Warnf("Failed to auto-unbind merchant ID when bot removed: group_id=%d, merchant_id=%d, err=%v",
-				telegramID, oldMerchantID, err)
-		} else {
-			logger.L().Infof("Auto-unbound merchant ID: group_id=%d, merchant_id=%d", telegramID, oldMerchantID)
+		if settings.MerchantID != 0 {
+			logger.L().Infof("Auto-unbinding merchant ID after bot removal: group_id=%d, merchant_id=%d", telegramID, settings.MerchantID)
+			settings.MerchantID = 0
+			changed = true
+		}
+
+		if len(settings.InterfaceIDs) > 0 {
+			logger.L().Infof("Auto-unbinding interface IDs after bot removal: group_id=%d, count=%d", telegramID, len(settings.InterfaceIDs))
+			settings.InterfaceIDs = nil
+			changed = true
+		}
+
+		if changed {
+			if err := s.UpdateGroupSettings(ctx, telegramID, settings); err != nil {
+				logger.L().Warnf("Failed to auto-reset bindings when bot removed: group_id=%d, err=%v", telegramID, err)
+			}
 		}
 	}
 
@@ -185,4 +210,23 @@ func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegr
 
 	logger.L().Infof("Bot removed from group %d, reason=%s, status=%s", telegramID, reason, status)
 	return nil
+}
+
+func ensureGroupTier(group *models.Group) {
+	if group == nil {
+		return
+	}
+
+	group.Settings.InterfaceIDs = models.NormalizeInterfaceIDs(group.Settings.InterfaceIDs)
+
+	if group.Tier != "" {
+		return
+	}
+
+	if tier, err := models.DetermineGroupTier(group.Settings); err == nil {
+		group.Tier = tier
+		return
+	}
+
+	group.Tier = models.GroupTierBasic
 }

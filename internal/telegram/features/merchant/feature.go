@@ -34,6 +34,14 @@ func (f *Feature) Name() string {
 	return "merchant"
 }
 
+// AllowedGroupTiers 指定允许操作商户号的群等级
+func (f *Feature) AllowedGroupTiers() []models.GroupTier {
+	return []models.GroupTier{
+		models.GroupTierBasic,
+		models.GroupTierMerchant,
+	}
+}
+
 // Enabled 检查功能是否启用
 // 商户号绑定功能始终启用（不需要群组配置开关）
 func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
@@ -123,6 +131,10 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 		return "❌ 获取群组信息失败", true, nil
 	}
 
+	if len(group.Settings.InterfaceIDs) > 0 {
+		return "❌ 当前群组已绑定接口 ID，请先使用「解绑接口」解除全部接口后再操作商户号", true, nil
+	}
+
 	// 检查是否已绑定其他商户号
 	if group.Settings.MerchantID != 0 && group.Settings.MerchantID != int32(merchantID) {
 		return fmt.Sprintf("❌ 当前已绑定商户号: %d\n请先使用「解绑」命令解绑后再绑定新的商户号", group.Settings.MerchantID), true, nil
@@ -136,6 +148,7 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 	// 执行绑定
 	settings := group.Settings
 	settings.MerchantID = int32(merchantID)
+	settings.InterfaceIDs = nil
 
 	if err := f.groupService.UpdateGroupSettings(ctx, msg.Chat.ID, settings); err != nil {
 		logger.L().Errorf("Failed to bind merchant ID: chat_id=%d, merchant_id=%d, err=%v", msg.Chat.ID, merchantID, err)

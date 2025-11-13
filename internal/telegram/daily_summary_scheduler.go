@@ -215,6 +215,21 @@ func isEligibleMerchantGroup(group *models.Group) bool {
 	if !group.IsActive() {
 		return false
 	}
+	tier := group.Tier
+	if tier == "" {
+		if inferred, err := models.DetermineGroupTier(group.Settings); err == nil {
+			tier = inferred
+		} else {
+			logger.L().Warnf("Unable to determine tier for group %d in scheduler (merchant_id=%d): %v",
+				group.TelegramID, group.Settings.MerchantID, err)
+			if group.Settings.MerchantID > 0 {
+				tier = models.GroupTierMerchant
+			}
+		}
+	}
+	if models.NormalizeGroupTier(tier) != models.GroupTierMerchant {
+		return false
+	}
 	if group.Settings.MerchantID <= 0 {
 		return false
 	}
