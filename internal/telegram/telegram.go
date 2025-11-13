@@ -13,6 +13,7 @@ import (
 	"go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/merchant"
 	sifangfeature "go_bot/internal/telegram/features/sifang"
+	"go_bot/internal/telegram/features/upstream"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
@@ -311,6 +312,9 @@ func (b *Bot) registerFeatures() {
 
 	// 注册商户号绑定功能
 	b.featureManager.Register(merchant.New(b.groupService, b.userService))
+
+	// 注册接口绑定功能
+	b.featureManager.Register(upstream.New(b.groupService, b.userService))
 
 	// 注册四方支付功能
 	b.sifangFeature = sifangfeature.New(b.paymentService, b.userService)

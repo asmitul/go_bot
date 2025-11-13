@@ -41,6 +41,10 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 		"updated_at":   group.UpdatedAt,
 	}
 
+	if group.Tier != "" {
+		setFields["tier"] = group.Tier
+	}
+
 	// 如果指定了 BotJoinedAt，则更新
 	if !group.BotJoinedAt.IsZero() {
 		setFields["bot_joined_at"] = group.BotJoinedAt
@@ -56,12 +60,14 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 		"$setOnInsert": bson.M{
 			"bot_joined_at": now,
 			"created_at":    now,
+			"tier":          models.GroupTierBasic,
 			"settings": models.GroupSettings{
 				CalculatorEnabled:       true,  // 新群组默认启用计算器功能
 				CryptoEnabled:           true,  // 新群组默认启用加密货币功能
 				CryptoFloatRate:         0.12,  // 新群组默认浮动费率 0.12
 				ForwardEnabled:          true,  // 新群组默认接收频道转发消息
 				AccountingEnabled:       false, // 新群组默认关闭收支记账功能
+				InterfaceIDs:            nil,   // 初始不绑定接口
 				SifangEnabled:           true,  // 新群组默认启用四方支付功能
 				SifangAutoLookupEnabled: true,  // 新群组默认启用四方自动查单
 			},
@@ -150,11 +156,12 @@ func (r *MongoGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.
 }
 
 // UpdateSettings 更新群组配置
-func (r *MongoGroupRepository) UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
+func (r *MongoGroupRepository) UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings, tier models.GroupTier) error {
 	filter := bson.M{"telegram_id": telegramID}
 	update := bson.M{
 		"$set": bson.M{
 			"settings":   settings,
+			"tier":       tier,
 			"updated_at": time.Now(),
 		},
 	}

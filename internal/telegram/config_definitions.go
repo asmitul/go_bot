@@ -152,6 +152,9 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			Icon:     "🏦",
 			Type:     models.ConfigTypeToggle,
 			Category: "功能管理",
+			AllowedTiers: []models.GroupTier{
+				models.GroupTierMerchant,
+			},
 			ToggleGetter: func(g *models.Group) bool {
 				return g.Settings.SifangEnabled
 			},
@@ -168,6 +171,9 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			Icon:     "🔍",
 			Type:     models.ConfigTypeToggle,
 			Category: "功能管理",
+			AllowedTiers: []models.GroupTier{
+				models.GroupTierMerchant,
+			},
 			ToggleGetter: func(g *models.Group) bool {
 				return g.Settings.SifangAutoLookupEnabled
 			},

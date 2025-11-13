@@ -2,11 +2,14 @@ package features
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 
 	botModels "github.com/go-telegram/bot/models"
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/features/types"
+	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
 )
 
@@ -53,6 +56,8 @@ func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response
 		return nil, false, nil
 	}
 
+	tier := models.NormalizeGroupTier(group.Tier)
+
 	// 按优先级顺序执行功能
 	for _, feature := range m.features {
 		// 1. 检查功能是否启用
@@ -66,12 +71,23 @@ func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response
 			continue
 		}
 
+		// 3. 判断群等级是否允许
+		if tierAware, ok := feature.(TierAwareFeature); ok {
+			if allowed := tierAware.AllowedGroupTiers(); len(allowed) > 0 && !models.IsTierAllowed(tier, allowed) {
+				logger.L().Infof("Feature blocked: chat_id=%d feature=%s tier=%s allowed=%v text=%q",
+					msg.Chat.ID, feature.Name(), tier, allowed, strings.TrimSpace(msg.Text))
+				msgText := fmt.Sprintf("⚠️ 该功能仅适用于：%s\n当前群类型：%s",
+					models.FormatAllowedTierList(allowed), models.GroupTierDisplayName(tier))
+				return &types.Response{Text: msgText}, true, nil
+			}
+		}
+
 		logger.L().Debugf("Feature %s matched message, processing...", feature.Name())
 
-		// 3. 执行功能处理（传递 group 参数）
+		// 4. 执行功能处理（传递 group 参数）
 		response, handled, err := feature.Process(ctx, msg, group)
 
-		// 4. 如果功能已处理(handled=true)或发生错误,停止后续功能执行
+		// 5. 如果功能已处理(handled=true)或发生错误,停止后续功能执行
 		if handled || err != nil {
 			logger.L().Infof("Feature %s processed message (handled=%v, error=%v)", feature.Name(), handled, err)
 			return response, handled, err

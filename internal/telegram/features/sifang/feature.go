@@ -78,6 +78,13 @@ func (f *Feature) Name() string {
 	return "sifang_payment"
 }
 
+// AllowedGroupTiers 仅允许商户群使用四方支付指令
+func (f *Feature) AllowedGroupTiers() []models.GroupTier {
+	return []models.GroupTier{
+		models.GroupTierMerchant,
+	}
+}
+
 // Enabled 仅在群组启用且服务已配置时生效
 func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
 	return group.Settings.SifangEnabled

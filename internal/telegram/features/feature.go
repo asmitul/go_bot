@@ -73,3 +73,8 @@ type Feature interface {
 
 // Response 类型别名用于兼容旧引用，实际定义位于 types 包。
 type Response = types.Response
+
+// TierAwareFeature 可选接口：实现后可限制功能适用的群组等级
+type TierAwareFeature interface {
+	AllowedGroupTiers() []models.GroupTier
+}

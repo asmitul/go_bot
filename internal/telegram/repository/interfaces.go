@@ -52,7 +52,7 @@ type GroupRepository interface {
 	ListActiveGroups(ctx context.Context) ([]*models.Group, error)
 
 	// UpdateSettings 更新群组配置
-	UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error
+	UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings, tier models.GroupTier) error
 
 	// UpdateStats 更新群组统计信息
 	UpdateStats(ctx context.Context, telegramID int64, stats models.GroupStats) error

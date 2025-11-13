@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -43,8 +44,8 @@ func (b *Bot) handleConfigs(ctx context.Context, botInstance *bot.Bot, update *b
 		return
 	}
 
-	// 获取配置项定义
-	items := b.getConfigItems()
+	// 获取配置项定义，并根据群等级过滤
+	items := filterConfigItemsByTier(b.getConfigItems(), group.Tier)
 
 	// 构建菜单
 	keyboard, err := b.configMenuService.BuildMainMenu(ctx, group, items)
@@ -115,8 +116,8 @@ func (b *Bot) handleConfigCallback(ctx context.Context, botInstance *bot.Bot, up
 		return
 	}
 
-	// 获取配置项定义
-	items := b.getConfigItems()
+	// 获取配置项定义（按群等级过滤）
+	items := filterConfigItemsByTier(b.getConfigItems(), group.Tier)
 
 	// 处理回调
 	message, shouldUpdateMenu, err := b.configMenuService.HandleCallback(ctx, group, userID, callbackData, items)
@@ -188,11 +189,46 @@ func (b *Bot) answerCallback(ctx context.Context, botInstance *bot.Bot, callback
 func (b *Bot) buildConfigMenuText(ctx context.Context, group *models.Group) string {
 	menuText := "⚙️ <b>群组配置</b>\n\n"
 
-	// 显示商户号（如果已绑定）
+	menuText += fmt.Sprintf("当前群等级：%s\n", formatGroupTierLabel(group.Tier))
+
 	if group.Settings.MerchantID != 0 {
-		menuText += fmt.Sprintf("🏪 商户号: <code>%d</code>\n\n", group.Settings.MerchantID)
+		menuText += fmt.Sprintf("🏪 商户号: <code>%d</code>\n", group.Settings.MerchantID)
+	}
+
+	if len(group.Settings.InterfaceIDs) > 0 {
+		menuText += "🔌 接口 ID 列表:\n"
+		for _, id := range group.Settings.InterfaceIDs {
+			menuText += fmt.Sprintf("• <code>%s</code>\n", id)
+		}
+	}
+
+	if !strings.HasSuffix(menuText, "\n\n") {
+		menuText += "\n"
 	}
 
 	menuText += "点击按钮切换功能开关："
 	return menuText
+}
+
+func formatGroupTierLabel(tier models.GroupTier) string {
+	switch tier {
+	case models.GroupTierMerchant:
+		return "商户群"
+	case models.GroupTierUpstream:
+		return "上游群"
+	default:
+		return "普通群"
+	}
+}
+
+func filterConfigItemsByTier(items []models.ConfigItem, tier models.GroupTier) []models.ConfigItem {
+	tier = models.NormalizeGroupTier(tier)
+
+	filtered := make([]models.ConfigItem, 0, len(items))
+	for _, item := range items {
+		if models.IsTierAllowed(tier, item.AllowedTiers) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
