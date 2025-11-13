@@ -7,4 +7,5 @@ import botModels "github.com/go-telegram/bot/models"
 type Response struct {
 	Text        string
 	ReplyMarkup botModels.ReplyMarkup
+	Temporary   bool // 标记为临时消息时由 handler 发送后自动删除
 }

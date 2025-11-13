@@ -42,6 +42,8 @@ type Bot struct {
 	messageRetentionDays int // 消息保留天数
 	workerPool           *WorkerPool
 	startTime            time.Time
+	tempMessageCtx       context.Context
+	tempMessageCancel    context.CancelFunc
 
 	// Service 层（业务逻辑）
 	userService       service.UserService
@@ -140,6 +142,10 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		accountingRepo:       accountingRepo,
 	}
 
+	tempCtx, tempCancel := context.WithCancel(context.Background())
+	telegramBot.tempMessageCtx = tempCtx
+	telegramBot.tempMessageCancel = tempCancel
+
 	// 初始化 owners
 	if err := telegramBot.initOwners(context.Background()); err != nil {
 		logger.L().Warnf("Failed to initialize owners: %v", err)
@@ -200,6 +206,12 @@ func (b *Bot) Start(ctx context.Context) error {
 // Stop 停止 Bot
 func (b *Bot) Stop(ctx context.Context) error {
 	logger.L().Info("Stopping Telegram bot...")
+
+	if b.tempMessageCancel != nil {
+		b.tempMessageCancel()
+		b.tempMessageCancel = nil
+		b.tempMessageCtx = nil
+	}
 
 	// 关闭 worker pool
 	if b.workerPool != nil {
