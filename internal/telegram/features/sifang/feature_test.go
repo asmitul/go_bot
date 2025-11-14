@@ -836,6 +836,10 @@ func (f *fakePaymentService) GetSummaryByDayByChannel(ctx context.Context, merch
 	return []*paymentservice.SummaryByDayChannel{}, nil
 }
 
+func (f *fakePaymentService) GetSummaryByDayByPZID(ctx context.Context, pzid string, start, end time.Time) (*paymentservice.SummaryByPZID, error) {
+	return nil, nil
+}
+
 func (f *fakePaymentService) GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*paymentservice.WithdrawList, error) {
 	if f.withdrawErr != nil {
 		return nil, f.withdrawErr

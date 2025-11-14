@@ -17,6 +17,7 @@ type Service interface {
 	GetBalance(ctx context.Context, merchantID int64, historyDays int) (*Balance, error)
 	GetSummaryByDay(ctx context.Context, merchantID int64, date time.Time) (*SummaryByDay, error)
 	GetSummaryByDayByChannel(ctx context.Context, merchantID int64, date time.Time) ([]*SummaryByDayChannel, error)
+	GetSummaryByDayByPZID(ctx context.Context, pzid string, start, end time.Time) (*SummaryByPZID, error)
 	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
@@ -245,6 +246,28 @@ func (s *sifangService) GetSummaryByDayByChannel(ctx context.Context, merchantID
 	return summaries, nil
 }
 
+func (s *sifangService) GetSummaryByDayByPZID(ctx context.Context, pzid string, start, end time.Time) (*SummaryByPZID, error) {
+	pzid = strings.TrimSpace(pzid)
+	if pzid == "" {
+		return nil, fmt.Errorf("pzid is required")
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("end time must not be before start time")
+	}
+	business := map[string]string{
+		"pzid":       pzid,
+		"start_time": start.Format("2006-01-02 15:04:05"),
+		"end_time":   end.Format("2006-01-02 15:04:05"),
+	}
+
+	var raw json.RawMessage
+	if err := s.client.Post(ctx, "summarybydaypzid", 0, business, &raw); err != nil {
+		return nil, err
+	}
+
+	return decodeSummaryByPZID(raw)
+}
+
 func (s *sifangService) GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error) {
 	if merchantID == 0 {
 		return nil, fmt.Errorf("merchant id is required")
@@ -455,6 +478,23 @@ type SummaryByDayChannel struct {
 	OrderCount     string
 	SuccessCount   string
 	TotalAmount    string
+	MerchantIncome string
+	AgentIncome    string
+}
+
+// SummaryByPZID 表示按日按上游配置 ID 汇总数据
+type SummaryByPZID struct {
+	PZID      string
+	StartDate string
+	EndDate   string
+	Items     []*SummaryByPZIDItem
+}
+
+// SummaryByPZIDItem 为单日统计
+type SummaryByPZIDItem struct {
+	Date           string
+	OrderCount     string
+	GrossAmount    string
 	MerchantIncome string
 	AgentIncome    string
 }
@@ -904,6 +944,113 @@ func decodeSummaryByDayChannel(data json.RawMessage) ([]*SummaryByDayChannel, er
 
 	items := extractChannelSummaries(payload)
 	return items, nil
+}
+
+func decodeSummaryByPZID(data json.RawMessage) (*SummaryByPZID, error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+
+	var payload interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal pzid summary data failed: %w", err)
+	}
+
+	summary := &SummaryByPZID{
+		Items: make([]*SummaryByPZIDItem, 0),
+	}
+
+	switch v := payload.(type) {
+	case map[string]interface{}:
+		summary.PZID = pickString(v, "pzid", "upstream_id", "channel_id", "interface_id")
+		summary.StartDate = pickString(v, "start_date", "start", "start_date_str")
+		summary.EndDate = pickString(v, "end_date", "end", "end_date_str")
+
+		keys := []string{"items", "list", "data", "rows", "result"}
+		for _, key := range keys {
+			if nested, exists := v[key]; exists {
+				summary.Items = append(summary.Items, buildPZIDSummaries(nested)...)
+			}
+		}
+
+		// 有些实现直接以日期为键
+		if len(summary.Items) == 0 {
+			for key, nested := range v {
+				list := buildPZIDSummaries(nested)
+				for _, item := range list {
+					if item.Date == "" && looksLikeDate(key) {
+						item.Date = key
+					}
+					summary.Items = append(summary.Items, item)
+				}
+			}
+		}
+	case []interface{}:
+		summary.Items = append(summary.Items, buildPZIDSummaries(v)...)
+	default:
+		// ignore unsupported structures
+	}
+
+	return summary, nil
+}
+
+func buildPZIDSummaries(value interface{}) []*SummaryByPZIDItem {
+	items := make([]*SummaryByPZIDItem, 0)
+	switch v := value.(type) {
+	case []interface{}:
+		for _, elem := range v {
+			if elem == nil {
+				continue
+			}
+			if item := buildPZIDSummaryItem(elem); item != nil {
+				items = append(items, item)
+			}
+		}
+	case map[string]interface{}:
+		for key, elem := range v {
+			if elem == nil {
+				continue
+			}
+			if item := buildPZIDSummaryItem(elem); item != nil {
+				if item.Date == "" && looksLikeDate(key) {
+					item.Date = key
+				}
+				items = append(items, item)
+			}
+		}
+	}
+	return items
+}
+
+func buildPZIDSummaryItem(value interface{}) *SummaryByPZIDItem {
+	m, ok := value.(map[string]interface{})
+	if !ok || len(m) == 0 {
+		return nil
+	}
+
+	item := &SummaryByPZIDItem{
+		Date: pickString(m,
+			"date", "day", "summary_date", "stat_date", "date_str", "settle_date", "daytime"),
+		OrderCount: pickString(m,
+			"order_count", "order_num", "orders", "count", "total_orders", "success_count", "total_count"),
+		GrossAmount: pickString(m,
+			"gross_amount", "total_amount", "amount", "total_money", "sum_amount", "money", "order_amount", "success_amount"),
+		MerchantIncome: pickString(m,
+			"merchant_income", "merchant_amount", "merchant_money", "merchant", "merchant_real", "merchant_real_amount", "real_amount"),
+		AgentIncome: pickString(m,
+			"agent_income", "agent_amount", "agent_profit", "agent_money", "profit", "commission"),
+	}
+
+	if item.Date == "" {
+		item.Date = pickString(m, "start_time")
+	}
+
+	if item.OrderCount == "" && item.GrossAmount == "" && item.MerchantIncome == "" && item.AgentIncome == "" {
+		return nil
+	}
+
+	return item
 }
 
 func decodeChannelStatus(data json.RawMessage) ([]*ChannelStatus, error) {

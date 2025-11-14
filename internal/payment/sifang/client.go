@@ -99,7 +99,9 @@ func (c *Client) Post(ctx context.Context, action string, merchantID int64, busi
 		params[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
 
-	params["merchant_id"] = strconv.FormatInt(merchantID, 10)
+	if merchantID > 0 {
+		params["merchant_id"] = strconv.FormatInt(merchantID, 10)
+	}
 	params["timestamp"] = strconv.FormatInt(c.nowFunc().Unix(), 10)
 
 	key, err := c.resolveSigningKey(merchantID)
@@ -182,7 +184,15 @@ func (c *Client) shouldUseMasterKey() bool {
 }
 
 func (c *Client) resolveSigningKey(merchantID int64) (string, error) {
-	if c.shouldUseMasterKey() {
+	useMaster := c.shouldUseMasterKey()
+	if merchantID <= 0 {
+		if useMaster {
+			return c.masterKey, nil
+		}
+		return "", fmt.Errorf("merchant id is required when master key is not configured")
+	}
+
+	if useMaster {
 		return c.masterKey, nil
 	}
 

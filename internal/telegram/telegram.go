@@ -327,6 +327,7 @@ func (b *Bot) registerFeatures() {
 
 	// 注册接口绑定功能
 	b.featureManager.Register(upstream.New(b.groupService, b.userService))
+	b.featureManager.Register(upstream.NewSummaryFeature(b.paymentService))
 
 	// 注册四方支付功能
 	b.sifangFeature = sifangfeature.New(b.paymentService, b.userService)
