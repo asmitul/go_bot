@@ -4,8 +4,8 @@
 
 ## 概览
 
-项目当前注册了 **23 个 Update Handler**：
-- 13 个命令处理器（Command Handlers）
+项目当前注册了 **24 个 Update Handler**：
+- 14 个命令处理器（Command Handlers）
 - 3 个回调处理器（Callback Handlers）
 - 7 个事件处理器（Event Handlers）
 
@@ -279,6 +279,19 @@
   - 若异常群组超过 10 个，会提示剩余数量，方便登录数据库继续排查
 - **Service**: GroupService
 - **数据库**: 全量读取 `groups` 集合用于校验
+
+### 1.20 `修复` - 自动修复群组配置（Owner）
+
+- **文件位置**: `internal/telegram/handlers.go:359`
+- **权限**: Owner only
+- **触发**: 文本消息 `修复`（精确匹配）
+- **主要功能**:
+  - 调用 `GroupService.RepairGroups`（`internal/telegram/service/group_repair.go`）扫描全部群组
+  - 自动补写缺失或错误的 `tier`，将 `tier` 与 `GroupSettings` 当前状态保持一致
+  - 若群组关闭了「🏦 四方支付查询」却仍开启「🔍 四方自动查单」，会自动关闭查单开关
+  - 汇总修复数量（成功写入 / 跳过 / tier 修复 / 自动查单关闭）并返回
+- **Service**: GroupService
+- **数据库**: 读取并按需更新 `groups` 集合
 
 ---
 

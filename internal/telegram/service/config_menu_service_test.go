@@ -54,6 +54,10 @@ func (s *stubGroupService) ValidateGroups(ctx context.Context) (*GroupValidation
 	return &GroupValidationResult{}, nil
 }
 
+func (s *stubGroupService) RepairGroups(ctx context.Context) (*GroupRepairResult, error) {
+	return &GroupRepairResult{}, nil
+}
+
 func TestConfigMenuServiceHandleToggle_DisabledWhenSifangOff(t *testing.T) {
 	svc := NewConfigMenuService(&stubGroupService{})
 	group := &models.Group{Settings: models.GroupSettings{

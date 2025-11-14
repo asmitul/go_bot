@@ -11,10 +11,18 @@ import (
 	"go_bot/internal/telegram/repository"
 )
 
+type groupUpdateRecord struct {
+	groupID  int64
+	settings models.GroupSettings
+	tier     models.GroupTier
+}
+
 type stubGroupRepository struct {
 	storedGroup     *models.Group
 	allGroups       []*models.Group
 	lastUpdatedTier models.GroupTier
+	updateCalls     int
+	updateHistory   []groupUpdateRecord
 }
 
 func (s *stubGroupRepository) CreateOrUpdate(ctx context.Context, group *models.Group) error {
@@ -55,11 +63,24 @@ func (s *stubGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.G
 }
 
 func (s *stubGroupRepository) UpdateSettings(ctx context.Context, telegramID int64, settings models.GroupSettings, tier models.GroupTier) error {
+	s.updateCalls++
 	s.lastUpdatedTier = tier
 	if s.storedGroup != nil {
 		s.storedGroup.Settings = settings
 		s.storedGroup.Tier = tier
 	}
+	for _, g := range s.allGroups {
+		if g.TelegramID == telegramID {
+			g.Settings = settings
+			g.Tier = tier
+			break
+		}
+	}
+	s.updateHistory = append(s.updateHistory, groupUpdateRecord{
+		groupID:  telegramID,
+		settings: settings,
+		tier:     tier,
+	})
 	return nil
 }
 
@@ -253,6 +274,94 @@ func mustContainProblem(t *testing.T, problems []string, keyword string) {
 		}
 	}
 	t.Fatalf("expected problem containing %q, got %v", keyword, problems)
+}
+
+func TestRepairGroupsFixesMissingTier(t *testing.T) {
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID: 10,
+				Tier:       "",
+				BotStatus:  models.BotStatusActive,
+				Settings: models.GroupSettings{
+					MerchantID: 12345,
+				},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.RepairGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.TotalGroups != 1 || result.TierFixed != 1 || result.UpdatedGroups != 1 {
+		t.Fatalf("unexpected repair result: %+v", result)
+	}
+
+	if len(repo.updateHistory) != 1 {
+		t.Fatalf("expected single update, got %d", len(repo.updateHistory))
+	}
+
+	if repo.updateHistory[0].tier != models.GroupTierMerchant {
+		t.Fatalf("expected tier to be merchant, got %s", repo.updateHistory[0].tier)
+	}
+}
+
+func TestRepairGroupsDisablesAutoLookup(t *testing.T) {
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID: 20,
+				Tier:       models.GroupTierBasic,
+				BotStatus:  models.BotStatusActive,
+				Settings: models.GroupSettings{
+					SifangEnabled:           false,
+					SifangAutoLookupEnabled: true,
+				},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.RepairGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.AutoLookupDisabled != 1 {
+		t.Fatalf("expected auto lookup disable count 1, got %+v", result)
+	}
+
+	if repo.allGroups[0].Settings.SifangAutoLookupEnabled {
+		t.Fatalf("expected auto lookup to be disabled in repo")
+	}
+}
+
+func TestRepairGroupsSkipsConflictingSettings(t *testing.T) {
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID: 30,
+				Tier:       "",
+				Settings: models.GroupSettings{
+					MerchantID:   1,
+					InterfaceIDs: []string{"iface"},
+				},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.RepairGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.SkippedGroups != 1 || result.UpdatedGroups != 0 {
+		t.Fatalf("expected group to be skipped, got %+v", result)
+	}
 }
 
 var _ repository.GroupRepository = (*stubGroupRepository)(nil)
