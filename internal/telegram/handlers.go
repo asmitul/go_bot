@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -332,14 +333,18 @@ func (b *Bot) handleValidateGroupsCommand(ctx context.Context, botInstance *bot.
 
 	for i := 0; i < maxDetails; i++ {
 		issue := result.Issues[i]
-		text.WriteString(fmt.Sprintf("%d. %s (%d)\n", i+1, issue.Title, issue.GroupID))
-		tier := issue.StoredTier
-		if tier == "" {
-			tier = "(未设置)"
+		text.WriteString(fmt.Sprintf("%d. %s (%d)\n", i+1, html.EscapeString(issue.Title), issue.GroupID))
+
+		tier := "(未设置)"
+		if issue.StoredTier != "" {
+			tier = string(issue.StoredTier)
 		}
-		text.WriteString(fmt.Sprintf("   tier=%s, status=%s\n", tier, issue.BotStatus))
+
+		text.WriteString(fmt.Sprintf("   tier=%s, status=%s\n",
+			html.EscapeString(tier), html.EscapeString(issue.BotStatus)))
+
 		for _, problem := range issue.Problems {
-			text.WriteString(fmt.Sprintf("   - %s\n", problem))
+			text.WriteString(fmt.Sprintf("   - %s\n", html.EscapeString(problem)))
 		}
 	}
 
