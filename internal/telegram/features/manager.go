@@ -78,7 +78,10 @@ func (m *Manager) Process(ctx context.Context, msg *botModels.Message) (response
 					msg.Chat.ID, feature.Name(), tier, allowed, strings.TrimSpace(msg.Text))
 				msgText := fmt.Sprintf("⚠️ 该功能仅适用于：%s\n当前群类型：%s",
 					models.FormatAllowedTierList(allowed), models.GroupTierDisplayName(tier))
-				return &types.Response{Text: msgText}, true, nil
+				return &types.Response{
+					Text:      msgText,
+					Temporary: true,
+				}, true, nil
 			}
 		}
 

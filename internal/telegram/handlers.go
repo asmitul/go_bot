@@ -562,20 +562,32 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	// 这里替代了原来硬编码的计算器功能检测
 	response, handled, err := b.featureManager.Process(ctx, msg)
 	if handled {
-		if err != nil {
-			if response != nil && response.Text != "" {
-				sent, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
-				if sendErr == nil {
-					b.tryScheduleSifangSendMoneyExpiration(sent, response.ReplyMarkup)
-				}
-			} else {
-				b.sendErrorMessage(ctx, msg.Chat.ID, "处理失败，请稍后重试", msg.ID)
+		sendFeatureResponse := func() {
+			if response == nil || response.Text == "" {
+				return
 			}
-		} else if response != nil && response.Text != "" {
-			sent, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
+
+			var sendFunc func(context.Context, int64, string, botModels.ReplyMarkup, ...int) (*botModels.Message, error)
+			if response.Temporary {
+				sendFunc = b.sendTemporaryMessageWithMarkup
+			} else {
+				sendFunc = b.sendMessageWithMarkupAndMessage
+			}
+
+			sent, sendErr := sendFunc(ctx, msg.Chat.ID, response.Text, response.ReplyMarkup, msg.ID)
 			if sendErr == nil {
 				b.tryScheduleSifangSendMoneyExpiration(sent, response.ReplyMarkup)
 			}
+		}
+
+		if err != nil {
+			if response != nil && response.Text != "" {
+				sendFeatureResponse()
+			} else {
+				b.sendErrorMessage(ctx, msg.Chat.ID, "处理失败，请稍后重试", msg.ID)
+			}
+		} else {
+			sendFeatureResponse()
 		}
 		return // 功能已处理，不再记录为普通消息
 	}

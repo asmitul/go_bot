@@ -63,7 +63,7 @@ func (b *Bot) RequireGroupTier(allowed []models.GroupTier, next bot.HandlerFunc)
 		group, err := b.groupService.GetGroupInfo(ctx, chatID)
 		if err != nil {
 			logger.L().Warnf("Failed to load group for tier guard: chat_id=%d err=%v", chatID, err)
-			b.sendErrorMessage(ctx, chatID, "❌ 获取群组信息失败，请稍后再试")
+			b.sendTemporaryErrorMessage(ctx, chatID, "获取群组信息失败，请稍后再试")
 			return
 		}
 
@@ -73,7 +73,9 @@ func (b *Bot) RequireGroupTier(allowed []models.GroupTier, next bot.HandlerFunc)
 				chatID, tier, update.Message.Text, allowedCopy)
 			notice := fmt.Sprintf("⚠️ 此命令仅适用于：%s\n当前群类型：%s",
 				models.FormatAllowedTierList(allowedCopy), models.GroupTierDisplayName(tier))
-			b.sendMessage(ctx, chatID, notice)
+			if _, err := b.sendTemporaryMessageWithMarkup(ctx, chatID, notice, nil); err != nil {
+				logger.L().Errorf("Failed to send tier restriction notice: chat_id=%d err=%v", chatID, err)
+			}
 			return
 		}
 
