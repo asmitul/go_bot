@@ -190,7 +190,7 @@ func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time
 		if item == nil {
 			continue
 		}
-		itemDate := strings.TrimSpace(item.Date)
+		itemDate := normalizeSummaryDate(item.Date)
 		if itemDate == "" {
 			continue
 		}
@@ -228,4 +228,37 @@ func safeValue(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func normalizeSummaryDate(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	layouts := []string{
+		"2006-01-02",
+		"2006-01-02 15:04:05",
+		"2006/01/02",
+		"2006/01/02 15:04:05",
+		time.RFC3339,
+		time.RFC3339Nano,
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, trimmed); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+
+	if len(trimmed) >= 10 {
+		candidate := trimmed[:10]
+		if t, err := time.Parse("2006-01-02", candidate); err == nil {
+			return t.Format("2006-01-02")
+		}
+		if t, err := time.Parse("2006/01/02", candidate); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+
+	return ""
 }

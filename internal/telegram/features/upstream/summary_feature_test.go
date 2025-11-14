@@ -17,7 +17,7 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 		summaryByPZID: &paymentservice.SummaryByPZID{
 			Items: []*paymentservice.SummaryByPZIDItem{
 				{
-					Date:           "2024-10-26",
+					Date:           "2024-10-26 00:00:00",
 					OrderCount:     "5",
 					GrossAmount:    "1000.00",
 					MerchantIncome: "950.00",
