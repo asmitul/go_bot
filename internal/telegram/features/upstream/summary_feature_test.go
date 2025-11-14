@@ -15,6 +15,7 @@ import (
 func TestSummaryFeature_ProcessWithData(t *testing.T) {
 	stub := &stubPaymentService{
 		summaryByPZID: &paymentservice.SummaryByPZID{
+			PZName: "支付宝代收",
 			Items: []*paymentservice.SummaryByPZIDItem{
 				{
 					Date:           "2024-10-26 00:00:00",
@@ -53,6 +54,9 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 
 	if !strings.Contains(resp.Text, "📈 上游账单 - 2024-10-26") {
 		t.Fatalf("unexpected response text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "渠道名称：支付宝代收") {
+		t.Fatalf("expected channel name, got %s", resp.Text)
 	}
 	if stub.lastPZID != "1024" {
 		t.Fatalf("expected pzid 1024, got %s", stub.lastPZID)
