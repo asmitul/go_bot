@@ -53,15 +53,22 @@ type Group struct {
 
 // GroupSettings 群组配置
 type GroupSettings struct {
-	CalculatorEnabled       bool     `bson:"calculator_enabled"`         // 是否启用计算器功能
-	CryptoEnabled           bool     `bson:"crypto_enabled"`             // 是否启用加密货币价格查询功能
-	CryptoFloatRate         float64  `bson:"crypto_float_rate"`          // 加密货币价格浮动费率（默认 0.12）
-	ForwardEnabled          bool     `bson:"forward_enabled"`            // 是否接收频道转发消息
-	AccountingEnabled       bool     `bson:"accounting_enabled"`         // 是否启用收支记账功能
-	MerchantID              int32    `bson:"merchant_id"`                // 商户号（数字类型，0 表示未绑定）
-	InterfaceIDs            []string `bson:"interface_ids,omitempty"`    // 接口 ID 列表
-	SifangEnabled           bool     `bson:"sifang_enabled"`             // 是否启用四方支付功能
-	SifangAutoLookupEnabled bool     `bson:"sifang_auto_lookup_enabled"` // 是否启用四方支付自动查单
+	CalculatorEnabled       bool               `bson:"calculator_enabled"`           // 是否启用计算器功能
+	CryptoEnabled           bool               `bson:"crypto_enabled"`               // 是否启用加密货币价格查询功能
+	CryptoFloatRate         float64            `bson:"crypto_float_rate"`            // 加密货币价格浮动费率（默认 0.12）
+	ForwardEnabled          bool               `bson:"forward_enabled"`              // 是否接收频道转发消息
+	AccountingEnabled       bool               `bson:"accounting_enabled"`           // 是否启用收支记账功能
+	MerchantID              int32              `bson:"merchant_id"`                  // 商户号（数字类型，0 表示未绑定）
+	InterfaceBindings       []InterfaceBinding `bson:"interface_bindings,omitempty"` // 接口绑定信息
+	SifangEnabled           bool               `bson:"sifang_enabled"`               // 是否启用四方支付功能
+	SifangAutoLookupEnabled bool               `bson:"sifang_auto_lookup_enabled"`   // 是否启用四方支付自动查单
+}
+
+// InterfaceBinding 描述单个上游接口绑定
+type InterfaceBinding struct {
+	Name string `bson:"name"`           // 接口名称（展示用）
+	ID   string `bson:"id"`             // 通道 ID
+	Rate string `bson:"rate,omitempty"` // 费率描述，例如 "7%"
 }
 
 // GroupStats 群组统计信息
@@ -78,8 +85,8 @@ func (g *Group) IsActive() bool {
 // DetermineGroupTier 根据配置推导群组等级
 func DetermineGroupTier(settings GroupSettings) (GroupTier, error) {
 	hasMerchant := settings.MerchantID > 0
-	interfaceIDs := NormalizeInterfaceIDs(settings.InterfaceIDs)
-	hasInterface := len(interfaceIDs) > 0
+	interfaceBindings := NormalizeInterfaceBindings(settings.InterfaceBindings)
+	hasInterface := len(interfaceBindings) > 0
 
 	switch {
 	case hasMerchant && hasInterface:
@@ -93,29 +100,33 @@ func DetermineGroupTier(settings GroupSettings) (GroupTier, error) {
 	}
 }
 
-// NormalizeInterfaceIDs 去重、去空格并过滤空值
-func NormalizeInterfaceIDs(ids []string) []string {
-	if len(ids) == 0 {
+// NormalizeInterfaceBindings 去重、去空格并过滤空值
+func NormalizeInterfaceBindings(bindings []InterfaceBinding) []InterfaceBinding {
+	if len(bindings) == 0 {
 		return nil
 	}
 
-	seen := make(map[string]struct{}, len(ids))
-	clean := make([]string, 0, len(ids))
-	for _, raw := range ids {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
+	seen := make(map[string]struct{}, len(bindings))
+	clean := make([]InterfaceBinding, 0, len(bindings))
+	for _, raw := range bindings {
+		id := strings.TrimSpace(raw.ID)
+		if id == "" {
 			continue
 		}
-		key := strings.ToLower(trimmed)
+		key := strings.ToLower(id)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
-		clean = append(clean, trimmed)
+		clean = append(clean, InterfaceBinding{
+			Name: strings.TrimSpace(raw.Name),
+			ID:   id,
+			Rate: strings.TrimSpace(raw.Rate),
+		})
 	}
 
-	slices.SortFunc(clean, func(a, b string) int {
-		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	slices.SortFunc(clean, func(a, b InterfaceBinding) int {
+		return strings.Compare(strings.ToLower(a.ID), strings.ToLower(b.ID))
 	})
 
 	if len(clean) == 0 {

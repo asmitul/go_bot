@@ -24,15 +24,19 @@ func TestDetermineGroupTier(t *testing.T) {
 		{
 			name: "upstream when interface id present",
 			settings: GroupSettings{
-				InterfaceIDs: []string{"iface-1"},
+				InterfaceBindings: []InterfaceBinding{
+					{Name: "test", ID: "iface-1"},
+				},
 			},
 			wantTier: GroupTierUpstream,
 		},
 		{
 			name: "error when both present",
 			settings: GroupSettings{
-				MerchantID:   1002,
-				InterfaceIDs: []string{"iface-2"},
+				MerchantID: 1002,
+				InterfaceBindings: []InterfaceBinding{
+					{Name: "test", ID: "iface-2"},
+				},
 			},
 			wantTier:  GroupTierBasic,
 			wantError: true,
@@ -55,17 +59,26 @@ func TestDetermineGroupTier(t *testing.T) {
 	}
 }
 
-func TestNormalizeInterfaceIDs(t *testing.T) {
-	input := []string{"  Foo  ", "bar", "foo", "BAR", "", "baz"}
-	got := NormalizeInterfaceIDs(input)
-
-	expected := []string{"bar", "baz", "Foo"}
-	if len(got) != len(expected) {
-		t.Fatalf("expected %d ids, got %d (%v)", len(expected), len(got), got)
+func TestNormalizeInterfaceBindings(t *testing.T) {
+	input := []InterfaceBinding{
+		{Name: " Foo ", ID: "  Foo  ", Rate: " 5% "},
+		{Name: "bar", ID: "bar"},
+		{Name: "duplicate", ID: "foo"},
+		{Name: "dup-2", ID: "BAR"},
+		{Name: "empty", ID: " "},
 	}
-	for i, id := range expected {
-		if got[i] != id {
-			t.Fatalf("expected %s at index %d, got %s", id, i, got[i])
+	got := NormalizeInterfaceBindings(input)
+
+	expected := []InterfaceBinding{
+		{Name: "bar", ID: "bar", Rate: ""},
+		{Name: "Foo", ID: "Foo", Rate: "5%"},
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("expected %d bindings, got %d (%v)", len(expected), len(got), got)
+	}
+	for i, binding := range expected {
+		if got[i].ID != binding.ID || got[i].Name != binding.Name || got[i].Rate != binding.Rate {
+			t.Fatalf("expected binding %+v at index %d, got %+v", binding, i, got[i])
 		}
 	}
 }

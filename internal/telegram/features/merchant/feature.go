@@ -131,7 +131,7 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 		return "❌ 获取群组信息失败", true, nil
 	}
 
-	if len(group.Settings.InterfaceIDs) > 0 {
+	if len(group.Settings.InterfaceBindings) > 0 {
 		return "❌ 当前群组已绑定接口 ID，请先使用「解绑接口」解除全部接口后再操作商户号", true, nil
 	}
 
@@ -148,7 +148,7 @@ func (f *Feature) handleBind(ctx context.Context, msg *botModels.Message, text s
 	// 执行绑定
 	settings := group.Settings
 	settings.MerchantID = int32(merchantID)
-	settings.InterfaceIDs = nil
+	settings.InterfaceBindings = nil
 
 	if err := f.groupService.UpdateGroupSettings(ctx, msg.Chat.ID, settings); err != nil {
 		logger.L().Errorf("Failed to bind merchant ID: chat_id=%d, merchant_id=%d, err=%v", msg.Chat.ID, merchantID, err)
