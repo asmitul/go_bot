@@ -83,13 +83,6 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 	if err != nil {
 		return respond(fmt.Sprintf("❌ %v", err)), true, nil
 	}
-	if selectedBinding == nil {
-		if len(bindings) == 1 {
-			selectedBinding = &bindings[0]
-		} else {
-			return respond(buildInterfacePrompt(bindings)), true, nil
-		}
-	}
 
 	now := f.currentTime()
 	targetDate, err := sifangfeature.ParseSummaryDate(dateSuffix, now, "上游账单")
@@ -99,26 +92,18 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 
 	start := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, targetDate.Location())
 	end := start.Add(24*time.Hour - time.Second)
-	logger.L().Infof("Requesting upstream summary: chat_id=%d pzid=%s start=%s end=%s user=%d",
-		msg.Chat.ID, selectedBinding.ID,
-		start.Format("2006-01-02 15:04:05"),
-		end.Format("2006-01-02 15:04:05"),
-		msg.From.ID)
 
-	summary, err := f.paymentService.GetSummaryByDayByPZID(ctx, selectedBinding.ID, start, end)
-	if err != nil {
-		logger.L().Errorf("Upstream summary query failed: chat_id=%d pzid=%s start=%s err=%v",
-			msg.Chat.ID, selectedBinding.ID, start.Format("2006-01-02"), err)
-		return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
+	targetBindings := f.buildTargetBindings(bindings, selectedBinding)
+	responses := make([]string, 0, len(targetBindings))
+	for _, binding := range targetBindings {
+		responseText, err := f.queryUpstreamSummary(ctx, msg, binding, start, end, targetDate)
+		if err != nil {
+			return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
+		}
+		responses = append(responses, responseText)
 	}
 
-	item := pickSummaryItem(summary, targetDate)
-	message := formatUpstreamSummary(*selectedBinding, summary, targetDate, item)
-
-	logger.L().Infof("Upstream summary queried: chat_id=%d pzid=%s date=%s user=%d",
-		msg.Chat.ID, selectedBinding.ID, targetDate.Format("2006-01-02"), msg.From.ID)
-
-	return respond(message), true, nil
+	return respond(strings.Join(responses, "\n\n")), true, nil
 }
 
 // Priority 在接口管理之后执行
@@ -131,6 +116,16 @@ func (f *SummaryFeature) currentTime() time.Time {
 		return f.nowFunc()
 	}
 	return time.Now().In(upstreamChinaLocation)
+}
+
+func (f *SummaryFeature) buildTargetBindings(bindings []models.InterfaceBinding, selected *models.InterfaceBinding) []models.InterfaceBinding {
+	if selected != nil {
+		return []models.InterfaceBinding{*selected}
+	}
+	if len(bindings) == 1 {
+		return []models.InterfaceBinding{bindings[0]}
+	}
+	return bindings
 }
 
 func (f *SummaryFeature) resolveTarget(bindings []models.InterfaceBinding, text string) (selectedBinding *models.InterfaceBinding, dateSuffix string, err error) {
@@ -159,15 +154,6 @@ func (f *SummaryFeature) resolveTarget(bindings []models.InterfaceBinding, text 
 	return nil, payload, nil
 }
 
-func buildInterfacePrompt(bindings []models.InterfaceBinding) string {
-	builder := strings.Builder{}
-	builder.WriteString("ℹ️ 当前群绑定了多个接口，请使用「上游账单 [接口ID] [可选日期]」指定要查询的接口。\n\n可选接口：\n")
-	for _, binding := range bindings {
-		builder.WriteString(fmt.Sprintf("• %s\n", formatInterfaceDescriptor(binding)))
-	}
-	return builder.String()
-}
-
 func matchInterfaceBinding(bindings []models.InterfaceBinding, candidate string) *models.InterfaceBinding {
 	target := strings.ToLower(strings.TrimSpace(candidate))
 	if target == "" {
@@ -185,6 +171,34 @@ func matchInterfaceBinding(bindings []models.InterfaceBinding, candidate string)
 		}
 	}
 	return nil
+}
+
+func (f *SummaryFeature) queryUpstreamSummary(
+	ctx context.Context,
+	msg *botModels.Message,
+	binding models.InterfaceBinding,
+	start, end, targetDate time.Time,
+) (string, error) {
+	logger.L().Infof("Requesting upstream summary: chat_id=%d pzid=%s start=%s end=%s user=%d",
+		msg.Chat.ID, binding.ID,
+		start.Format("2006-01-02 15:04:05"),
+		end.Format("2006-01-02 15:04:05"),
+		msg.From.ID)
+
+	summary, err := f.paymentService.GetSummaryByDayByPZID(ctx, binding.ID, start, end)
+	if err != nil {
+		logger.L().Errorf("Upstream summary query failed: chat_id=%d pzid=%s start=%s err=%v",
+			msg.Chat.ID, binding.ID, start.Format("2006-01-02"), err)
+		return "", err
+	}
+
+	item := pickSummaryItem(summary, targetDate)
+	message := formatUpstreamSummary(binding, summary, targetDate, item)
+
+	logger.L().Infof("Upstream summary queried: chat_id=%d pzid=%s date=%s user=%d",
+		msg.Chat.ID, binding.ID, targetDate.Format("2006-01-02"), msg.From.ID)
+
+	return message, nil
 }
 
 func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time) *paymentservice.SummaryByPZIDItem {

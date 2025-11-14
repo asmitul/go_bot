@@ -74,9 +74,27 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 	}
 }
 
-func TestSummaryFeature_MultipleInterfacesRequireSelection(t *testing.T) {
-	stub := &stubPaymentService{}
+func TestSummaryFeature_MultipleInterfacesOutputAll(t *testing.T) {
+	stub := &stubPaymentService{
+		summaryByPZIDByInterface: map[string]*paymentservice.SummaryByPZID{
+			"1001": {
+				PZName: "渠道A-通道",
+				Items: []*paymentservice.SummaryByPZIDItem{
+					{Date: "2024-10-25", OrderCount: "2", GrossAmount: "200", MerchantIncome: "190", AgentIncome: "10"},
+				},
+			},
+			"2002": {
+				PZName: "渠道B-通道",
+				Items: []*paymentservice.SummaryByPZIDItem{
+					{Date: "2024-10-25", OrderCount: "3", GrossAmount: "300", MerchantIncome: "285", AgentIncome: "15"},
+				},
+			},
+		},
+	}
 	feature := NewSummaryFeature(stub)
+	feature.nowFunc = func() time.Time {
+		return time.Date(2024, 10, 25, 10, 0, 0, 0, upstreamChinaLocation)
+	}
 	group := &models.Group{
 		Settings: models.GroupSettings{
 			InterfaceBindings: []models.InterfaceBinding{
@@ -98,8 +116,17 @@ func TestSummaryFeature_MultipleInterfacesRequireSelection(t *testing.T) {
 	if !handled || resp == nil {
 		t.Fatalf("expected handled response")
 	}
-	if !strings.Contains(resp.Text, "可选接口") {
-		t.Fatalf("expected prompt, got %s", resp.Text)
+	if strings.Count(resp.Text, "📈 上游账单") != 2 {
+		t.Fatalf("expected two summary sections, got %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "接口：渠道A / <code>1001</code>") {
+		t.Fatalf("expected channel A summary, got %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "接口：渠道B / <code>2002</code>") {
+		t.Fatalf("expected channel B summary, got %s", resp.Text)
+	}
+	if len(stub.calls) != 2 || stub.calls[0] != "1001" || stub.calls[1] != "2002" {
+		t.Fatalf("unexpected stub call order: %#v", stub.calls)
 	}
 }
 
@@ -168,11 +195,13 @@ func TestSummaryFeature_InvalidInterfaceReturnsError(t *testing.T) {
 }
 
 type stubPaymentService struct {
-	summaryByPZID *paymentservice.SummaryByPZID
-	err           error
-	lastPZID      string
-	lastStart     time.Time
-	lastEnd       time.Time
+	summaryByPZID            *paymentservice.SummaryByPZID
+	summaryByPZIDByInterface map[string]*paymentservice.SummaryByPZID
+	err                      error
+	lastPZID                 string
+	lastStart                time.Time
+	lastEnd                  time.Time
+	calls                    []string
 }
 
 func (s *stubPaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -191,6 +220,10 @@ func (s *stubPaymentService) GetSummaryByDayByPZID(ctx context.Context, pzid str
 	s.lastPZID = pzid
 	s.lastStart = start
 	s.lastEnd = end
+	s.calls = append(s.calls, pzid)
+	if summary, ok := s.summaryByPZIDByInterface[pzid]; ok {
+		return summary, s.err
+	}
 	return s.summaryByPZID, s.err
 }
 
