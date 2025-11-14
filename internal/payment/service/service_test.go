@@ -237,6 +237,7 @@ func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
 func TestDecodeSummaryByPZID_Items(t *testing.T) {
 	payload := map[string]interface{}{
 		"pzid":       "1024",
+		"pz_name":    "示例渠道",
 		"start_date": "2024-10-20",
 		"end_date":   "2024-10-26",
 		"items": []map[string]interface{}{
@@ -262,7 +263,7 @@ func TestDecodeSummaryByPZID_Items(t *testing.T) {
 	if summary == nil {
 		t.Fatalf("expected summary, got nil")
 	}
-	if summary.PZID != "1024" || summary.StartDate != "2024-10-20" || summary.EndDate != "2024-10-26" {
+	if summary.PZID != "1024" || summary.PZName != "示例渠道" || summary.StartDate != "2024-10-20" || summary.EndDate != "2024-10-26" {
 		t.Fatalf("unexpected meta: %#v", summary)
 	}
 	if len(summary.Items) != 1 {

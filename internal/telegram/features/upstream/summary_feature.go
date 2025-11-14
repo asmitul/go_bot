@@ -113,7 +113,7 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 	}
 
 	item := pickSummaryItem(summary, targetDate)
-	message := formatUpstreamSummary(selected, targetDate, item)
+	message := formatUpstreamSummary(selected, summary, targetDate, item)
 
 	logger.L().Infof("Upstream summary queried: chat_id=%d pzid=%s date=%s user=%d",
 		msg.Chat.ID, selected, targetDate.Format("2006-01-02"), msg.From.ID)
@@ -201,7 +201,7 @@ func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time
 	return nil
 }
 
-func formatUpstreamSummary(interfaceID string, date time.Time, item *paymentservice.SummaryByPZIDItem) string {
+func formatUpstreamSummary(interfaceID string, summary *paymentservice.SummaryByPZID, date time.Time, item *paymentservice.SummaryByPZIDItem) string {
 	dateStr := date.Format("2006-01-02")
 	if item == nil {
 		return fmt.Sprintf("ℹ️ %s 暂无上游账单数据（接口 <code>%s</code>）",
@@ -213,9 +213,19 @@ func formatUpstreamSummary(interfaceID string, date time.Time, item *paymentserv
 	merchantIncome := safeValue(item.MerchantIncome, "0")
 	agentIncome := safeValue(item.AgentIncome, "0")
 
-	return fmt.Sprintf("📈 上游账单 - %s\n接口：<code>%s</code>\n跑量：%s\n商户实收：%s\n代理收益：%s\n订单数：%s",
+	pzName := ""
+	if summary != nil {
+		pzName = strings.TrimSpace(summary.PZName)
+	}
+	nameLine := ""
+	if pzName != "" {
+		nameLine = fmt.Sprintf("\n渠道名称：%s", html.EscapeString(pzName))
+	}
+
+	return fmt.Sprintf("📈 上游账单 - %s\n接口：<code>%s</code>%s\n跑量：%s\n商户实收：%s\n代理收益：%s\n订单数：%s",
 		dateStr,
 		html.EscapeString(interfaceID),
+		nameLine,
 		html.EscapeString(grossAmount),
 		html.EscapeString(merchantIncome),
 		html.EscapeString(agentIncome),

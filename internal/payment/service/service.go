@@ -485,6 +485,7 @@ type SummaryByDayChannel struct {
 // SummaryByPZID 表示按日按上游配置 ID 汇总数据
 type SummaryByPZID struct {
 	PZID      string
+	PZName    string
 	StartDate string
 	EndDate   string
 	Items     []*SummaryByPZIDItem
@@ -964,6 +965,7 @@ func decodeSummaryByPZID(data json.RawMessage) (*SummaryByPZID, error) {
 	switch v := payload.(type) {
 	case map[string]interface{}:
 		summary.PZID = pickString(v, "pzid", "upstream_id", "channel_id", "interface_id")
+		summary.PZName = pickString(v, "pz_name", "pzname", "interface_name", "channel_name")
 		summary.StartDate = pickString(v, "start_date", "start", "start_date_str")
 		summary.EndDate = pickString(v, "end_date", "end", "end_date_str")
 
