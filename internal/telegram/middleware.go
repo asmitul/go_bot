@@ -73,7 +73,9 @@ func (b *Bot) RequireGroupTier(allowed []models.GroupTier, next bot.HandlerFunc)
 				chatID, tier, update.Message.Text, allowedCopy)
 			notice := fmt.Sprintf("⚠️ 此命令仅适用于：%s\n当前群类型：%s",
 				models.FormatAllowedTierList(allowedCopy), models.GroupTierDisplayName(tier))
-			b.sendTemporaryMessageWithMarkup(ctx, chatID, notice, nil)
+			if _, err := b.sendTemporaryMessageWithMarkup(ctx, chatID, notice, nil); err != nil {
+				logger.L().Errorf("Failed to send tier restriction notice: chat_id=%d err=%v", chatID, err)
+			}
 			return
 		}
 
