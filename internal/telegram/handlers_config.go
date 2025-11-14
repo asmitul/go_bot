@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 
 	"go_bot/internal/logger"
@@ -195,10 +196,10 @@ func (b *Bot) buildConfigMenuText(ctx context.Context, group *models.Group) stri
 		menuText += fmt.Sprintf("🏪 商户号: <code>%d</code>\n", group.Settings.MerchantID)
 	}
 
-	if len(group.Settings.InterfaceIDs) > 0 {
-		menuText += "🔌 接口 ID 列表:\n"
-		for _, id := range group.Settings.InterfaceIDs {
-			menuText += fmt.Sprintf("• <code>%s</code>\n", id)
+	if len(group.Settings.InterfaceBindings) > 0 {
+		menuText += "🔌 接口绑定：\n"
+		for _, binding := range group.Settings.InterfaceBindings {
+			menuText += fmt.Sprintf("• %s\n", formatInterfaceBindingSummary(binding))
 		}
 	}
 
@@ -231,4 +232,20 @@ func filterConfigItemsByTier(items []models.ConfigItem, tier models.GroupTier) [
 		}
 	}
 	return filtered
+}
+
+func formatInterfaceBindingSummary(binding models.InterfaceBinding) string {
+	name := strings.TrimSpace(binding.Name)
+	if name == "" {
+		name = "(未命名接口)"
+	}
+	rate := strings.TrimSpace(binding.Rate)
+	rateSummary := ""
+	if rate != "" {
+		rateSummary = fmt.Sprintf("，费率: %s", html.EscapeString(rate))
+	}
+	return fmt.Sprintf("%s (ID: <code>%s</code>%s)",
+		html.EscapeString(name),
+		html.EscapeString(binding.ID),
+		rateSummary)
 }

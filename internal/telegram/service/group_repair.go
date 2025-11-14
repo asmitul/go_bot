@@ -34,7 +34,7 @@ func (s *GroupServiceImpl) RepairGroups(ctx context.Context) (*GroupRepairResult
 			continue
 		}
 
-		group.Settings.InterfaceIDs = models.NormalizeInterfaceIDs(group.Settings.InterfaceIDs)
+		group.Settings.InterfaceBindings = models.NormalizeInterfaceBindings(group.Settings.InterfaceBindings)
 
 		expectedTier, tierErr := models.DetermineGroupTier(group.Settings)
 		if tierErr != nil {

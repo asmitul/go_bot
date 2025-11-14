@@ -67,7 +67,7 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 				CryptoFloatRate:         0.12,  // 新群组默认浮动费率 0.12
 				ForwardEnabled:          true,  // 新群组默认接收频道转发消息
 				AccountingEnabled:       false, // 新群组默认关闭收支记账功能
-				InterfaceIDs:            nil,   // 初始不绑定接口
+				InterfaceBindings:       nil,   // 初始不绑定接口
 				SifangEnabled:           true,  // 新群组默认启用四方支付功能
 				SifangAutoLookupEnabled: true,  // 新群组默认启用四方自动查单
 			},

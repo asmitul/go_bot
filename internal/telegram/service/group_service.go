@@ -118,7 +118,7 @@ func (s *GroupServiceImpl) ListActiveGroups(ctx context.Context) ([]*models.Grou
 
 // UpdateGroupSettings 更新群组配置
 func (s *GroupServiceImpl) UpdateGroupSettings(ctx context.Context, telegramID int64, settings models.GroupSettings) error {
-	settings.InterfaceIDs = models.NormalizeInterfaceIDs(settings.InterfaceIDs)
+	settings.InterfaceBindings = models.NormalizeInterfaceBindings(settings.InterfaceBindings)
 
 	tier, err := models.DetermineGroupTier(settings)
 	if err != nil {
@@ -189,9 +189,9 @@ func (s *GroupServiceImpl) HandleBotRemovedFromGroup(ctx context.Context, telegr
 			changed = true
 		}
 
-		if len(settings.InterfaceIDs) > 0 {
-			logger.L().Infof("Auto-unbinding interface IDs after bot removal: group_id=%d, count=%d", telegramID, len(settings.InterfaceIDs))
-			settings.InterfaceIDs = nil
+		if len(settings.InterfaceBindings) > 0 {
+			logger.L().Infof("Auto-unbinding interface bindings after bot removal: group_id=%d, count=%d", telegramID, len(settings.InterfaceBindings))
+			settings.InterfaceBindings = nil
 			changed = true
 		}
 
@@ -217,7 +217,7 @@ func ensureGroupTier(group *models.Group) {
 		return
 	}
 
-	group.Settings.InterfaceIDs = models.NormalizeInterfaceIDs(group.Settings.InterfaceIDs)
+	group.Settings.InterfaceBindings = models.NormalizeInterfaceBindings(group.Settings.InterfaceBindings)
 
 	if group.Tier != "" {
 		return

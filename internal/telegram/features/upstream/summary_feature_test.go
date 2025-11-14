@@ -35,7 +35,9 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 
 	group := &models.Group{
 		Settings: models.GroupSettings{
-			InterfaceIDs: []string{"1024"},
+			InterfaceBindings: []models.InterfaceBinding{
+				{Name: "支付宝渠道", ID: "1024", Rate: "7%"},
+			},
 		},
 	}
 	msg := &botModels.Message{
@@ -58,6 +60,9 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 	if !strings.Contains(resp.Text, "渠道名称：支付宝代收") {
 		t.Fatalf("expected channel name, got %s", resp.Text)
 	}
+	if !strings.Contains(resp.Text, "接口：支付宝渠道 / <code>1024</code>（费率：7%）") {
+		t.Fatalf("expected interface descriptor, got %s", resp.Text)
+	}
 	if stub.lastPZID != "1024" {
 		t.Fatalf("expected pzid 1024, got %s", stub.lastPZID)
 	}
@@ -74,7 +79,10 @@ func TestSummaryFeature_MultipleInterfacesRequireSelection(t *testing.T) {
 	feature := NewSummaryFeature(stub)
 	group := &models.Group{
 		Settings: models.GroupSettings{
-			InterfaceIDs: []string{"1001", "2002"},
+			InterfaceBindings: []models.InterfaceBinding{
+				{Name: "渠道A", ID: "1001"},
+				{Name: "渠道B", ID: "2002"},
+			},
 		},
 	}
 	msg := &botModels.Message{
@@ -104,7 +112,10 @@ func TestSummaryFeature_InterfaceSelectionNoData(t *testing.T) {
 	feature := NewSummaryFeature(stub)
 	group := &models.Group{
 		Settings: models.GroupSettings{
-			InterfaceIDs: []string{"1001", "2002"},
+			InterfaceBindings: []models.InterfaceBinding{
+				{Name: "渠道A", ID: "1001"},
+				{Name: "渠道B", ID: "2002"},
+			},
 		},
 	}
 	msg := &botModels.Message{
@@ -133,7 +144,9 @@ func TestSummaryFeature_InvalidInterfaceReturnsError(t *testing.T) {
 	feature := NewSummaryFeature(stub)
 	group := &models.Group{
 		Settings: models.GroupSettings{
-			InterfaceIDs: []string{"1001"},
+			InterfaceBindings: []models.InterfaceBinding{
+				{Name: "渠道A", ID: "1001"},
+			},
 		},
 	}
 	msg := &botModels.Message{

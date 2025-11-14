@@ -150,8 +150,10 @@ func TestUpdateGroupSettingsRejectsConflictingBindings(t *testing.T) {
 	service := NewGroupService(repo)
 
 	settings := models.GroupSettings{
-		MerchantID:   123,
-		InterfaceIDs: []string{"abc"},
+		MerchantID: 123,
+		InterfaceBindings: []models.InterfaceBinding{
+			{Name: "test", ID: "abc"},
+		},
 	}
 
 	if err := service.UpdateGroupSettings(context.Background(), 1, settings); err == nil {
@@ -164,8 +166,11 @@ func TestHandleBotRemovedFromGroupResetsBindings(t *testing.T) {
 		storedGroup: &models.Group{
 			TelegramID: 1,
 			Settings: models.GroupSettings{
-				MerchantID:   456,
-				InterfaceIDs: []string{"iface-1", "iface-2"},
+				MerchantID: 456,
+				InterfaceBindings: []models.InterfaceBinding{
+					{Name: "one", ID: "iface-1"},
+					{Name: "two", ID: "iface-2"},
+				},
 			},
 		},
 	}
@@ -179,8 +184,8 @@ func TestHandleBotRemovedFromGroupResetsBindings(t *testing.T) {
 		t.Fatalf("expected merchant ID to be cleared, got %d", repo.storedGroup.Settings.MerchantID)
 	}
 
-	if len(repo.storedGroup.Settings.InterfaceIDs) != 0 {
-		t.Fatalf("expected interface IDs to be cleared, got %v", repo.storedGroup.Settings.InterfaceIDs)
+	if len(repo.storedGroup.Settings.InterfaceBindings) != 0 {
+		t.Fatalf("expected interface bindings to be cleared, got %v", repo.storedGroup.Settings.InterfaceBindings)
 	}
 
 	if repo.storedGroup.Tier != models.GroupTierBasic {
@@ -240,8 +245,10 @@ func TestValidateGroupsDetectsProblems(t *testing.T) {
 				Tier:       "",
 				BotStatus:  "mystery",
 				Settings: models.GroupSettings{
-					MerchantID:              123,
-					InterfaceIDs:            []string{"upstream-1"},
+					MerchantID: 123,
+					InterfaceBindings: []models.InterfaceBinding{
+						{Name: "up-1", ID: "upstream-1"},
+					},
 					SifangEnabled:           false,
 					SifangAutoLookupEnabled: true,
 				},
@@ -375,8 +382,10 @@ func TestRepairGroupsSkipsConflictingSettings(t *testing.T) {
 				TelegramID: 30,
 				Tier:       "",
 				Settings: models.GroupSettings{
-					MerchantID:   1,
-					InterfaceIDs: []string{"iface"},
+					MerchantID: 1,
+					InterfaceBindings: []models.InterfaceBinding{
+						{Name: "iface", ID: "iface"},
+					},
 				},
 			},
 		},
