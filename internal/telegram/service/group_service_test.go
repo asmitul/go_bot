@@ -339,6 +339,35 @@ func TestRepairGroupsDisablesAutoLookup(t *testing.T) {
 	}
 }
 
+func TestRepairGroupsFillsBasicTierWhenMissing(t *testing.T) {
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID: 25,
+				Tier:       "",
+				BotStatus:  models.BotStatusActive,
+				Settings: models.GroupSettings{
+					CalculatorEnabled: true,
+				},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.RepairGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.TierFixed != 1 || result.UpdatedGroups != 1 {
+		t.Fatalf("expected tier to be fixed once, got %+v", result)
+	}
+
+	if repo.updateHistory[len(repo.updateHistory)-1].tier != models.GroupTierBasic {
+		t.Fatalf("expected basic tier to be written, got %s", repo.updateHistory[len(repo.updateHistory)-1].tier)
+	}
+}
+
 func TestRepairGroupsSkipsConflictingSettings(t *testing.T) {
 	repo := &stubGroupRepository{
 		allGroups: []*models.Group{

@@ -44,7 +44,7 @@ func (s *GroupServiceImpl) RepairGroups(ctx context.Context) (*GroupRepairResult
 			continue
 		}
 
-		needsTierFix := models.NormalizeGroupTier(group.Tier) != expectedTier
+		needsTierFix := group.Tier == "" || models.NormalizeGroupTier(group.Tier) != expectedTier
 		needsAutoLookupFix := group.Settings.SifangAutoLookupEnabled && !group.Settings.SifangEnabled
 
 		if !needsTierFix && !needsAutoLookupFix {
