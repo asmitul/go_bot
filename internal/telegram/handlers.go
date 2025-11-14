@@ -31,6 +31,8 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireOwner(b.handleGrantAdmin)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/revoke", bot.MatchTypePrefix,
 		b.asyncHandler(b.RequireOwner(b.handleRevokeAdmin)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "校验", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireOwner(b.handleValidateGroupsCommand)))
 
 	// 管理员命令（Admin+） - 异步执行
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/admins", bot.MatchTypeExact,
@@ -200,6 +202,7 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("<b>Owner 专属命令</b>\n")
 	text.WriteString("/grant &lt;user_id&gt; - 授予管理员权限\n")
 	text.WriteString("/revoke &lt;user_id&gt; - 撤销管理员权限\n\n")
+	text.WriteString("校验 - 校验数据库中的群组配置状态\n\n")
 
 	text.WriteString("<b>商户号管理（Admin+，群组）</b>\n")
 	text.WriteString("绑定 <code>[商户号]</code> - 绑定当前群组的四方商户号\n")
@@ -296,6 +299,56 @@ func (b *Bot) handleRevokeAdmin(ctx context.Context, botInstance *bot.Bot, updat
 
 	b.sendSuccessMessage(ctx, update.Message.Chat.ID,
 		fmt.Sprintf("已撤销用户 %d 的管理员权限", targetID))
+}
+
+// handleValidateGroupsCommand 处理 Owner 的「校验」命令
+func (b *Bot) handleValidateGroupsCommand(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	result, err := b.groupService.ValidateGroups(ctx)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, fmt.Sprintf("校验失败：%v", err))
+		return
+	}
+
+	var text strings.Builder
+	text.WriteString("📋 群组数据校验完成\n")
+	text.WriteString(fmt.Sprintf("总群组数：%d\n", result.TotalGroups))
+	text.WriteString(fmt.Sprintf("发现问题：%d\n", len(result.Issues)))
+
+	if len(result.Issues) == 0 {
+		text.WriteString("\n✅ 所有群组均已通过校验")
+		b.sendMessage(ctx, update.Message.Chat.ID, text.String())
+		return
+	}
+
+	text.WriteString("\n⚠️ 以下群组需要处理：\n")
+	maxDetails := 10
+	if len(result.Issues) < maxDetails {
+		maxDetails = len(result.Issues)
+	}
+
+	for i := 0; i < maxDetails; i++ {
+		issue := result.Issues[i]
+		text.WriteString(fmt.Sprintf("%d. %s (%d)\n", i+1, issue.Title, issue.GroupID))
+		tier := issue.StoredTier
+		if tier == "" {
+			tier = "(未设置)"
+		}
+		text.WriteString(fmt.Sprintf("   tier=%s, status=%s\n", tier, issue.BotStatus))
+		for _, problem := range issue.Problems {
+			text.WriteString(fmt.Sprintf("   - %s\n", problem))
+		}
+	}
+
+	if len(result.Issues) > maxDetails {
+		text.WriteString(fmt.Sprintf("... 还有 %d 个群组存在问题，建议登录数据库继续排查\n",
+			len(result.Issues)-maxDetails))
+	}
+
+	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
 }
 
 // handleListAdmins 处理 /admins 命令（列出所有管理员）

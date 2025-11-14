@@ -62,6 +62,9 @@ type GroupService interface {
 
 	// HandleBotRemovedFromGroup Bot 被移出群组
 	HandleBotRemovedFromGroup(ctx context.Context, telegramID int64, reason string) error
+
+	// ValidateGroups 校验群组数据
+	ValidateGroups(ctx context.Context) (*GroupValidationResult, error)
 }
 
 // MessageService 消息业务逻辑接口
