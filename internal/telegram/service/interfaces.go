@@ -65,6 +65,9 @@ type GroupService interface {
 
 	// ValidateGroups 校验群组数据
 	ValidateGroups(ctx context.Context) (*GroupValidationResult, error)
+
+	// RepairGroups 自动修复可矫正的问题（例如缺失 tier、冲突开关）
+	RepairGroups(ctx context.Context) (*GroupRepairResult, error)
 }
 
 // MessageService 消息业务逻辑接口

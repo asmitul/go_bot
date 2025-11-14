@@ -34,6 +34,8 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireOwner(b.handleRevokeAdmin)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "校验", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireOwner(b.handleValidateGroupsCommand)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "修复", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireOwner(b.handleRepairGroupsCommand)))
 
 	// 管理员命令（Admin+） - 异步执行
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/admins", bot.MatchTypeExact,
@@ -204,6 +206,7 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("/grant &lt;user_id&gt; - 授予管理员权限\n")
 	text.WriteString("/revoke &lt;user_id&gt; - 撤销管理员权限\n\n")
 	text.WriteString("校验 - 校验数据库中的群组配置状态\n\n")
+	text.WriteString("修复 - 自动修复可识别的群组配置问题（例如缺少 tier）\n\n")
 
 	text.WriteString("<b>商户号管理（Admin+，群组）</b>\n")
 	text.WriteString("绑定 <code>[商户号]</code> - 绑定当前群组的四方商户号\n")
@@ -352,6 +355,30 @@ func (b *Bot) handleValidateGroupsCommand(ctx context.Context, botInstance *bot.
 		text.WriteString(fmt.Sprintf("... 还有 %d 个群组存在问题，建议登录数据库继续排查\n",
 			len(result.Issues)-maxDetails))
 	}
+
+	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
+}
+
+// handleRepairGroupsCommand 处理 Owner 的「修复」命令
+func (b *Bot) handleRepairGroupsCommand(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	result, err := b.groupService.RepairGroups(ctx)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, fmt.Sprintf("修复失败：%v", err))
+		return
+	}
+
+	var text strings.Builder
+	text.WriteString("🔧 群组数据修复完成\n")
+	text.WriteString(fmt.Sprintf("扫描群组：%d\n", result.TotalGroups))
+	text.WriteString(fmt.Sprintf("成功写入：%d\n", result.UpdatedGroups))
+	text.WriteString(fmt.Sprintf("跳过：%d\n\n", result.SkippedGroups))
+	text.WriteString(fmt.Sprintf("✅ 修复 tier：%d\n", result.TierFixed))
+	text.WriteString(fmt.Sprintf("✅ 关闭冲突的四方查单：%d\n", result.AutoLookupDisabled))
+	text.WriteString("\n如需查看详细列表，请先执行“校验”命令。")
 
 	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
 }
