@@ -50,6 +50,10 @@ func (s *stubGroupService) HandleBotRemovedFromGroup(ctx context.Context, telegr
 	return nil
 }
 
+func (s *stubGroupService) ValidateGroups(ctx context.Context) (*GroupValidationResult, error) {
+	return &GroupValidationResult{}, nil
+}
+
 func TestConfigMenuServiceHandleToggle_DisabledWhenSifangOff(t *testing.T) {
 	svc := NewConfigMenuService(&stubGroupService{})
 	group := &models.Group{Settings: models.GroupSettings{

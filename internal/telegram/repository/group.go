@@ -137,6 +137,21 @@ func (r *MongoGroupRepository) DeleteGroup(ctx context.Context, telegramID int64
 	return nil
 }
 
+// ListAllGroups 列出所有群组
+func (r *MongoGroupRepository) ListAllGroups(ctx context.Context) ([]*models.Group, error) {
+	cursor, err := r.collection.Find(ctx, bson.D{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list groups: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var groups []*models.Group
+	if err := cursor.All(ctx, &groups); err != nil {
+		return nil, fmt.Errorf("failed to decode groups: %w", err)
+	}
+	return groups, nil
+}
+
 // ListActiveGroups 列出所有活跃群组
 func (r *MongoGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
 	filter := bson.M{"bot_status": models.BotStatusActive}

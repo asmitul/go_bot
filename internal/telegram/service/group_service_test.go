@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/repository"
@@ -11,6 +13,7 @@ import (
 
 type stubGroupRepository struct {
 	storedGroup     *models.Group
+	allGroups       []*models.Group
 	lastUpdatedTier models.GroupTier
 }
 
@@ -35,6 +38,16 @@ func (s *stubGroupRepository) UpdateBotStatus(ctx context.Context, telegramID in
 
 func (s *stubGroupRepository) DeleteGroup(ctx context.Context, telegramID int64) error {
 	return nil
+}
+
+func (s *stubGroupRepository) ListAllGroups(ctx context.Context) ([]*models.Group, error) {
+	if s.allGroups != nil {
+		return s.allGroups, nil
+	}
+	if s.storedGroup == nil {
+		return nil, nil
+	}
+	return []*models.Group{s.storedGroup}, nil
 }
 
 func (s *stubGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.Group, error) {
@@ -152,6 +165,94 @@ func TestHandleBotRemovedFromGroupResetsBindings(t *testing.T) {
 	if repo.storedGroup.Tier != models.GroupTierBasic {
 		t.Fatalf("expected tier to downgrade to basic, got %s", repo.storedGroup.Tier)
 	}
+}
+
+func TestValidateGroupsHealthy(t *testing.T) {
+	now := time.Now()
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID:  100,
+				Title:       "Healthy",
+				Tier:        models.GroupTierBasic,
+				BotStatus:   models.BotStatusActive,
+				MemberCount: 10,
+				BotJoinedAt: now,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+				Stats: models.GroupStats{
+					TotalMessages: 5,
+					LastMessageAt: now,
+				},
+				Settings: models.GroupSettings{
+					CalculatorEnabled:       true,
+					CryptoEnabled:           true,
+					CryptoFloatRate:         0.12,
+					ForwardEnabled:          true,
+					SifangEnabled:           true,
+					SifangAutoLookupEnabled: true,
+				},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.ValidateGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.TotalGroups != 1 {
+		t.Fatalf("expected 1 group, got %d", result.TotalGroups)
+	}
+
+	if len(result.Issues) != 0 {
+		t.Fatalf("expected no issues, got %d", len(result.Issues))
+	}
+}
+
+func TestValidateGroupsDetectsProblems(t *testing.T) {
+	repo := &stubGroupRepository{
+		allGroups: []*models.Group{
+			{
+				TelegramID: 200,
+				Tier:       "",
+				BotStatus:  "mystery",
+				Settings: models.GroupSettings{
+					MerchantID:              123,
+					InterfaceIDs:            []string{"upstream-1"},
+					SifangEnabled:           false,
+					SifangAutoLookupEnabled: true,
+				},
+				Stats: models.GroupStats{},
+			},
+		},
+	}
+
+	service := NewGroupService(repo)
+	result, err := service.ValidateGroups(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(result.Issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(result.Issues))
+	}
+
+	problems := result.Issues[0].Problems
+	mustContainProblem(t, problems, "配置冲突")
+	mustContainProblem(t, problems, "四方自动查单")
+	mustContainProblem(t, problems, "缺少 bot_joined_at")
+}
+
+func mustContainProblem(t *testing.T, problems []string, keyword string) {
+	t.Helper()
+	for _, problem := range problems {
+		if strings.Contains(problem, keyword) {
+			return
+		}
+	}
+	t.Fatalf("expected problem containing %q, got %v", keyword, problems)
 }
 
 var _ repository.GroupRepository = (*stubGroupRepository)(nil)

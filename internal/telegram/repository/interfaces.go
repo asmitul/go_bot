@@ -48,6 +48,9 @@ type GroupRepository interface {
 	// DeleteGroup 删除群组（Bot 离开时）
 	DeleteGroup(ctx context.Context, telegramID int64) error
 
+	// ListAllGroups 列出所有群组（包含非活跃）
+	ListAllGroups(ctx context.Context) ([]*models.Group, error)
+
 	// ListActiveGroups 列出所有活跃群组
 	ListActiveGroups(ctx context.Context) ([]*models.Group, error)
 

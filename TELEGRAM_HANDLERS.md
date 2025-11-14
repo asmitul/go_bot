@@ -4,8 +4,8 @@
 
 ## 概览
 
-项目当前注册了 **22 个 Update Handler**：
-- 12 个命令处理器（Command Handlers）
+项目当前注册了 **23 个 Update Handler**：
+- 13 个命令处理器（Command Handlers）
 - 3 个回调处理器（Callback Handlers）
 - 7 个事件处理器（Event Handlers）
 
@@ -266,6 +266,19 @@
   - 删除触发命令的管理员消息（失败时仅记日志，不影响主流程）
 - **Service**: UserService（权限校验）
 - **数据库**: 无
+
+### 1.19 `校验` - 群组数据体检（Owner）
+
+- **文件位置**: `internal/telegram/handlers.go:304`
+- **权限**: Owner only（通过 `RequireOwner` 中间件）
+- **触发**: 文本消息 `校验`（精确匹配，建议在 Owner 私聊中使用）
+- **主要功能**:
+  - 调用 `GroupService.ValidateGroups`（`internal/telegram/service/group_validation.go`）遍历 `groups` 集合
+  - 统计总群组数量与存在异常的群组数量
+  - 列出最多 10 个有问题的群组，展示 `tier`、`bot_status` 与逐条问题描述（如缺少 `tier` 字段、配置冲突等）
+  - 若异常群组超过 10 个，会提示剩余数量，方便登录数据库继续排查
+- **Service**: GroupService
+- **数据库**: 全量读取 `groups` 集合用于校验
 
 ---
 
