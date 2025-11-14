@@ -267,11 +267,11 @@
 - **Service**: UserService（权限校验）
 - **数据库**: 无
 
-### 1.19 `校验` - 群组数据体检（Owner）
+### 1.19 `/validate` - 群组数据体检（Owner）
 
 - **文件位置**: `internal/telegram/handlers.go:304`
 - **权限**: Owner only（通过 `RequireOwner` 中间件）
-- **触发**: 文本消息 `校验`（精确匹配，建议在 Owner 私聊中使用）
+- **触发**: `/validate` 命令（精确匹配，建议在 Owner 私聊中使用）
 - **主要功能**:
   - 调用 `GroupService.ValidateGroups`（`internal/telegram/service/group_validation.go`）遍历 `groups` 集合
   - 统计总群组数量与存在异常的群组数量
@@ -280,11 +280,11 @@
 - **Service**: GroupService
 - **数据库**: 全量读取 `groups` 集合用于校验
 
-### 1.20 `修复` - 自动修复群组配置（Owner）
+### 1.20 `/repair` - 自动修复群组配置（Owner）
 
 - **文件位置**: `internal/telegram/handlers.go:359`
 - **权限**: Owner only
-- **触发**: 文本消息 `修复`（精确匹配）
+- **触发**: `/repair` 命令（精确匹配）
 - **主要功能**:
   - 调用 `GroupService.RepairGroups`（`internal/telegram/service/group_repair.go`）扫描全部群组
   - 自动补写缺失或错误的 `tier`，将 `tier` 与 `GroupSettings` 当前状态保持一致

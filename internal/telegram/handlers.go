@@ -32,9 +32,9 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireOwner(b.handleGrantAdmin)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/revoke", bot.MatchTypePrefix,
 		b.asyncHandler(b.RequireOwner(b.handleRevokeAdmin)))
-	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "校验", bot.MatchTypeExact,
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/validate", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireOwner(b.handleValidateGroupsCommand)))
-	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "修复", bot.MatchTypeExact,
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/repair", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireOwner(b.handleRepairGroupsCommand)))
 
 	// 管理员命令（Admin+） - 异步执行
@@ -205,8 +205,8 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("<b>Owner 专属命令</b>\n")
 	text.WriteString("/grant &lt;user_id&gt; - 授予管理员权限\n")
 	text.WriteString("/revoke &lt;user_id&gt; - 撤销管理员权限\n\n")
-	text.WriteString("校验 - 校验数据库中的群组配置状态\n\n")
-	text.WriteString("修复 - 自动修复可识别的群组配置问题（例如缺少 tier）\n\n")
+	text.WriteString("/validate - 校验数据库中的群组配置状态\n")
+	text.WriteString("/repair - 自动修复可识别的群组配置问题（例如缺少 tier）\n\n")
 
 	text.WriteString("<b>商户号管理（Admin+，群组）</b>\n")
 	text.WriteString("绑定 <code>[商户号]</code> - 绑定当前群组的四方商户号\n")
