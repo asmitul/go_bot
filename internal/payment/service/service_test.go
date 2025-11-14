@@ -234,6 +234,92 @@ func TestDecodeSummaryByDayChannel_DynamicKeys(t *testing.T) {
 	}
 }
 
+func TestDecodeSummaryByPZID_Items(t *testing.T) {
+	payload := map[string]interface{}{
+		"pzid":       "1024",
+		"start_date": "2024-10-20",
+		"end_date":   "2024-10-26",
+		"items": []map[string]interface{}{
+			{
+				"date":            "2024-10-26",
+				"order_count":     25,
+				"gross_amount":    "10000.00",
+				"merchant_income": "9800.00",
+				"agent_income":    "200.00",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	summary, err := decodeSummaryByPZID(data)
+	if err != nil {
+		t.Fatalf("decode pzid summary: %v", err)
+	}
+	if summary == nil {
+		t.Fatalf("expected summary, got nil")
+	}
+	if summary.PZID != "1024" || summary.StartDate != "2024-10-20" || summary.EndDate != "2024-10-26" {
+		t.Fatalf("unexpected meta: %#v", summary)
+	}
+	if len(summary.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(summary.Items))
+	}
+	item := summary.Items[0]
+	if item.Date != "2024-10-26" || item.OrderCount != "25" {
+		t.Fatalf("unexpected item: %#v", item)
+	}
+	if item.GrossAmount != "10000.00" || item.MerchantIncome != "9800.00" || item.AgentIncome != "200.00" {
+		t.Fatalf("unexpected amounts: %#v", item)
+	}
+}
+
+func TestDecodeSummaryByPZID_DynamicKeys(t *testing.T) {
+	payload := map[string]interface{}{
+		"result": map[string]interface{}{
+			"2024-11-01": map[string]interface{}{
+				"count":            10,
+				"sum_amount":       "1234.56",
+				"merchant_real":    "1100.00",
+				"agent_profit":     "134.56",
+				"success_count":    9,
+				"success_amount":   "1234.56",
+				"merchant_income":  "1100.00",
+				"agent_income":     "134.56",
+				"gross_amount":     "1234.56",
+				"merchant_amount":  "1100.00",
+				"agent_commission": "134.56",
+			},
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	summary, err := decodeSummaryByPZID(data)
+	if err != nil {
+		t.Fatalf("decode pzid summary: %v", err)
+	}
+	if summary == nil {
+		t.Fatalf("expected summary, got nil")
+	}
+	if len(summary.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(summary.Items))
+	}
+	item := summary.Items[0]
+	if item.Date != "2024-11-01" || item.OrderCount != "10" {
+		t.Fatalf("unexpected item: %#v", item)
+	}
+	if item.GrossAmount != "1234.56" || item.MerchantIncome != "1100.00" || item.AgentIncome != "134.56" {
+		t.Fatalf("unexpected amounts: %#v", item)
+	}
+}
+
 func TestDecodeOrderDetail(t *testing.T) {
 	raw := map[string]interface{}{
 		"order": map[string]interface{}{

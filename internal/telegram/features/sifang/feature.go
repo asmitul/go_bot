@@ -381,6 +381,11 @@ func parseSummaryDate(raw string, now time.Time, usage string) (time.Time, error
 	return candidate, nil
 }
 
+// ParseSummaryDate 暴露给其他功能复用的日期解析
+func ParseSummaryDate(raw string, now time.Time, usage string) (time.Time, error) {
+	return parseSummaryDate(raw, now, usage)
+}
+
 func parseBalanceDate(raw string, now time.Time) (time.Time, error) {
 	return parseSummaryDate(raw, now, "余额")
 }
