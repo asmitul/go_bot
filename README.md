@@ -105,7 +105,7 @@ cd go_bot
 本项目应用层模块位于 `internal/app/` 目录，作为统一的服务初始化和生命周期管理层。
 
 - **核心职责**：
-  - 统一管理所有服务的初始化（MongoDB、Telegram Bot、Redis 等）
+  - 统一管理所有服务的初始化（MongoDB、Telegram Bot（可选：四方支付服务）等）
   - 提供优雅的资源关闭机制
   - 简化 `main.go` 入口逻辑，保持代码整洁
 
