@@ -61,7 +61,7 @@ cd go_bot
 | ---------------- | --------------------------------------------------------------- | ---------- |
 | `LOG_LEVEL`      | 日志级别（支持：`debug`、`info`、`warn`、`error`）                | `info`     |
 | `MONGO_DB_NAME`  | MongoDB 数据库名称。未设置时默认使用 `go_bot` | `go_bot` |
-| `MESSAGE_RETENTION_DAYS` | 消息保留天数，过期后自动删除（最小值：1） | `7` |
+| `MESSAGE_RETENTION_DAYS` | 消息保留天数，过期后自动删除，仅接受整数天数（最小值：1，若需缩短测试时长可暂调为 `1` 并在测试后清理数据） | `7` |
 | `DAILY_BILL_PUSH_ENABLED` | 是否开启每日 00:00:05 自动推送昨日账单（仅作用于已绑定商户号且启用四方功能的群组） | `true` |
 
 
@@ -89,7 +89,7 @@ cd go_bot
   - `BOT_OWNER_IDS` - 机器人管理员 ID 列表（支持单个 ID 如 `123456789`，或逗号分隔多个 ID 如 `123456789,987654321`）
   - `MONGO_URI` - MongoDB 数据库连接字符串
   - `MONGO_DB_NAME` - MongoDB 数据库名称（默认：`go_bot`）
-  - `MESSAGE_RETENTION_DAYS` - 消息保留天数（默认：`7`，最小值：`1`）
+  - `MESSAGE_RETENTION_DAYS` - 消息保留天数（默认：`7`，仅接受 ≥1 的整数；若需缩短测试时长可设置为 `1` 并在测试后清理数据）
   - `CHANNEL_ID` - 可选，配置频道 ID 后启用频道消息转发
   - 四方支付相关（可选）：
     - `SIFANG_BASE_URL` - 四方支付接口基础地址，例如 `https://www.example.com/index.php?s=/Index/Api`
