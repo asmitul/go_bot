@@ -189,6 +189,26 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
+		// 订单联动转发开关（仅上游群）
+		{
+			ID:       "cascade_forward_enabled",
+			Name:     "转单开关",
+			Icon:     "🔁",
+			Type:     models.ConfigTypeToggle,
+			Category: "订单联动",
+			AllowedTiers: []models.GroupTier{
+				models.GroupTierUpstream,
+			},
+			ToggleGetter: func(g *models.Group) bool {
+				return g.Settings.CascadeForwardEnabled
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.CascadeForwardEnabled = val
+				s.CascadeForwardConfigured = true
+			},
+			RequireAdmin: true,
+		},
+
 		// ========== 扩展示例（已注释）==========
 		//
 		// 需要更多配置？取消注释或添加新配置项即可：

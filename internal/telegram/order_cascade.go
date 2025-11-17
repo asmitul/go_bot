@@ -127,6 +127,10 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			logger.L().Warnf("Order cascade skipped, upstream bot inactive: group_id=%d order_no=%s", upstreamGroup.TelegramID, orderUpper)
 			continue
 		}
+		if !upstreamGroup.Settings.CascadeForwardEnabled {
+			logger.L().Infof("Order cascade skipped, upstream disabled forwarding: group_id=%d order_no=%s", upstreamGroup.TelegramID, orderUpper)
+			continue
+		}
 
 		interfaceName, _ := resolveCascadeInterfaceDescriptor(upstreamGroup.Settings.InterfaceBindings, interfaceID, binding.PZName)
 		statusText := strings.TrimSpace(binding.StatusText)

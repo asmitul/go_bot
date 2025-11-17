@@ -64,13 +64,15 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		BotStatus:  models.BotStatusActive,
 		Tier:       models.GroupTierBasic,
 		Settings: models.GroupSettings{
-			CalculatorEnabled:       true,
-			CryptoEnabled:           true,
-			CryptoFloatRate:         0.12,
-			ForwardEnabled:          true,
-			AccountingEnabled:       false,
-			SifangEnabled:           true,
-			SifangAutoLookupEnabled: true,
+			CalculatorEnabled:        true,
+			CryptoEnabled:            true,
+			CryptoFloatRate:          0.12,
+			ForwardEnabled:           true,
+			AccountingEnabled:        false,
+			SifangEnabled:            true,
+			SifangAutoLookupEnabled:  true,
+			CascadeForwardEnabled:    true,
+			CascadeForwardConfigured: true,
 		},
 		Stats: models.GroupStats{},
 		// BotJoinedAt、CreatedAt、UpdatedAt 由 CreateOrUpdate 的 $setOnInsert 自动设置
@@ -236,6 +238,7 @@ func ensureGroupTier(group *models.Group) {
 	}
 
 	group.Settings.InterfaceBindings = models.NormalizeInterfaceBindings(group.Settings.InterfaceBindings)
+	ensureCascadeForwardDefaults(&group.Settings)
 
 	if group.Tier != "" {
 		return
@@ -247,4 +250,14 @@ func ensureGroupTier(group *models.Group) {
 	}
 
 	group.Tier = models.GroupTierBasic
+}
+
+func ensureCascadeForwardDefaults(settings *models.GroupSettings) {
+	if settings == nil {
+		return
+	}
+	if !settings.CascadeForwardConfigured {
+		settings.CascadeForwardEnabled = true
+		settings.CascadeForwardConfigured = true
+	}
 }
