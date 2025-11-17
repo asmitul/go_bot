@@ -368,13 +368,6 @@ func orderCascadeActionLabel(action string) string {
 	return html.EscapeString(action)
 }
 
-func orderCascadeActionDescription(action string) string {
-	if info, ok := orderCascadeActions[action]; ok {
-		return info.description
-	}
-	return ""
-}
-
 func formatCascadeActor(user *botModels.User) string {
 	if user == nil {
 		return "未知成员"
