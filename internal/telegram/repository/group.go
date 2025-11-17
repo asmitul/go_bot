@@ -2,12 +2,16 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"go_bot/internal/telegram/models"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -96,6 +100,35 @@ func (r *MongoGroupRepository) GetByTelegramID(ctx context.Context, telegramID i
 			return nil, fmt.Errorf("group not found: %d", telegramID)
 		}
 		return nil, fmt.Errorf("failed to get group: %w", err)
+	}
+	return &group, nil
+}
+
+// FindByInterfaceID 根据接口 ID 查找绑定的群组
+func (r *MongoGroupRepository) FindByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error) {
+	cleanID := strings.TrimSpace(interfaceID)
+	if cleanID == "" {
+		return nil, fmt.Errorf("interface id is required")
+	}
+
+	filter := bson.M{
+		"settings.interface_bindings": bson.M{
+			"$elemMatch": bson.M{
+				"id": primitive.Regex{
+					Pattern: fmt.Sprintf("^%s$", regexp.QuoteMeta(cleanID)),
+					Options: "i",
+				},
+			},
+		},
+	}
+
+	var group models.Group
+	err := r.collection.FindOne(ctx, filter).Decode(&group)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find group by interface id: %w", err)
 	}
 	return &group, nil
 }
@@ -223,6 +256,9 @@ func (r *MongoGroupRepository) EnsureIndexes(ctx context.Context, ttlSeconds int
 		},
 		{
 			Keys: bson.D{{Key: "type", Value: 1}},
+		},
+		{
+			Keys: bson.D{{Key: "settings.interface_bindings.id", Value: 1}},
 		},
 	}
 

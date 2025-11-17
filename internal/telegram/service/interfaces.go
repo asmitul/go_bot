@@ -45,6 +45,9 @@ type GroupService interface {
 	// GetOrCreateGroup 获取或创建群组记录（智能处理，群组不存在时自动创建）
 	GetOrCreateGroup(ctx context.Context, chatInfo *TelegramChatInfo) (*models.Group, error)
 
+	// FindGroupByInterfaceID 根据接口 ID 获取群组
+	FindGroupByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error)
+
 	// MarkBotLeft 标记 Bot 离开群组
 	MarkBotLeft(ctx context.Context, telegramID int64) error
 

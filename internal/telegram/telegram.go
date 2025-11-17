@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go_bot/internal/config"
@@ -66,6 +67,9 @@ type Bot struct {
 	messageRepo       repository.MessageRepository
 	forwardRecordRepo repository.ForwardRecordRepository
 	accountingRepo    repository.AccountingRepository
+
+	orderCascadeStates map[string]*orderCascadeState
+	orderCascadeMu     sync.RWMutex
 }
 
 // New 创建 Telegram Bot 实例
@@ -140,6 +144,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		messageRepo:          messageRepo,
 		forwardRecordRepo:    forwardRecordRepo,
 		accountingRepo:       accountingRepo,
+		orderCascadeStates:   make(map[string]*orderCascadeState),
 	}
 
 	tempCtx, tempCancel := context.WithCancel(context.Background())

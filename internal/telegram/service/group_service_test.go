@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,33 @@ func (s *stubGroupRepository) GetByTelegramID(ctx context.Context, telegramID in
 		return nil, errors.New("not found")
 	}
 	return s.storedGroup, nil
+}
+
+func (s *stubGroupRepository) FindByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error) {
+	target := strings.TrimSpace(interfaceID)
+	if target == "" {
+		return nil, fmt.Errorf("empty interface id")
+	}
+
+	if len(s.allGroups) > 0 {
+		for _, group := range s.allGroups {
+			for _, binding := range group.Settings.InterfaceBindings {
+				if strings.EqualFold(binding.ID, target) {
+					return group, nil
+				}
+			}
+		}
+	}
+
+	if s.storedGroup != nil {
+		for _, binding := range s.storedGroup.Settings.InterfaceBindings {
+			if strings.EqualFold(binding.ID, target) {
+				return s.storedGroup, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func (s *stubGroupRepository) UpdateBotStatus(ctx context.Context, telegramID int64, status string) error {

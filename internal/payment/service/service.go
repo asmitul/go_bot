@@ -22,6 +22,7 @@ type Service interface {
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
 	GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderDetail, error)
+	FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderChannelBinding, error)
 }
 
 type sifangService struct {
@@ -49,6 +50,22 @@ type OrderDetail struct {
 	Order      *Order
 	Extended   *OrderExtended
 	NotifyLogs []*NotifyLog
+}
+
+// OrderChannelBinding 描述订单所属渠道/接口信息
+type OrderChannelBinding struct {
+	MerchantID          string
+	MerchantOrderNo     string
+	MerchantOrderNoFull string
+	PlatformOrderNo     string
+	OrderID             string
+	PZID                string
+	PZName              string
+	ChannelCode         string
+	ChannelName         string
+	StatusCode          string
+	Status              string
+	StatusText          string
 }
 
 // Order 订单基础信息
@@ -130,6 +147,7 @@ const (
 )
 
 const orderDetailTimeout = 8 * time.Second
+const orderChannelLookupTimeout = 6 * time.Second
 
 // NewSifangService 创建基于四方支付的服务实现
 func NewSifangService(client *sifang.Client) Service {
@@ -425,6 +443,76 @@ func (s *sifangService) GetOrderDetail(ctx context.Context, merchantID int64, or
 	return nil, fmt.Errorf("order detail lookup failed")
 }
 
+func (s *sifangService) FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderChannelBinding, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return nil, fmt.Errorf("order number is required")
+	}
+
+	if numberType == "" {
+		numberType = OrderNumberTypeAuto
+	}
+
+	lookupOrder := resolveOrderNumberTypes(numberType)
+	var lastErr error
+
+	for idx, kind := range lookupOrder {
+		business := make(map[string]string, 1)
+		switch kind {
+		case OrderNumberTypeMerchant:
+			business["merchant_order_no"] = orderNo
+		case OrderNumberTypePlatform:
+			business["platform_order_no"] = orderNo
+		default:
+			continue
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx, orderChannelLookupTimeout)
+		raw := make(map[string]interface{})
+		err := s.client.Post(reqCtx, "findpzidbyorder", merchantID, business, &raw)
+		cancel()
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("find order channel timed out (%s number)", describeOrderNumberType(kind))
+			}
+
+			var apiErr *sifang.APIError
+			if errors.As(err, &apiErr) {
+				lastErr = fmt.Errorf("find order channel failed with sifang error (%s number): %w", describeOrderNumberType(kind), err)
+			} else {
+				lastErr = fmt.Errorf("find order channel failed (%s number): %w", describeOrderNumberType(kind), err)
+			}
+
+			if idx < len(lookupOrder)-1 {
+				continue
+			}
+
+			return nil, lastErr
+		}
+
+		binding := decodeOrderChannelBinding(raw)
+		if binding == nil {
+			lastErr = fmt.Errorf("order channel binding is empty (%s number)", describeOrderNumberType(kind))
+			if idx < len(lookupOrder)-1 {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		return binding, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fmt.Errorf("order channel lookup failed")
+}
+
 func resolveOrderNumberTypes(numberType OrderNumberType) []OrderNumberType {
 	switch numberType {
 	case OrderNumberTypeMerchant:
@@ -545,6 +633,35 @@ func decodeBalance(raw map[string]interface{}) *Balance {
 		HistoryDays:     parseInt(raw["history_days"], 0),
 		HistoryBalance:  stringify(raw["history_balance"]),
 	}
+}
+
+func decodeOrderChannelBinding(raw map[string]interface{}) *OrderChannelBinding {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	binding := &OrderChannelBinding{
+		MerchantID:          pickString(raw, "merchant_id", "fxid"),
+		MerchantOrderNo:     pickString(raw, "merchant_order_no", "order_no", "merchant_no"),
+		MerchantOrderNoFull: pickString(raw, "merchant_order_no_full", "merchant_order_no_fullname"),
+		PlatformOrderNo:     pickString(raw, "platform_order_no", "platform_no", "sys_order_no", "orderid"),
+		OrderID:             pickString(raw, "order_id", "id"),
+		PZID:                pickString(raw, "pzid", "channel_id", "upstream_id", "interface_id"),
+		PZName:              pickString(raw, "pz_name", "pzname", "interface_name", "channel_name"),
+		ChannelCode:         pickString(raw, "channel_code", "channel", "pay_channel"),
+		ChannelName:         pickString(raw, "channel_name", "channel_display", "pay_channel_name"),
+		StatusCode:          pickString(raw, "status_code", "status_num"),
+		Status:              pickString(raw, "status"),
+		StatusText:          pickString(raw, "status_text", "status_desc"),
+	}
+
+	if binding.PZID == "" && binding.ChannelCode == "" &&
+		binding.MerchantOrderNo == "" && binding.MerchantOrderNoFull == "" &&
+		binding.PlatformOrderNo == "" {
+		return nil
+	}
+
+	return binding
 }
 
 func decodeOrderDetail(raw map[string]interface{}) *OrderDetail {

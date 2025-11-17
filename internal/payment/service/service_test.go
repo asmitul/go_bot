@@ -33,6 +33,40 @@ func TestDecodeBalance(t *testing.T) {
 	}
 }
 
+func TestDecodeOrderChannelBinding(t *testing.T) {
+	raw := map[string]interface{}{
+		"merchant_id":            "1001",
+		"merchant_order_no":      "M-1",
+		"merchant_order_no_full": "1001M-1",
+		"platform_order_no":      "P-9",
+		"order_id":               12345,
+		"pzid":                   337,
+		"pz_name":                "Test Interface",
+		"channel_code":           "USDT",
+		"channel_name":           "USDT 通道",
+		"status_code":            1,
+		"status":                 "success",
+		"status_text":            "已支付",
+	}
+
+	binding := decodeOrderChannelBinding(raw)
+	if binding == nil {
+		t.Fatalf("expected binding, got nil")
+	}
+	if binding.PZID != "337" || binding.MerchantOrderNo != "M-1" || binding.ChannelCode != "USDT" {
+		t.Fatalf("unexpected binding: %#v", binding)
+	}
+	if binding.StatusText != "已支付" || binding.Status != "success" {
+		t.Fatalf("unexpected status: %#v", binding)
+	}
+}
+
+func TestDecodeOrderChannelBinding_Empty(t *testing.T) {
+	if binding := decodeOrderChannelBinding(map[string]interface{}{}); binding != nil {
+		t.Fatalf("expected nil binding, got %#v", binding)
+	}
+}
+
 func TestDecodeSummaryByDay_List(t *testing.T) {
 	payload := map[string]interface{}{
 		"list": []map[string]interface{}{
@@ -530,6 +564,103 @@ func TestSifangService_GetOrderDetail_APIError(t *testing.T) {
 	svc := NewSifangService(client)
 	if _, err := svc.GetOrderDetail(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant); err == nil {
 		t.Fatalf("expected api error")
+	}
+}
+
+func TestSifangService_FindOrderChannelBinding_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("merchant_order_no"); got != "MER-1" {
+			t.Fatalf("unexpected merchant order no: %s", got)
+		}
+		fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","merchant_order_no":"MER-1","pzid":337,"pz_name":"接口A","channel_code":"WX","channel_name":"微信","status_text":"未支付"}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	binding, err := svc.FindOrderChannelBinding(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant)
+	if err != nil {
+		t.Fatalf("FindOrderChannelBinding returned error: %v", err)
+	}
+	if binding == nil || binding.PZID != "337" || binding.ChannelCode != "WX" {
+		t.Fatalf("unexpected binding: %#v", binding)
+	}
+}
+
+func TestSifangService_FindOrderChannelBinding_Fallback(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+
+		if r.Form.Get("merchant_order_no") != "" {
+			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+			return
+		}
+
+		if got := r.Form.Get("platform_order_no"); got != "PLAT-1" {
+			t.Fatalf("unexpected platform order no: %s", got)
+		}
+		fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","platform_order_no":"PLAT-1","pzid":99}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	binding, err := svc.FindOrderChannelBinding(context.Background(), 1001, "PLAT-1", OrderNumberTypeAuto)
+	if err != nil {
+		t.Fatalf("FindOrderChannelBinding returned error: %v", err)
+	}
+	if binding == nil || binding.PZID != "99" {
+		t.Fatalf("unexpected binding: %#v", binding)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected 2 requests, got %d", requestCount)
+	}
+}
+
+func TestSifangService_FindOrderChannelBinding_NoData(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"code":0,"message":"success","data":{}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	if _, err := svc.FindOrderChannelBinding(context.Background(), 1001, "MER-1", OrderNumberTypeMerchant); err == nil {
+		t.Fatalf("expected error for empty binding")
 	}
 }
 

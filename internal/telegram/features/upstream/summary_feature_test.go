@@ -242,3 +242,7 @@ func (s *stubPaymentService) SendMoney(ctx context.Context, merchantID int64, am
 func (s *stubPaymentService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderDetail, error) {
 	panic("not implemented")
 }
+
+func (s *stubPaymentService) FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderChannelBinding, error) {
+	return nil, nil
+}
