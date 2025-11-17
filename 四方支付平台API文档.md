@@ -1,6 +1,6 @@
 # API 接口文档
 
-- **基础地址**：`https://www.example.com/index.php?s=/Index/Api/{action}`
+- **基础地址**：`https://example.com`
 - **调用方式**：HTTP `POST`（`Content-Type: application/x-www-form-urlencoded`）
 - **编码**：UTF-8
 - **返回格式**：JSON
@@ -348,8 +348,8 @@
         "paid_at": "2025-11-16 23:16:49",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460157465303",
-        "return_url": "https://guvjhklik.kwafly3m0wv.com"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460148520133",
@@ -369,8 +369,8 @@
         "paid_at": "2025-11-16 22:28:39",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460148520133",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460139249826",
@@ -390,8 +390,8 @@
         "paid_at": "2025-11-16 21:42:42",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460139249826",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460113029217",
@@ -411,8 +411,8 @@
         "paid_at": "2025-11-16 18:00:00",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460113029217",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460080766922",
@@ -432,8 +432,8 @@
         "paid_at": "2025-11-16 12:31:20",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460080766922",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460077748244",
@@ -453,8 +453,8 @@
         "paid_at": "2025-11-16 12:02:20",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460077748244",
-        "return_url": "https://tyguio-uhujuk.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460077204545",
@@ -474,8 +474,8 @@
         "paid_at": "2025-11-16 11:53:55",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460077204545",
-        "return_url": "https://yajgknh.yzxpx.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460075747233",
@@ -495,8 +495,8 @@
         "paid_at": "2025-11-16 11:37:55",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460075747233",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460067825479",
@@ -516,8 +516,8 @@
         "paid_at": "2025-11-16 10:23:41",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460063723786",
@@ -537,8 +537,8 @@
         "paid_at": "2025-11-16 09:12:35",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460063723786",
-        "return_url": "https://bmu157.185.186.177.1270.vdomain.wsu/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460062852675",
@@ -558,8 +558,8 @@
         "paid_at": "2025-11-16 09:11:07",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460062852675",
-        "return_url": "https://yajgknh.yzxpx.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021460032960977",
@@ -579,8 +579,8 @@
         "paid_at": "2025-11-16 03:01:43",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460032960977",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450160511951",
@@ -600,8 +600,8 @@
         "paid_at": "2025-11-15 23:34:10",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450160511951",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450157842951",
@@ -621,8 +621,8 @@
         "paid_at": "2025-11-15 23:23:21",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450157842951",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450155360010",
@@ -642,8 +642,8 @@
         "paid_at": "2025-11-15 23:11:40",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450155360010",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450147163052",
@@ -663,8 +663,8 @@
         "paid_at": "2025-11-15 22:24:30",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450147163052",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450146732934",
@@ -684,8 +684,8 @@
         "paid_at": "2025-11-15 22:24:00",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450146732934",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450140971080",
@@ -705,8 +705,8 @@
         "paid_at": "2025-11-15 21:53:50",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450140971080",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450136450545",
@@ -726,8 +726,8 @@
         "paid_at": "2025-11-15 21:26:04",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450136450545",
-        "return_url": "https://iygujhl.mipcpro.com/pay/finish"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       },
       {
         "merchant_order_no": "210127021450123872921",
@@ -747,8 +747,8 @@
         "paid_at": "2025-11-15 20:03:16",
         "product_title": "desc",
         "attach": "",
-        "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021450123872921",
-        "return_url": "https://146.103.73.121"
+        "notify_url": "https://example.com",
+        "return_url": "https://example.com"
       }
     ],
     "summary": {
@@ -852,8 +852,8 @@
             "paid_at": "2025-11-16 10:23:41",
             "product_title": "desc",
             "attach": "",
-            "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
-            "return_url": "https://iygujhl.mipcpro.com/pay/finish",
+            "notify_url": "https://example.com",
+            "return_url": "https://example.com",
             "extended": {
                 "order_id": 32179372,
                 "merchant_order_no_full": "2024164210127021460067825479",
@@ -865,8 +865,8 @@
                 "client_attach": {
                     "fxdesc": "desc",
                     "fxattch": null,
-                    "fxnotifyurl": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
-                    "fxbackurl": "https://iygujhl.mipcpro.com/pay/finish",
+                    "fxnotifyurl": "https://example.com",
+                    "fxbackurl": "https://example.com",
                     "fxip": "223.104.76.196",
                     "fxbankcode": null,
                     "fxfs": null,
@@ -914,8 +914,8 @@
             "paid_at": "2025-11-16 10:23:41",
             "product_title": "desc",
             "attach": "",
-            "notify_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
-            "return_url": "https://iygujhl.mipcpro.com/pay/finish",
+            "notify_url": "https://example.com",
+            "return_url": "https://example.com",
             "extended": {
                 "order_id": 32179372,
                 "merchant_order_no_full": "2024164210127021460067825479",
@@ -927,8 +927,8 @@
                 "client_attach": {
                     "fxdesc": "desc",
                     "fxattch": null,
-                    "fxnotifyurl": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
-                    "fxbackurl": "https://iygujhl.mipcpro.com/pay/finish",
+                    "fxnotifyurl": "https://example.com",
+                    "fxbackurl": "https://example.com",
                     "fxip": "223.104.76.196",
                     "fxbankcode": null,
                     "fxfs": null,
@@ -948,7 +948,7 @@
         "notify_logs": [
             {
                 "log_id": 7825692,
-                "callback_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
+                "callback_url": "https://example.com",
                 "request_payload": {
                     "fxid": "2024164",
                     "fxddh": "210127021460067825479",
@@ -1017,8 +1017,8 @@
             "paid_at": "2025-11-17 02:33:53",
             "product_title": "商品支付",
             "attach": "",
-            "notify_url": "https://zhongxin.856937.com/Test/notifyUrl",
-            "return_url": "https://zhongxin.856937.com/Test/backUrl"
+            "notify_url": "https://example.com",
+            "return_url": "https://example.com"
         }
     }
 }
@@ -1067,8 +1067,8 @@
             "paid_at": null,
             "product_title": "商品支付",
             "attach": "",
-            "notify_url": "https://zhongxin.856937.com/Test/notifyUrl",
-            "return_url": "https://zhongxin.856937.com/Test/backUrl"
+            "notify_url": "https://example.com",
+            "return_url": "https://example.com"
         }
     }
 }
@@ -1087,8 +1087,8 @@
 | `order_no`       | 否   | 商户订单号（未传则自动生成）                                          |
 | `amount`         | ✓    | 金额（单位元，保留两位小数）                                          |
 | `channel_code`   | 否   | 通道代码（未传自动选用首个可用通道）                                  |
-| `notify_url`     | 否   | 异步通知地址，默认 `https://当前域名/Test/notifyUrl`                  |
-| `return_url`     | 否   | 同步回调地址，默认 `https://当前域名/Test/backUrl`                    |
+| `notify_url`     | 否   | 异步通知地址，默认 `https://example.com`                  |
+| `return_url`     | 否   | 同步回调地址，默认 `https://example.com`                    |
 | `description`    | 否   | 商品名称，默认“商品支付”                                              |
 | `attach`         | 否   | 附加信息                                                               |
 | `client_ip`      | 否   | 客户端 IP，默认获取调用方 IP                                          |
@@ -1122,7 +1122,7 @@
         "channel_code": "wxhftest",
         "description": "商品支付",
         "payment": null,
-        "payment_url": "http://47.107.142.195?orderNo=20221455efbeca974a515c5",
+        "payment_url": "https://example.com",
         "order_id": 32180458,
         "platform_order_no": "",
         "order_md5": "5efbeca974a515c5",
@@ -1211,7 +1211,7 @@
             {
                 "log_id": 7825692,
                 "merchant_order_no_full": "2024164210127021460067825479",
-                "callback_url": "https://aezatniv.vintaze.com/pay/notify/1270/cnyzhongxinpay/210127021460067825479",
+                "callback_url": "https://example.com",
                 "request_payload": {
                     "fxid": "2024164",
                     "fxddh": "210127021460067825479",

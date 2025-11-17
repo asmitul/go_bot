@@ -24,6 +24,10 @@ func (s *stubGroupService) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 	return nil, nil
 }
 
+func (s *stubGroupService) FindGroupByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error) {
+	return nil, nil
+}
+
 func (s *stubGroupService) MarkBotLeft(ctx context.Context, telegramID int64) error {
 	return nil
 }

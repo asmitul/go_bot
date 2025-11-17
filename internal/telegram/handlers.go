@@ -57,6 +57,11 @@ func (b *Bot) registerHandlers() {
 		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, sifangfeature.SendMoneyCallbackPrefix)
 	}, b.asyncHandler(b.handleSifangSendMoneyCallback))
 
+	// 订单联动反馈回调处理
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, orderCascadeCallbackPrefix)
+	}, b.asyncHandler(b.handleOrderCascadeCallback))
+
 	// 转发撤回回调处理器（如果转发服务已启用）
 	if b.forwardService != nil {
 		b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
@@ -794,6 +799,55 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 	} else {
 		b.answerCallback(ctx, botInstance, query.ID, "", false)
 	}
+}
+
+func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	query := update.CallbackQuery
+	if query == nil || query.Data == "" {
+		return
+	}
+
+	trimmed := strings.TrimPrefix(query.Data, orderCascadeCallbackPrefix)
+	parts := strings.SplitN(trimmed, ":", 2)
+	if len(parts) != 2 {
+		b.answerCallback(ctx, botInstance, query.ID, "无效的操作", true)
+		return
+	}
+
+	action := parts[0]
+	token := parts[1]
+
+	state, ok := b.getOrderCascadeState(token)
+	if !ok || state == nil {
+		b.answerCallback(ctx, botInstance, query.ID, "操作已过期", true)
+		return
+	}
+
+	now := time.Now()
+	feedback := buildOrderCascadeFeedbackMessage(state, action, &query.From, now)
+	if strings.TrimSpace(feedback) == "" {
+		b.answerCallback(ctx, botInstance, query.ID, "暂无法处理", true)
+		return
+	}
+
+	var replyTo []int
+	if state.MerchantMessageID > 0 {
+		replyTo = append(replyTo, state.MerchantMessageID)
+	}
+
+	if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, feedback, nil, replyTo...); err != nil {
+		logger.L().Errorf("Failed to relay cascade feedback: merchant_chat=%d order_no=%s err=%v",
+			state.MerchantChatID, state.OrderNo, err)
+		b.answerCallback(ctx, botInstance, query.ID, "反馈发送失败", true)
+		return
+	}
+
+	var cascadeMsg *botModels.Message
+	if query.Message.Message != nil {
+		cascadeMsg = query.Message.Message
+	}
+	b.editCascadeMessage(ctx, state, cascadeMsg, action, &query.From, now)
+	b.answerCallback(ctx, botInstance, query.ID, "反馈已同步", false)
 }
 
 func (b *Bot) tryScheduleSifangSendMoneyExpiration(sentMsg *botModels.Message, markup botModels.ReplyMarkup) {

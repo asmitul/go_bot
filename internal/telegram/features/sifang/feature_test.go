@@ -872,6 +872,10 @@ func (f *fakePaymentService) GetOrderDetail(ctx context.Context, merchantID int6
 	return f.orderDetailResp, nil
 }
 
+func (f *fakePaymentService) FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderChannelBinding, error) {
+	return nil, nil
+}
+
 type stubUserService struct {
 	isAdmin bool
 }

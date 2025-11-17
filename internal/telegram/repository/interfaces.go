@@ -42,6 +42,9 @@ type GroupRepository interface {
 	// GetByTelegramID 根据 Telegram ID 获取群组
 	GetByTelegramID(ctx context.Context, telegramID int64) (*models.Group, error)
 
+	// FindByInterfaceID 根据接口 ID 查找群组
+	FindByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error)
+
 	// UpdateBotStatus 更新 Bot 在群组中的状态
 	UpdateBotStatus(ctx context.Context, telegramID int64, status string) error
 

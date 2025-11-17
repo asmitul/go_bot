@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go_bot/internal/logger"
 	"go_bot/internal/telegram/models"
@@ -63,13 +64,15 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 		BotStatus:  models.BotStatusActive,
 		Tier:       models.GroupTierBasic,
 		Settings: models.GroupSettings{
-			CalculatorEnabled:       true,
-			CryptoEnabled:           true,
-			CryptoFloatRate:         0.12,
-			ForwardEnabled:          true,
-			AccountingEnabled:       false,
-			SifangEnabled:           true,
-			SifangAutoLookupEnabled: true,
+			CalculatorEnabled:        true,
+			CryptoEnabled:            true,
+			CryptoFloatRate:          0.12,
+			ForwardEnabled:           true,
+			AccountingEnabled:        false,
+			SifangEnabled:            true,
+			SifangAutoLookupEnabled:  true,
+			CascadeForwardEnabled:    true,
+			CascadeForwardConfigured: true,
 		},
 		Stats: models.GroupStats{},
 		// BotJoinedAt、CreatedAt、UpdatedAt 由 CreateOrUpdate 的 $setOnInsert 自动设置
@@ -90,6 +93,23 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 
 	logger.L().Infof("Auto-created group record: chat_id=%d, title=%s", chatInfo.ChatID, chatInfo.Title)
 	return createdGroup, nil
+}
+
+// FindGroupByInterfaceID 根据接口 ID 获取绑定群组
+func (s *GroupServiceImpl) FindGroupByInterfaceID(ctx context.Context, interfaceID string) (*models.Group, error) {
+	cleanID := strings.TrimSpace(interfaceID)
+	if cleanID == "" {
+		return nil, fmt.Errorf("接口 ID 不能为空")
+	}
+
+	group, err := s.groupRepo.FindByInterfaceID(ctx, cleanID)
+	if err != nil {
+		logger.L().Errorf("Failed to find group by interface ID %s: %v", cleanID, err)
+		return nil, fmt.Errorf("获取接口绑定群组失败")
+	}
+
+	ensureGroupTier(group)
+	return group, nil
 }
 
 // MarkBotLeft 标记 Bot 离开群组
@@ -218,6 +238,7 @@ func ensureGroupTier(group *models.Group) {
 	}
 
 	group.Settings.InterfaceBindings = models.NormalizeInterfaceBindings(group.Settings.InterfaceBindings)
+	ensureCascadeForwardDefaults(&group.Settings)
 
 	if group.Tier != "" {
 		return
@@ -229,4 +250,14 @@ func ensureGroupTier(group *models.Group) {
 	}
 
 	group.Tier = models.GroupTierBasic
+}
+
+func ensureCascadeForwardDefaults(settings *models.GroupSettings) {
+	if settings == nil {
+		return
+	}
+	if !settings.CascadeForwardConfigured {
+		settings.CascadeForwardEnabled = true
+		settings.CascadeForwardConfigured = true
+	}
 }

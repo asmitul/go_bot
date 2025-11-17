@@ -81,6 +81,7 @@ func (b *Bot) tryTriggerSifangAutoLookup(ctx context.Context, msg *botModels.Mes
 	}
 
 	go b.performSifangOrderLookup(msg.Chat.ID, msg.ID, merchantID, orderNos)
+	go b.startOrderCascadeWorkflow(group, msg, orderNos)
 }
 
 func (b *Bot) performSifangOrderLookup(chatID int64, messageID int, merchantID int64, orderNos []string) {
@@ -119,7 +120,7 @@ func (b *Bot) performSifangOrderLookup(chatID int64, messageID int, merchantID i
 	sendCtx, cancel := context.WithTimeout(context.Background(), orderLookupSendTimeout)
 	defer cancel()
 
-	if _, err := b.sendMessageWithMarkupAndMessage(sendCtx, chatID, builder.String(), nil, messageID); err != nil {
+	if _, err := b.sendMessageWithMarkupAndMessage(sendCtx, chatID, builder.String(), nil); err != nil {
 		logger.L().Errorf("Failed to send sifang auto lookup result: chat_id=%d message_id=%d err=%v", chatID, messageID, err)
 	}
 }
