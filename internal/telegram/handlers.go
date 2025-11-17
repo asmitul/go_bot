@@ -842,7 +842,11 @@ func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.B
 		return
 	}
 
-	b.editCascadeMessage(ctx, state, action, &query.From, now)
+	var cascadeMsg *botModels.Message
+	if query.Message.Message != nil {
+		cascadeMsg = query.Message.Message
+	}
+	b.editCascadeMessage(ctx, state, cascadeMsg, action, &query.From, now)
 	b.answerCallback(ctx, botInstance, query.ID, "反馈已同步", false)
 }
 

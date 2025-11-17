@@ -41,22 +41,7 @@ func TestBuildOrderCascadeFeedbackMessage(t *testing.T) {
 	when := time.Date(2024, 11, 20, 10, 30, 0, 0, time.UTC)
 
 	text := buildOrderCascadeFeedbackMessage(state, orderCascadeActionManual, user, when)
-	if !strings.Contains(text, "商户群：商户群") {
-		t.Fatalf("expected source group, got %s", text)
-	}
-	if !strings.Contains(text, "上游群：上游群") {
-		t.Fatalf("expected upstream group, got %s", text)
-	}
-	if !strings.Contains(text, "接口：#123 接口X") {
-		t.Fatalf("expected interface info, got %s", text)
-	}
-	if !strings.Contains(text, "反馈结果：🛠 人工处理") {
-		t.Fatalf("expected action label, got %s", text)
-	}
-	if !strings.Contains(text, "@tester") {
-		t.Fatalf("expected actor, got %s", text)
-	}
-	if !strings.Contains(text, when.Format("2006-01-02 15:04:05")) {
-		t.Fatalf("expected timestamp, got %s", text)
+	if text != "🛠 人工处理" {
+		t.Fatalf("unexpected feedback text: %s", text)
 	}
 }

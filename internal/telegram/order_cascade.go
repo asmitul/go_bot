@@ -61,6 +61,7 @@ type orderCascadeState struct {
 	UpstreamChatID     int64
 	UpstreamMessageID  int
 	OrderNo            string
+	HasMedia           bool
 	MerchantOrderFull  string
 	InterfaceID        string
 	InterfaceName      string
@@ -152,6 +153,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 
 		caption := buildOrderCascadeMessage(payload)
 
+		stateHasMedia := false
 		var sent *botModels.Message
 		var err error
 		sendCtx, cancel := context.WithTimeout(context.Background(), orderCascadeSendTimeout)
@@ -164,6 +166,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 				ParseMode:   botModels.ParseModeHTML,
 				ReplyMarkup: markup,
 			})
+			stateHasMedia = true
 		case msg.Video != nil:
 			sent, err = b.bot.SendVideo(sendCtx, &bot.SendVideoParams{
 				ChatID:      upstreamGroup.TelegramID,
@@ -172,6 +175,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 				ParseMode:   botModels.ParseModeHTML,
 				ReplyMarkup: markup,
 			})
+			stateHasMedia = true
 		default:
 			sent, err = b.sendMessageWithMarkupAndMessage(sendCtx, upstreamGroup.TelegramID, caption, markup)
 		}
@@ -197,6 +201,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			SourceGroupTitle:   group.Title,
 			UpstreamGroupTitle: upstreamGroup.Title,
 			BaseMessageText:    caption,
+			HasMedia:           stateHasMedia,
 			CreatedAt:          detectionTime,
 			ExpiresAt:          detectionTime.Add(orderCascadeStateTTL),
 		}
@@ -349,53 +354,7 @@ func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, a
 		return ""
 	}
 
-	actionLabel := orderCascadeActionLabel(action)
-	actionDesc := orderCascadeActionDescription(action)
-
-	builder := &strings.Builder{}
-	builder.WriteString("🔁 <b>上游反馈</b>\n")
-	if state.SourceGroupTitle != "" {
-		builder.WriteString(fmt.Sprintf("商户群：%s\n", html.EscapeString(state.SourceGroupTitle)))
-	}
-	if state.UpstreamGroupTitle != "" {
-		builder.WriteString(fmt.Sprintf("上游群：%s\n", html.EscapeString(state.UpstreamGroupTitle)))
-	}
-	if state.InterfaceID != "" {
-		builder.WriteString(fmt.Sprintf("接口：#%s %s\n", html.EscapeString(state.InterfaceID), html.EscapeString(state.InterfaceName)))
-	}
-	orderNo := strings.TrimSpace(state.MerchantOrderFull)
-	if orderNo == "" {
-		orderNo = state.OrderNo
-	}
-	if orderNo != "" {
-		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
-	}
-	if state.ChannelName != "" || state.ChannelCode != "" {
-		channel := strings.TrimSpace(state.ChannelName)
-		if channel == "" {
-			channel = state.ChannelCode
-		} else if strings.TrimSpace(state.ChannelCode) != "" {
-			channel = fmt.Sprintf("%s（%s）", channel, state.ChannelCode)
-		}
-		builder.WriteString(fmt.Sprintf("支付通道：%s\n", html.EscapeString(channel)))
-	}
-
-	builder.WriteString(fmt.Sprintf("反馈结果：%s\n", actionLabel))
-	if actionDesc != "" {
-		builder.WriteString(actionDesc + "\n")
-	}
-
-	if actor != nil {
-		builder.WriteString(fmt.Sprintf("操作人：%s\n", formatCascadeActor(actor)))
-	}
-
-	if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-	builder.WriteString(fmt.Sprintf("同步时间：%s\n", timestamp.Format("2006-01-02 15:04:05")))
-	builder.WriteString("（已自动同步至商户群）")
-
-	return builder.String()
+	return orderCascadeActionLabel(action)
 }
 
 func orderCascadeActionLabel(action string) string {
@@ -426,7 +385,7 @@ func formatCascadeActor(user *botModels.User) string {
 	return fmt.Sprintf("#%d", user.ID)
 }
 
-func (b *Bot) editCascadeMessage(ctx context.Context, state *orderCascadeState, action string, actor *botModels.User, timestamp time.Time) {
+func (b *Bot) editCascadeMessage(ctx context.Context, state *orderCascadeState, originalMsg *botModels.Message, action string, actor *botModels.User, timestamp time.Time) {
 	if state == nil || state.UpstreamChatID == 0 || state.UpstreamMessageID == 0 {
 		return
 	}
@@ -443,5 +402,28 @@ func (b *Bot) editCascadeMessage(ctx context.Context, state *orderCascadeState, 
 	builder.WriteString(fmt.Sprintf("%s · %s · %s", actionLabel, actorText, timestamp.Format("2006-01-02 15:04:05")))
 
 	markup := buildOrderCascadeKeyboard(state.Token)
+
+	useCaption := state.HasMedia
+	if originalMsg != nil {
+		if len(originalMsg.Photo) > 0 || originalMsg.Video != nil {
+			useCaption = true
+		}
+	}
+
+	if useCaption {
+		_, err := b.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
+			ChatID:      state.UpstreamChatID,
+			MessageID:   state.UpstreamMessageID,
+			Caption:     builder.String(),
+			ParseMode:   botModels.ParseModeHTML,
+			ReplyMarkup: markup,
+		})
+		if err != nil {
+			logger.L().Errorf("Failed to edit cascade caption: chat_id=%d message_id=%d err=%v",
+				state.UpstreamChatID, state.UpstreamMessageID, err)
+		}
+		return
+	}
+
 	b.editMessage(ctx, state.UpstreamChatID, state.UpstreamMessageID, builder.String(), markup)
 }
