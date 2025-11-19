@@ -75,7 +75,7 @@ cd go_bot
 
 ## 🗄️ 5. 数据库模块
 
-本项目数据库模块位于 `internal/mongo/` 目录，使用 [**MongoDB 官方 Go 驱动**](https://github.com/mongodb/mongo-go-driver) 实现。
+本项目数据库模块位于 `internal/mongo/` 目录，使用 [**MongoDB 官方 Go 驱动**](https://pkg.go.dev/go.mongodb.org/mongo-driver/mongo) 实现。
 
 - **连接配置**：通过环境变量 `MONGO_URI` 配置数据库连接字符串（如：`mongodb+srv://<user>:<password>@cluster0.mongodb.net/<dbname>?retryWrites=true&w=majority`）
 

@@ -4,8 +4,8 @@
 
 ## 概览
 
-项目当前注册了 **24 个 Update Handler**：
-- 14 个命令处理器（Command Handlers）
+项目当前注册了 **30 个 Update Handler**：
+- 20 个命令处理器（Command Handlers）
 - 3 个回调处理器（Callback Handlers）
 - 7 个事件处理器（Event Handlers）
 

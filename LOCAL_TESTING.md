@@ -133,44 +133,67 @@ exit
 
 ## ⚡ 快速验证 TTL 自动删除（1 分钟测试）
 
-如果想快速验证 TTL 是否真的会自动删除消息，可以临时设置极短的保留期：
+默认配置要求 `MESSAGE_RETENTION_DAYS` 至少为 **1 天**，因此无法直接通过环境变量将 TTL 设置为几分钟。若需要快速验证 TTL 索引是否按预期删除消息，可以在本地 MongoDB 中暂时修改索引的 `expireAfterSeconds`。
 
-### 步骤 1: 修改保留期
+### 步骤 1: 保持合法配置
 
-编辑 `.env.local`，设置为约 1 分钟：
-
-```bash
-MESSAGE_RETENTION_DAYS=0.0007  # 约 60 秒
-```
-
-### 步骤 2: 重启 Bot
+确保 `.env.local` 中的 `MESSAGE_RETENTION_DAYS` 为允许的整数（例如 `1` 或 `7`），然后重新启动 bot：
 
 ```bash
 make local-restart
-make local-logs  # 确认日志显示新的 TTL 时间: 约 60 seconds
 ```
 
-### 步骤 3: 发送测试消息
-
-向 bot 发送几条测试消息。
-
-### 步骤 4: 等待 1-2 分钟后检查
+### 步骤 2: 通过 `mongosh` 调整 TTL 索引
 
 ```bash
 make local-mongo
 ```
 
-在 mongosh 中执行：
+在 shell 中执行以下命令，将 TTL 临时缩短为 60 秒：
 
 ```javascript
 use go_bot_local
-db.messages.countDocuments()  // 应该为 0 或很少
-db.messages.find().pretty()   // 应该看不到刚才的消息
+db.runCommand({
+  collMod: "messages",
+  index: {
+    name: "sent_at_1",
+    expireAfterSeconds: 60
+  }
+})
+```
+
+### 步骤 3: 发送测试消息
+
+向 bot 发送几条消息，确认它们已写入数据库：
+
+```javascript
+db.messages.find().sort({sent_at: -1}).limit(3)
+```
+
+### 步骤 4: 等待 1-2 分钟后再次检查
+
+```javascript
+db.messages.countDocuments()      // 应为 0 或明显减少
+db.messages.find().pretty()       // 最近消息应已被删除
+```
+
+### 步骤 5: 还原 TTL 设置
+
+测试完成后务必恢复默认过期时间（示例为 7 天 = 604800 秒）：
+
+```javascript
+db.runCommand({
+  collMod: "messages",
+  index: {
+    name: "sent_at_1",
+    expireAfterSeconds: 604800
+  }
+})
 ```
 
 ⚠️ **注意**：
-- MongoDB TTL 后台任务每 60 秒运行一次，所以实际删除可能有最多 1 分钟延迟
-- 测试完成后记得改回正常值：`MESSAGE_RETENTION_DAYS=7`
+- MongoDB TTL 后台任务每 60 秒运行一次，所以删除会有最多 1 分钟延迟
+- 若使用其他 `MESSAGE_RETENTION_DAYS` 值，请将 `expireAfterSeconds` 还原为对应的 `天数 × 86400`
 
 ---
 
