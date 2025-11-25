@@ -76,7 +76,7 @@ func (r *MongoUpstreamBalanceRepository) Adjust(
 	}
 	defer session.EndSession(ctx)
 
-	txnOpts := options.Transaction().SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	txnOpts := options.Transaction().SetWriteConcern(writeconcern.Majority())
 	result, err := session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		if operationID != "" {
 			if existing, err := r.findLogByOperation(sc, groupID, operationID); err == nil && existing != nil {
@@ -219,7 +219,7 @@ func (r *MongoUpstreamBalanceRepository) updateSettings(ctx context.Context, gro
 	}
 	defer session.EndSession(ctx)
 
-	txnOpts := options.Transaction().SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	txnOpts := options.Transaction().SetWriteConcern(writeconcern.Majority())
 	result, err := session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		now := time.Now()
 		filter := balanceFilter(groupID)
