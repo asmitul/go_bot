@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,16 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireOwner(b.handleValidateGroupsCommand)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/repair", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireOwner(b.handleRepairGroupsCommand)))
+
+	// 上游余额相关（Admin+）
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/余额", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleUpstreamBalanceQuery)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/set_min_balance", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleUpstreamSetMinBalance)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/set_balance_alert_limit", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireAdmin(b.handleUpstreamSetAlertLimit)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/日结", bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleUpstreamSettlement)))
 
 	// 管理员命令（Admin+） - 异步执行
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/admins", bot.MatchTypeExact,
@@ -249,6 +260,105 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("记账输入格式示例：<code>+100U</code>、<code>-50Y</code>、<code>入100*7.2</code>、<code>出50/2Y</code>\n")
 
 	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
+}
+
+func (b *Bot) handleUpstreamBalanceQuery(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	msg := update.Message
+	if msg == nil {
+		return
+	}
+
+	result, err := b.balanceService.Get(ctx, msg.Chat.ID)
+	if err != nil {
+		logger.L().Errorf("Balance query failed: chat_id=%d err=%v", msg.Chat.ID, err)
+		b.sendErrorMessage(ctx, msg.Chat.ID, "查询余额失败", msg.ID)
+		return
+	}
+
+	status := "✅ 余额正常"
+	if result.Balance < result.MinBalance {
+		status = "⚠️ 余额低于阈值"
+	}
+
+	text := fmt.Sprintf("%s\n当前余额：%.2f CNY\n最低余额：%.2f CNY\n告警频率：每小时 %d 次",
+		status, result.Balance, result.MinBalance, result.AlertLimitPerHour)
+	b.sendMessage(ctx, msg.Chat.ID, text)
+}
+
+func (b *Bot) handleUpstreamSetMinBalance(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	msg := update.Message
+	if msg == nil {
+		return
+	}
+	fields := strings.Fields(strings.TrimSpace(msg.Text))
+	if len(fields) < 2 {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "用法：/set_min_balance 金额", msg.ID)
+		return
+	}
+
+	threshold, err := strconv.ParseFloat(strings.TrimSpace(fields[1]), 64)
+	if err != nil || threshold < 0 {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "请输入合法的金额（>=0）", msg.ID)
+		return
+	}
+
+	result, setErr := b.balanceService.SetMinBalance(ctx, msg.Chat.ID, threshold, msg.From.ID)
+	if setErr != nil {
+		logger.L().Errorf("Set min balance failed: chat_id=%d err=%v", msg.Chat.ID, setErr)
+		b.sendErrorMessage(ctx, msg.Chat.ID, "设置失败", msg.ID)
+		return
+	}
+
+	text := fmt.Sprintf("✅ 最低余额已更新为 %.2f CNY\n当前余额：%.2f CNY", result.MinBalance, result.Balance)
+	b.sendSuccessMessage(ctx, msg.Chat.ID, text, msg.ID)
+}
+
+func (b *Bot) handleUpstreamSetAlertLimit(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	msg := update.Message
+	if msg == nil {
+		return
+	}
+	fields := strings.Fields(strings.TrimSpace(msg.Text))
+	if len(fields) < 2 {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "用法：/set_balance_alert_limit 每小时次数", msg.ID)
+		return
+	}
+
+	limit, err := strconv.Atoi(strings.TrimSpace(fields[1]))
+	if err != nil || limit <= 0 {
+		b.sendErrorMessage(ctx, msg.Chat.ID, "请输入大于 0 的整数", msg.ID)
+		return
+	}
+
+	result, setErr := b.balanceService.SetAlertLimit(ctx, msg.Chat.ID, limit, msg.From.ID)
+	if setErr != nil {
+		logger.L().Errorf("Set alert limit failed: chat_id=%d err=%v", msg.Chat.ID, setErr)
+		b.sendErrorMessage(ctx, msg.Chat.ID, "设置失败", msg.ID)
+		return
+	}
+
+	text := fmt.Sprintf("✅ 告警频率已更新为 每小时 %d 次\n当前余额：%.2f CNY", result.AlertLimitPerHour, result.Balance)
+	b.sendSuccessMessage(ctx, msg.Chat.ID, text, msg.ID)
+}
+
+func (b *Bot) handleUpstreamSettlement(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	msg := update.Message
+	if msg == nil {
+		return
+	}
+
+	loc := mustLoadChinaLocation()
+	target := previousBillingDate(time.Now().In(loc), loc)
+	operationID := fmt.Sprintf("settle:%s", target.Format("2006-01-02"))
+
+	result, err := b.balanceService.SettleDaily(ctx, msg.Chat.ID, target, msg.From.ID, operationID)
+	if err != nil {
+		logger.L().Errorf("Manual upstream settlement failed: chat_id=%d err=%v", msg.Chat.ID, err)
+		b.sendErrorMessage(ctx, msg.Chat.ID, fmt.Sprintf("日结失败：%v", err), msg.ID)
+		return
+	}
+
+	b.sendSuccessMessage(ctx, msg.Chat.ID, result.Report, msg.ID)
 }
 
 // handleGrantAdmin 处理 /grant 命令（授予管理员权限）

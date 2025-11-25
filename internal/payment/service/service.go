@@ -581,11 +581,13 @@ type SummaryByPZID struct {
 
 // SummaryByPZIDItem 为单日统计
 type SummaryByPZIDItem struct {
-	Date           string
-	OrderCount     string
-	GrossAmount    string
-	MerchantIncome string
-	AgentIncome    string
+	Date             string
+	OrderCount       string
+	GrossAmount      string
+	MerchantIncome   string
+	AgentIncome      string
+	UpstreamFee      string
+	NetAfterUpstream string
 }
 
 // ChannelStatus 表示通道状态
@@ -1159,6 +1161,10 @@ func buildPZIDSummaryItem(value interface{}) *SummaryByPZIDItem {
 			"merchant_income", "merchant_amount", "merchant_money", "merchant", "merchant_real", "merchant_real_amount", "real_amount"),
 		AgentIncome: pickString(m,
 			"agent_income", "agent_amount", "agent_profit", "agent_money", "profit", "commission"),
+		UpstreamFee: pickString(m,
+			"upstream_fee", "upstream_cost", "interface_fee", "channel_fee", "up_fee", "total_fee"),
+		NetAfterUpstream: pickString(m,
+			"net_after_upstream", "net_amount", "amount_after_upstream", "net_after_fee", "net_amount_after_fee"),
 	}
 
 	if item.Date == "" {

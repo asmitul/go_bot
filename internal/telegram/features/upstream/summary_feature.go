@@ -231,22 +231,30 @@ func formatUpstreamSummary(binding models.InterfaceBinding, summary *paymentserv
 	orderCount := safeValue(item.OrderCount, "0")
 	grossAmount := safeValue(item.GrossAmount, "0")
 	merchantIncome := safeValue(item.MerchantIncome, "0")
-	agentIncome := safeValue(item.AgentIncome, "0")
+	upstreamFee := strings.TrimSpace(item.UpstreamFee)
+	netAfterUpstream := strings.TrimSpace(item.NetAfterUpstream)
 
 	pzName := ""
 	if summary != nil {
 		pzName = strings.TrimSpace(summary.PZName)
 	}
 	nameLine := fmt.Sprintf("接口：%s", formatInterfaceDescriptor(binding))
-	return fmt.Sprintf("📈 上游账单 - %s\n%s%s\n跑量：%s\n商户实收：%s\n代理收益：%s\n订单数：%s",
+	transactionAmount := netAfterUpstream
+	if transactionAmount == "" {
+		transactionAmount = merchantIncome
+	}
+
+	message := fmt.Sprintf("📈 上游账单 - %s\n%s%s\n跑量: %s\n成交: %s\n笔数: %s",
 		dateStr,
 		nameLine,
 		formatChannelLine(pzName),
 		html.EscapeString(grossAmount),
-		html.EscapeString(merchantIncome),
-		html.EscapeString(agentIncome),
-		html.EscapeString(orderCount),
-	)
+		html.EscapeString(transactionAmount),
+		html.EscapeString(orderCount))
+
+	_ = upstreamFee // retained for possible future display
+
+	return message
 }
 
 func formatChannelLine(pzName string) string {

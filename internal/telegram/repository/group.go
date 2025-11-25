@@ -76,6 +76,9 @@ func (r *MongoGroupRepository) CreateOrUpdate(ctx context.Context, group *models
 				SifangAutoLookupEnabled:  true,  // 新群组默认启用四方自动查单
 				CascadeForwardEnabled:    true,  // 新群组默认启用订单联动
 				CascadeForwardConfigured: true,
+				BalanceMonitorEnabled:    true,
+				BalanceMonitorConfigured: true,
+				BalanceMonitorInterval:   10,
 			},
 			"stats": models.GroupStats{
 				TotalMessages: 0,

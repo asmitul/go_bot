@@ -168,3 +168,33 @@ type AccountingService interface {
 	// ClearAllRecords 清空所有记录
 	ClearAllRecords(ctx context.Context, chatID int64) (int64, error)
 }
+
+// UpstreamBalanceService 上游群余额业务接口
+type UpstreamBalanceService interface {
+	Adjust(ctx context.Context, groupID int64, delta float64, operatorID int64, remark string, operationID string) (*UpstreamBalanceResult, bool, error)
+	SetMinBalance(ctx context.Context, groupID int64, threshold float64, operatorID int64) (*UpstreamBalanceResult, error)
+	SetAlertLimit(ctx context.Context, groupID int64, limit int, operatorID int64) (*UpstreamBalanceResult, error)
+	Get(ctx context.Context, groupID int64) (*UpstreamBalanceResult, error)
+	ListAll(ctx context.Context) ([]*UpstreamBalanceResult, error)
+	SettleDaily(ctx context.Context, groupID int64, targetDate time.Time, operatorID int64, operationID string) (*SettlementResult, error)
+	SubscribeEvents() <-chan *models.UpstreamBalanceEvent
+}
+
+// UpstreamBalanceResult 返回余额及阈值信息
+type UpstreamBalanceResult struct {
+	GroupID           int64
+	Balance           float64
+	MinBalance        float64
+	AlertLimitPerHour int
+	UpdatedAt         time.Time
+}
+
+// SettlementResult 返回日结结果
+type SettlementResult struct {
+	GroupID        int64
+	TargetDate     time.Time
+	TotalDeduction float64
+	Balance        float64
+	BelowMin       bool
+	Report         string
+}

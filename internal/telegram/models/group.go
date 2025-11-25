@@ -64,6 +64,9 @@ type GroupSettings struct {
 	SifangAutoLookupEnabled  bool               `bson:"sifang_auto_lookup_enabled"`   // 是否启用四方支付自动查单
 	CascadeForwardEnabled    bool               `bson:"cascade_forward_enabled"`      // 是否启用订单联动转发
 	CascadeForwardConfigured bool               `bson:"cascade_forward_configured"`   // 是否已手动配置转单开关
+	BalanceMonitorEnabled    bool               `bson:"balance_monitor_enabled"`      // 是否启用上游余额轮询告警
+	BalanceMonitorConfigured bool               `bson:"balance_monitor_configured"`   // 是否已手动配置轮询告警
+	BalanceMonitorInterval   int                `bson:"balance_monitor_interval"`     // 轮询间隔（分钟），0 表示使用默认
 }
 
 // InterfaceBinding 描述单个上游接口绑定
@@ -143,6 +146,22 @@ func NormalizeGroupTier(tier GroupTier) GroupTier {
 		return GroupTierBasic
 	}
 	return tier
+}
+
+// IsBalanceMonitorEnabled 返回是否启用余额轮询告警（未配置时默认开启）
+func IsBalanceMonitorEnabled(settings GroupSettings) bool {
+	if settings.BalanceMonitorConfigured {
+		return settings.BalanceMonitorEnabled
+	}
+	return true
+}
+
+// BalanceMonitorIntervalMinutes 返回轮询间隔（分钟），默认 10 分钟
+func BalanceMonitorIntervalMinutes(settings GroupSettings) time.Duration {
+	if settings.BalanceMonitorInterval > 0 {
+		return time.Duration(settings.BalanceMonitorInterval) * time.Minute
+	}
+	return 10 * time.Minute
 }
 
 // IsTierAllowed 判断当前群等级是否在允许列表中
