@@ -54,19 +54,23 @@ type Bot struct {
 	forwardService    service.ForwardService    // 转发服务
 	accountingService service.AccountingService // 收支记账服务
 	paymentService    paymentservice.Service
+	balanceService    service.UpstreamBalanceService
 
 	// 功能管理器
 	featureManager *features.Manager
 	sifangFeature  *sifangfeature.Feature
 
 	dailySummaryScheduler *dailySummaryScheduler
+	upstreamScheduler     *upstreamSettlementScheduler
+	balanceMonitor        *upstreamBalanceMonitor
 
 	// Repository 层（仅用于初始化）
-	userRepo          repository.UserRepository
-	groupRepo         repository.GroupRepository
-	messageRepo       repository.MessageRepository
-	forwardRecordRepo repository.ForwardRecordRepository
-	accountingRepo    repository.AccountingRepository
+	userRepo            repository.UserRepository
+	groupRepo           repository.GroupRepository
+	messageRepo         repository.MessageRepository
+	forwardRecordRepo   repository.ForwardRecordRepository
+	accountingRepo      repository.AccountingRepository
+	upstreamBalanceRepo repository.UpstreamBalanceRepository
 
 	orderCascadeStates map[string]*orderCascadeState
 	orderCascadeMu     sync.RWMutex
@@ -85,6 +89,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	messageRepo := repository.NewMongoMessageRepository(db)
 	forwardRecordRepo := repository.NewForwardRecordRepository(db)
 	accountingRepo := repository.NewMongoAccountingRepository(db)
+	upstreamBalanceRepo := repository.NewMongoUpstreamBalanceRepository(db)
 
 	// 创建 services
 	userService := service.NewUserService(userRepo)
@@ -92,6 +97,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	messageService := service.NewMessageService(messageRepo, groupRepo)
 	configMenuService := service.NewConfigMenuService(groupService)
 	accountingService := service.NewAccountingService(accountingRepo, groupRepo)
+	balanceService := service.NewUpstreamBalanceService(upstreamBalanceRepo, groupRepo, paymentSvc)
 
 	// 创建转发服务（如果配置了频道 ID）
 	var forwardService service.ForwardService
@@ -137,6 +143,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		configMenuService:    configMenuService,
 		forwardService:       forwardService,
 		accountingService:    accountingService,
+		balanceService:       balanceService,
 		paymentService:       paymentSvc,
 		featureManager:       featureManager,
 		userRepo:             userRepo,
@@ -144,6 +151,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		messageRepo:          messageRepo,
 		forwardRecordRepo:    forwardRecordRepo,
 		accountingRepo:       accountingRepo,
+		upstreamBalanceRepo:  upstreamBalanceRepo,
 		orderCascadeStates:   make(map[string]*orderCascadeState),
 	}
 
@@ -167,7 +175,9 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		return nil, fmt.Errorf("failed to ensure indexes: %w", err)
 	}
 
+	telegramBot.initUpstreamBalanceMonitor()
 	telegramBot.initDailySummaryScheduler(cfg.DailyBillPushEnabled)
+	telegramBot.initUpstreamSettlementScheduler(cfg.DailyBillPushEnabled)
 
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
@@ -226,6 +236,16 @@ func (b *Bot) Stop(ctx context.Context) error {
 	if b.dailySummaryScheduler != nil {
 		b.dailySummaryScheduler.stop()
 		b.dailySummaryScheduler = nil
+	}
+
+	if b.upstreamScheduler != nil {
+		b.upstreamScheduler.stop()
+		b.upstreamScheduler = nil
+	}
+
+	if b.balanceMonitor != nil {
+		b.balanceMonitor.stop()
+		b.balanceMonitor = nil
 	}
 
 	// bot.Stop() 通过 context 取消实现
@@ -298,6 +318,13 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 	}
 	logger.L().Debug("Accounting indexes ensured")
 
+	if b.upstreamBalanceRepo != nil {
+		if err := b.upstreamBalanceRepo.EnsureIndexes(ctx); err != nil {
+			return fmt.Errorf("failed to ensure upstream balance indexes: %w", err)
+		}
+		logger.L().Debug("Upstream balance indexes ensured")
+	}
+
 	return nil
 }
 
@@ -322,6 +349,37 @@ func (b *Bot) initDailySummaryScheduler(enabled bool) {
 	scheduler.start()
 }
 
+func (b *Bot) initUpstreamBalanceMonitor() {
+	if b.balanceService == nil || b.groupService == nil {
+		logger.L().Warn("Upstream balance monitor not started: service unavailable")
+		return
+	}
+	monitor := newUpstreamBalanceMonitor(b, b.balanceService, b.groupService)
+	b.balanceMonitor = monitor
+	monitor.start()
+}
+
+func (b *Bot) initUpstreamSettlementScheduler(enabled bool) {
+	if !enabled {
+		logger.L().Info("Upstream settlement scheduler disabled via config")
+		return
+	}
+
+	if b.balanceService == nil {
+		logger.L().Warn("Upstream settlement scheduler not started: balance service unavailable")
+		return
+	}
+
+	if b.paymentService == nil {
+		logger.L().Warn("Upstream settlement scheduler not started: payment service not configured")
+		return
+	}
+
+	scheduler := newUpstreamSettlementScheduler(b)
+	b.upstreamScheduler = scheduler
+	scheduler.start()
+}
+
 // registerFeatures 注册所有功能插件
 func (b *Bot) registerFeatures() {
 	// 注册计算器功能
@@ -332,6 +390,7 @@ func (b *Bot) registerFeatures() {
 
 	// 注册接口绑定功能
 	b.featureManager.Register(upstream.New(b.groupService, b.userService))
+	b.featureManager.Register(upstream.NewBalanceFeature(b.balanceService, b.userService, b.groupService))
 	b.featureManager.Register(upstream.NewSummaryFeature(b.paymentService))
 
 	// 注册四方支付功能

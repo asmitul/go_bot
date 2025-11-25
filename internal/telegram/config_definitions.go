@@ -209,6 +209,26 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
+		// 上游余额轮询告警开关（仅上游群）
+		{
+			ID:       "balance_monitor_enabled",
+			Name:     "上游余额轮询告警",
+			Icon:     "🚨",
+			Type:     models.ConfigTypeToggle,
+			Category: "监控告警",
+			AllowedTiers: []models.GroupTier{
+				models.GroupTierUpstream,
+			},
+			ToggleGetter: func(g *models.Group) bool {
+				return models.IsBalanceMonitorEnabled(g.Settings)
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.BalanceMonitorEnabled = val
+				s.BalanceMonitorConfigured = true
+			},
+			RequireAdmin: true,
+		},
+
 		// ========== 扩展示例（已注释）==========
 		//
 		// 需要更多配置？取消注释或添加新配置项即可：

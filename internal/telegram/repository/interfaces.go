@@ -126,3 +126,24 @@ type AccountingRepository interface {
 	// EnsureIndexes 确保索引存在
 	EnsureIndexes(ctx context.Context) error
 }
+
+// UpstreamBalanceRepository 上游群余额数据访问接口
+type UpstreamBalanceRepository interface {
+	// Get 获取或创建余额记录
+	Get(ctx context.Context, groupID int64) (*models.UpstreamBalance, error)
+
+	// Adjust 调整余额（正为加款，负为扣款），同时写入日志
+	Adjust(ctx context.Context, groupID int64, delta float64, operatorID int64, remark string, opType models.BalanceOperationType, operationID string, metadata map[string]string) (*models.UpstreamBalance, error)
+
+	// SetMinBalance 设置最低余额阈值并记录日志
+	SetMinBalance(ctx context.Context, groupID int64, threshold float64, operatorID int64) (*models.UpstreamBalance, error)
+
+	// SetAlertLimit 设置告警频率限制
+	SetAlertLimit(ctx context.Context, groupID int64, limit int, operatorID int64) (*models.UpstreamBalance, error)
+
+	// ListAll 列出所有余额记录
+	ListAll(ctx context.Context) ([]*models.UpstreamBalance, error)
+
+	// EnsureIndexes 确保索引存在
+	EnsureIndexes(ctx context.Context) error
+}
