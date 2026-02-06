@@ -8,14 +8,14 @@ import (
 
 // 消息类型常量
 const (
-	MessageTypeText      = "text"
-	MessageTypePhoto     = "photo"
-	MessageTypeVideo     = "video"
-	MessageTypeDocument  = "document"
-	MessageTypeVoice     = "voice"
-	MessageTypeAudio     = "audio"
-	MessageTypeSticker   = "sticker"
-	MessageTypeAnimation = "animation"
+	MessageTypeText        = "text"
+	MessageTypePhoto       = "photo"
+	MessageTypeVideo       = "video"
+	MessageTypeDocument    = "document"
+	MessageTypeVoice       = "voice"
+	MessageTypeAudio       = "audio"
+	MessageTypeSticker     = "sticker"
+	MessageTypeAnimation   = "animation"
 	MessageTypeChannelPost = "channel_post"
 )
 
@@ -27,9 +27,9 @@ type Message struct {
 	UserID            int64              `bson:"user_id"`             // 发送者 ID（频道消息可能为 0）
 
 	// 消息内容
-	MessageType string `bson:"message_type"`         // 消息类型
-	Text        string `bson:"text,omitempty"`       // 文本内容
-	Caption     string `bson:"caption,omitempty"`    // 媒体说明文字
+	MessageType string `bson:"message_type"`      // 消息类型
+	Text        string `bson:"text,omitempty"`    // 文本内容
+	Caption     string `bson:"caption,omitempty"` // 媒体说明文字
 
 	// 媒体信息
 	MediaFileID      string `bson:"media_file_id,omitempty"`      // 文件 ID
@@ -38,9 +38,9 @@ type Message struct {
 	MediaThumbnailID string `bson:"media_thumbnail_id,omitempty"` // 缩略图 ID
 
 	// 关联信息
-	ReplyToMessageID     int64 `bson:"reply_to_message_id,omitempty"`      // 回复的消息 ID
-	ForwardFromChatID    int64 `bson:"forward_from_chat_id,omitempty"`     // 转发来源聊天 ID
-	ForwardFromMessageID int64 `bson:"forward_from_message_id,omitempty"`  // 转发来源消息 ID
+	ReplyToMessageID     int64 `bson:"reply_to_message_id,omitempty"`     // 回复的消息 ID
+	ForwardFromChatID    int64 `bson:"forward_from_chat_id,omitempty"`    // 转发来源聊天 ID
+	ForwardFromMessageID int64 `bson:"forward_from_message_id,omitempty"` // 转发来源消息 ID
 
 	// 编辑信息
 	IsEdited bool       `bson:"is_edited"`           // 是否被编辑过

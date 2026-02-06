@@ -24,6 +24,15 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Check gofmt
+        run: |
+          UNFORMATTED_FILES=$(git ls-files '*.go' | xargs gofmt -l)
+          if [ -n "$UNFORMATTED_FILES" ]; then
+            echo "以下文件未通过 gofmt:"
+            echo "$UNFORMATTED_FILES"
+            exit 1
+          fi
+
       - name: Run golangci-lint  # ✅ 执行代码静态检查
         uses: golangci/golangci-lint-action@v3
         with:

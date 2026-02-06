@@ -16,19 +16,19 @@ const (
 // User 用户模型
 type User struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty"`
-	TelegramID   int64              `bson:"telegram_id"`              // Telegram 用户 ID（唯一）
-	Username     string             `bson:"username,omitempty"`       // @username
-	FirstName    string             `bson:"first_name"`               // 名字
-	LastName     string             `bson:"last_name,omitempty"`      // 姓氏
-	LanguageCode string             `bson:"language_code,omitempty"`  // 语言代码
-	IsPremium    bool               `bson:"is_premium"`               // 是否 Telegram Premium 用户
-	Role         string             `bson:"role"`                     // 角色：owner/admin/user
-	Permissions  []string           `bson:"permissions,omitempty"`    // 自定义权限列表（预留扩展）
-	GrantedBy    int64              `bson:"granted_by,omitempty"`     // 权限授予者的 TelegramID
-	GrantedAt    *time.Time         `bson:"granted_at,omitempty"`     // 权限授予时间
-	CreatedAt    time.Time          `bson:"created_at"`               // 创建时间
-	UpdatedAt    time.Time          `bson:"updated_at"`               // 更新时间
-	LastActiveAt time.Time          `bson:"last_active_at"`           // 最后活跃时间
+	TelegramID   int64              `bson:"telegram_id"`             // Telegram 用户 ID（唯一）
+	Username     string             `bson:"username,omitempty"`      // @username
+	FirstName    string             `bson:"first_name"`              // 名字
+	LastName     string             `bson:"last_name,omitempty"`     // 姓氏
+	LanguageCode string             `bson:"language_code,omitempty"` // 语言代码
+	IsPremium    bool               `bson:"is_premium"`              // 是否 Telegram Premium 用户
+	Role         string             `bson:"role"`                    // 角色：owner/admin/user
+	Permissions  []string           `bson:"permissions,omitempty"`   // 自定义权限列表（预留扩展）
+	GrantedBy    int64              `bson:"granted_by,omitempty"`    // 权限授予者的 TelegramID
+	GrantedAt    *time.Time         `bson:"granted_at,omitempty"`    // 权限授予时间
+	CreatedAt    time.Time          `bson:"created_at"`              // 创建时间
+	UpdatedAt    time.Time          `bson:"updated_at"`              // 更新时间
+	LastActiveAt time.Time          `bson:"last_active_at"`          // 最后活跃时间
 }
 
 // IsOwner 是否为 Owner

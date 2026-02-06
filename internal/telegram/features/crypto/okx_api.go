@@ -18,8 +18,8 @@ const (
 
 // C2COrder OKX C2C 订单结构
 type C2COrder struct {
-	Price        string `json:"price"`        // 价格
-	NickName     string `json:"nickName"`     // 商家昵称
+	Price           string `json:"price"`           // 价格
+	NickName        string `json:"nickName"`        // 商家昵称
 	AvailableAmount string `json:"availableAmount"` // 可用数量
 }
 
@@ -31,9 +31,9 @@ type C2CData struct {
 
 // C2CResponse OKX API 响应结构
 type C2CResponse struct {
-	Code int       `json:"code"` // 响应码（0 表示成功）
-	Data C2CData   `json:"data"` // 数据对象（包含 buy/sell 列表）
-	Msg  string    `json:"msg"`  // 消息
+	Code int     `json:"code"` // 响应码（0 表示成功）
+	Data C2CData `json:"data"` // 数据对象（包含 buy/sell 列表）
+	Msg  string  `json:"msg"`  // 消息
 }
 
 // FetchC2COrders 从 OKX 获取 C2C 订单列表

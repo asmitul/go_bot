@@ -37,21 +37,21 @@ func (r *MongoMessageRepository) CreateMessage(ctx context.Context, message *mod
 	}
 
 	setFields := bson.M{
-		"user_id":                  message.UserID,
-		"message_type":             message.MessageType,
-		"text":                     message.Text,
-		"caption":                  message.Caption,
-		"media_file_id":            message.MediaFileID,
-		"media_file_size":          message.MediaFileSize,
-		"media_mime_type":          message.MediaMimeType,
-		"media_thumbnail_id":       message.MediaThumbnailID,
-		"reply_to_message_id":      message.ReplyToMessageID,
-		"forward_from_chat_id":     message.ForwardFromChatID,
-		"forward_from_message_id":  message.ForwardFromMessageID,
-		"is_edited":                message.IsEdited,
-		"edited_at":                message.EditedAt,
-		"sent_at":                  message.SentAt,
-		"updated_at":               message.UpdatedAt,
+		"user_id":                 message.UserID,
+		"message_type":            message.MessageType,
+		"text":                    message.Text,
+		"caption":                 message.Caption,
+		"media_file_id":           message.MediaFileID,
+		"media_file_size":         message.MediaFileSize,
+		"media_mime_type":         message.MediaMimeType,
+		"media_thumbnail_id":      message.MediaThumbnailID,
+		"reply_to_message_id":     message.ReplyToMessageID,
+		"forward_from_chat_id":    message.ForwardFromChatID,
+		"forward_from_message_id": message.ForwardFromMessageID,
+		"is_edited":               message.IsEdited,
+		"edited_at":               message.EditedAt,
+		"sent_at":                 message.SentAt,
+		"updated_at":              message.UpdatedAt,
 	}
 
 	setOnInsert := bson.M{
