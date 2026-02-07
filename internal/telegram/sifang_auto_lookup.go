@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,24 +90,37 @@ func (b *Bot) performSifangOrderLookup(chatID int64, messageID int, merchantID i
 		return
 	}
 
-	var results []string
+	var (
+		results            []string
+		prefixedOrderNos   []string
+		prefixedOrderNoSet = make(map[string]struct{}, len(orderNos))
+	)
+
 	for _, orderNo := range orderNos {
+		prefixedOrderNo := formatLookupOrderNo(merchantID, orderNo)
+		if prefixedOrderNo != "" {
+			if _, exists := prefixedOrderNoSet[prefixedOrderNo]; !exists {
+				prefixedOrderNoSet[prefixedOrderNo] = struct{}{}
+				prefixedOrderNos = append(prefixedOrderNos, prefixedOrderNo)
+			}
+		}
+
 		lookupCtx, cancel := context.WithTimeout(context.Background(), orderLookupTimeout)
 		detail, err := b.paymentService.GetOrderDetail(lookupCtx, merchantID, orderNo, paymentservice.OrderNumberTypeAuto)
 		cancel()
 
 		if err != nil {
 			logger.L().Warnf("Sifang auto lookup failed: chat_id=%d merchant_id=%d order_no=%s err=%v", chatID, merchantID, orderNo, err)
-			results = append(results, formatLookupFailure(orderNo))
+			results = append(results, formatLookupFailure(merchantID, orderNo))
 			continue
 		}
 		if detail == nil || detail.Order == nil {
 			logger.L().Warnf("Sifang auto lookup returned empty detail: chat_id=%d merchant_id=%d order_no=%s", chatID, merchantID, orderNo)
-			results = append(results, formatLookupFailure(orderNo))
+			results = append(results, formatLookupFailure(merchantID, orderNo))
 			continue
 		}
 
-		results = append(results, formatLookupSuccess(orderNo, detail))
+		results = append(results, formatLookupSuccess(merchantID, orderNo, detail))
 	}
 
 	if len(results) == 0 {
@@ -117,21 +131,23 @@ func (b *Bot) performSifangOrderLookup(chatID int64, messageID int, merchantID i
 	builder.WriteString("🔎 <b>四方订单自动查单</b>\n")
 	builder.WriteString(strings.Join(results, "\n\n"))
 
+	markup := buildLookupCopyKeyboard(prefixedOrderNos)
+
 	sendCtx, cancel := context.WithTimeout(context.Background(), orderLookupSendTimeout)
 	defer cancel()
 
-	if _, err := b.sendMessageWithMarkupAndMessage(sendCtx, chatID, builder.String(), nil); err != nil {
+	if _, err := b.sendMessageWithMarkupAndMessage(sendCtx, chatID, builder.String(), markup); err != nil {
 		logger.L().Errorf("Failed to send sifang auto lookup result: chat_id=%d message_id=%d err=%v", chatID, messageID, err)
 	}
 }
 
-func formatLookupFailure(orderNo string) string {
-	return fmt.Sprintf("<b>%s</b>\n未找到订单", html.EscapeString(orderNo))
+func formatLookupFailure(merchantID int64, orderNo string) string {
+	return fmt.Sprintf("<code>%s</code>\n未找到订单", html.EscapeString(formatLookupOrderNo(merchantID, orderNo)))
 }
 
-func formatLookupSuccess(orderNo string, detail *paymentservice.OrderDetail) string {
+func formatLookupSuccess(merchantID int64, orderNo string, detail *paymentservice.OrderDetail) string {
 	if detail == nil || detail.Order == nil {
-		return formatLookupFailure(orderNo)
+		return formatLookupFailure(merchantID, orderNo)
 	}
 
 	order := detail.Order
@@ -162,7 +178,7 @@ func formatLookupSuccess(orderNo string, detail *paymentservice.OrderDetail) str
 	updatedAt := extractOrderUpdateTime(detail)
 
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("<b>%s</b>\n", html.EscapeString(orderNo)))
+	builder.WriteString(fmt.Sprintf("<code>%s</code>\n", html.EscapeString(formatLookupOrderNo(merchantID, orderNo))))
 	builder.WriteString(fmt.Sprintf("状态：%s%s\n", html.EscapeString(status), notifyStatus))
 	builder.WriteString(fmt.Sprintf("金额：%s\n", html.EscapeString(amount)))
 	builder.WriteString(fmt.Sprintf("更新时间：%s", html.EscapeString(updatedAt)))
@@ -190,6 +206,54 @@ func formatLookupSuccess(orderNo string, detail *paymentservice.OrderDetail) str
 	}
 
 	return builder.String()
+}
+
+func formatLookupOrderNo(merchantID int64, orderNo string) string {
+	trimmedOrderNo := strings.TrimSpace(orderNo)
+	if merchantID <= 0 {
+		return trimmedOrderNo
+	}
+
+	merchant := strconv.FormatInt(merchantID, 10)
+	if strings.HasPrefix(trimmedOrderNo, merchant) {
+		return trimmedOrderNo
+	}
+
+	return merchant + trimmedOrderNo
+}
+
+func buildLookupCopyKeyboard(orderNos []string) botModels.ReplyMarkup {
+	if len(orderNos) == 0 {
+		return nil
+	}
+
+	rows := make([][]botModels.InlineKeyboardButton, 0, len(orderNos))
+	for i, orderNo := range orderNos {
+		trimmedOrderNo := strings.TrimSpace(orderNo)
+		if trimmedOrderNo == "" {
+			continue
+		}
+
+		label := "点击复制订单号"
+		if len(orderNos) > 1 {
+			label = fmt.Sprintf("复制订单号 %d", i+1)
+		}
+
+		rows = append(rows, []botModels.InlineKeyboardButton{
+			{
+				Text: label,
+				CopyText: botModels.CopyTextButton{
+					Text: trimmedOrderNo,
+				},
+			},
+		})
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	return &botModels.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func extractOrderUpdateTime(detail *paymentservice.OrderDetail) string {

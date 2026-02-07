@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	paymentservice "go_bot/internal/payment/service"
+
+	botModels "github.com/go-telegram/bot/models"
 )
 
 func TestFormatLookupSuccess_WithNotifyFailure(t *testing.T) {
@@ -28,7 +30,11 @@ func TestFormatLookupSuccess_WithNotifyFailure(t *testing.T) {
 		},
 	}
 
-	result := formatLookupSuccess("M-123", detail)
+	result := formatLookupSuccess(2023111, "M-123", detail)
+
+	if !strings.Contains(result, "<code>2023111M-123</code>") {
+		t.Fatalf("expected merchant-prefixed order number in result: %s", result)
+	}
 
 	if !strings.Contains(result, "<b>通知失败详情</b>") {
 		t.Fatalf("expected failure section in result: %s", result)
@@ -59,9 +65,47 @@ func TestFormatLookupSuccess_WithoutNotifyFailure(t *testing.T) {
 		},
 	}
 
-	result := formatLookupSuccess("M-456", detail)
+	result := formatLookupSuccess(2023111, "M-456", detail)
+
+	if !strings.Contains(result, "<code>2023111M-456</code>") {
+		t.Fatalf("expected merchant-prefixed order number in result: %s", result)
+	}
 
 	if strings.Contains(result, "通知失败详情") {
 		t.Fatalf("did not expect failure section in result: %s", result)
+	}
+}
+
+func TestBuildLookupCopyKeyboard(t *testing.T) {
+	markup := buildLookupCopyKeyboard([]string{"2023111P-1", "2023111P-2"})
+	keyboard, ok := markup.(*botModels.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("expected inline keyboard markup, got %T", markup)
+	}
+
+	if len(keyboard.InlineKeyboard) != 2 {
+		t.Fatalf("expected 2 keyboard rows, got %d", len(keyboard.InlineKeyboard))
+	}
+
+	if got := keyboard.InlineKeyboard[0][0].CopyText.Text; got != "2023111P-1" {
+		t.Fatalf("unexpected first copy text: %s", got)
+	}
+	if got := keyboard.InlineKeyboard[0][0].Text; got != "复制订单号 1" {
+		t.Fatalf("unexpected first button label: %s", got)
+	}
+	if got := keyboard.InlineKeyboard[1][0].CopyText.Text; got != "2023111P-2" {
+		t.Fatalf("unexpected second copy text: %s", got)
+	}
+}
+
+func TestBuildLookupCopyKeyboard_SingleOrder(t *testing.T) {
+	markup := buildLookupCopyKeyboard([]string{"2023111P-single"})
+	keyboard, ok := markup.(*botModels.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("expected inline keyboard markup, got %T", markup)
+	}
+
+	if got := keyboard.InlineKeyboard[0][0].Text; got != "点击复制订单号" {
+		t.Fatalf("unexpected single button label: %s", got)
 	}
 }
