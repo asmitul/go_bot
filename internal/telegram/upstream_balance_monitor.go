@@ -24,6 +24,7 @@ type upstreamBalanceMonitor struct {
 	bot            *Bot
 	balanceService service.UpstreamBalanceService
 	groupService   service.GroupService
+	alertSender    func(ctx context.Context, group *models.Group, balance, minBalance float64) error
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
 	statesMu       sync.Mutex
@@ -203,15 +204,18 @@ func (m *upstreamBalanceMonitor) evaluateAndAlert(ctx context.Context, group *mo
 	state.sentInWindow++
 	m.statesMu.Unlock()
 
-	if err := m.sendAlert(ctx, group, balance, minBalance); err != nil {
+	sendAlert := m.sendAlert
+	if m.alertSender != nil {
+		sendAlert = m.alertSender
+	}
+
+	if err := sendAlert(ctx, group, balance, minBalance); err != nil {
 		logger.L().Warnf("Balance alert failed: chat_id=%d err=%v", group.TelegramID, err)
 		m.statesMu.Lock()
 		state.sentInWindow--
 		m.statesMu.Unlock()
 		return
 	}
-
-	m.statesMu.Unlock()
 }
 
 func (m *upstreamBalanceMonitor) sendAlert(ctx context.Context, group *models.Group, balance, minBalance float64) error {
