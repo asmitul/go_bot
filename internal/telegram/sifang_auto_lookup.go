@@ -110,6 +110,11 @@ func (b *Bot) performSifangOrderLookup(chatID int64, messageID int, merchantID i
 		cancel()
 
 		if err != nil {
+			if paymentservice.IsOrderNotFoundError(err) {
+				logger.L().Infof("Sifang auto lookup order not found: chat_id=%d merchant_id=%d order_no=%s", chatID, merchantID, orderNo)
+				continue
+			}
+
 			logger.L().Warnf("Sifang auto lookup failed: chat_id=%d merchant_id=%d order_no=%s err=%v", chatID, merchantID, orderNo, err)
 			results = append(results, formatLookupFailure(merchantID, orderNo))
 			continue
