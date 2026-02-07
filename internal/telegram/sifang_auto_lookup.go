@@ -183,10 +183,6 @@ func formatLookupSuccess(merchantID int64, orderNo string, detail *paymentservic
 	builder.WriteString(fmt.Sprintf("金额：%s\n", html.EscapeString(amount)))
 	builder.WriteString(fmt.Sprintf("更新时间：%s", html.EscapeString(updatedAt)))
 
-	if platformNo := strings.TrimSpace(order.PlatformOrderNo); platformNo != "" && !strings.EqualFold(platformNo, orderNo) {
-		builder.WriteString(fmt.Sprintf("\n平台单号：%s", html.EscapeString(platformNo)))
-	}
-
 	if failureSection, logInfo := buildNotifyFailureSection(detail); failureSection != "" {
 		builder.WriteString("\n")
 		builder.WriteString(failureSection)
