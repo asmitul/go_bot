@@ -247,6 +247,8 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("自动查单 - 默认开启，自动识别文字/图片/视频标题中的订单号并异步查询，可在 /configs 的“🔍 四方自动查单”中关闭\n")
 	text.WriteString("下发 <code>金额</code> [谷歌验证码] - 申请下发，支持表达式和谷歌验证码，需在 60 秒内按钮确认\n")
 	text.WriteString("下发 <code>[a|z|k|w][序号] [U金额]</code> [谷歌验证码] - 按欧易报价换算后申请下发，例如：下发 z3 100\n\n")
+	text.WriteString("模拟下单 <code>金额</code> [通道代码] [订单号] - 调用 /createorder 模拟创建订单（会真实写单）\n")
+	text.WriteString("模拟创建订单 <code>金额</code> [通道代码] [订单号] - 模拟下单同义命令\n\n")
 
 	text.WriteString("<b>USDT 价格查询（需开启“💰 USDT价格查询”功能，群组）</b>\n")
 	text.WriteString("<code>[a|z|k|w][序号] [金额]</code> - a=全部、z=支付宝、k=银行卡、w=微信；示例：z3 100\n\n")
