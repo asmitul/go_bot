@@ -19,7 +19,12 @@
 
 ## 1. 鉴权方式
 
-所有接口都需要携带以下公共参数，并进行签名校验：
+接口鉴权分为两类：
+
+- 商户接口（默认）：需要 `merchant_id`、`timestamp`、`sign`，`access_key` 可选。
+- 平台接口（当前仅 `/summarybydaypzid`）：无需 `merchant_id`，但必须提供 `timestamp`、`access_key`、`sign`，且 `access_key` 需为 master key。
+
+以下为商户接口默认公共参数：
 
 | 参数          | 必填 | 说明                                                                   |
 |---------------|------|------------------------------------------------------------------------|
@@ -32,7 +37,7 @@
 
 1. 收集所有请求参数（包括业务参数），去除 `sign`。
 2. 按键名字典序排序。
-3. 过滤空值 / `null` 参数；如为数组需 `json_encode`（`JSON_UNESCAPED_UNICODE`）。
+3. 过滤值为 `""` 或 `null` 的参数；`0`、`false`、`"0"` 需参与签名。如为数组需 `json_encode`（`JSON_UNESCAPED_UNICODE`）。
 4. `key=value` 形式拼接，使用 `&` 连接。
 5. 结尾追加 `key={密钥}`，密钥规则：
    - 若提供 `access_key` 且与服务器配置的 master key 相同，则使用 master key；
@@ -67,7 +72,8 @@
 | 手工调账记录          | `/manualadjustments`            |
 | **模拟下单（新增）**  | `/createorder`                  |
 
-以下接口均默认需要公共参数（`merchant_id`、`timestamp`、`access_key`、`sign`），仅列出额外的业务参数。
+以下接口均默认需要商户公共参数（`merchant_id`、`timestamp`、`access_key`、`sign`），仅列出额外的业务参数。
+例外：`/summarybydaypzid` 走平台级鉴权，可不传 `merchant_id`。
 
 ---
 
@@ -303,7 +309,7 @@
 
 | 参数                  | 说明                                            |
 |-----------------------|-------------------------------------------------|
-| `status`              | 0 未支付，1 成功，2 扣量                       |
+| `status`              | 0 未支付（含手动撤单后回写状态），1 成功，2 扣量 |
 | `merchant_order_no`   | 商户订单号                                     |
 | `platform_order_no`   | 平台订单号                                     |
 | `channel_code`        | 通道代码                                       |
@@ -988,7 +994,7 @@
 - `order`：补单后的订单数据（同订单列表里的字段）。
 - 若订单已成功，会直接返回当前状态。
 
-> 注意：仅状态为未支付/扣量的订单可补单，操作会触发平台内部的资金结算逻辑。
+> 注意：仅当前状态为 `status_code=0/2` 的订单可补单（`status_code=0` 可能包含手动撤单后回写状态），操作会触发平台内部的资金结算逻辑。
 
 **返回示例**：
 
@@ -1026,7 +1032,7 @@
 
 ### 7.2 手动撤单 `/manualcancelorder`
 
-**说明**：撤销未支付 / 已支付 / 扣量订单，效果与后台“手动退单”一致（内部适配状态 0、1、2）。
+**说明**：撤销未支付 / 已支付 / 扣量订单，效果与后台“手动退单”一致（内部适配状态 0、1、2）。若订单原状态为已支付，系统会先执行资金回退，再回写为 `status_code=0`（`pending`）。
 
 **业务参数**：
 
@@ -1039,6 +1045,8 @@
 二者至少提供一个。
 
 **返回**：撤单后的订单数据（字段同 `/orders`）。若订单号不存在或金额不匹配会返回错误提示。
+
+> 说明：当前状态码仅返回 `0/1/2`，手动撤单后的订单会表现为 `0`。如需区分“自然未支付”与“手动撤单”，请结合后台操作记录或资金流水判断。
 
 **返回示例**：
 
@@ -1082,9 +1090,9 @@
 
 **业务参数**：
 
-| 参数             | 必填 | 说明                                                                 |
-|------------------|------|------------------------------------------------------------------------|
-| `order_no`       | 否   | 商户订单号（未传则自动生成）                                          |
+| 参数                         | 必填 | 说明                                                                 |
+|------------------------------|------|------------------------------------------------------------------------|
+| `merchant_order_no` / `order_no` | 否   | 商户订单号（推荐传 `merchant_order_no`，`order_no` 兼容旧参数；未传则自动生成） |
 | `amount`         | ✓    | 金额（单位元，保留两位小数）                                          |
 | `channel_code`   | 否   | 通道代码（未传自动选用首个可用通道）                                  |
 | `notify_url`     | 否   | 异步通知地址，默认 `https://example.com`                  |
@@ -1153,7 +1161,7 @@
 | `order_id`              | 订单主键 ID                                  |
 | `pzid` / `pz_name`      | 渠道配置 ID 及名称                           |
 | `channel_code` / `channel_name` | 支付通道代码及名称                 |
-| `status_code`           | 数字状态：0=未支付，1=成功，2=扣量           |
+| `status_code`           | 数字状态：0=未支付（含手动撤单后回写状态），1=成功，2=扣量 |
 | `status` / `status_text`| 英文/中文状态描述                           |
 
 > 返回结果中不包含金额、通知等字段，如需更多信息请调用 `/orderdetail`。
@@ -1305,7 +1313,7 @@
 
 ### 9.1 按日×PZID 平台汇总 `/summarybydaypzid`
 
-**说明**：面向平台视角的按日统计，仅依赖 `pzid` 和时间范围过滤，可查看所有商户在指定上游配置下的支付表现（仅统计 `status>0` 的已支付订单）。该接口走 master key 级别鉴权：无需 `merchant_id`，只要 `access_key` 与服务器配置的 master key 匹配，并使用 master key 参与签名即可。
+**说明**：面向平台视角的按日统计，仅依赖 `pzid` 和时间范围过滤，可查看所有商户在指定上游配置下的支付表现（仅统计 `status>0` 的已支付订单）。该接口走 master key 级别鉴权：无需 `merchant_id`，但仍需传 `timestamp`、`access_key`、`sign`；其中 `access_key` 必须与服务器配置的 master key 匹配，并使用 master key 参与签名。
 
 **参数**：
 | 参数               | 必填 | 说明                                                                                  |
@@ -1782,7 +1790,7 @@
         "withdraw": {
             "withdraw_id": 7490196,
             "withdraw_no": "qzf1763323862322992",
-            "amount": "0.00",
+            "amount": "500.00",
             "fee": "0.00",
             "status_code": 0,
             "status": "pending",
@@ -1790,18 +1798,18 @@
             "agentpay_status": "not_submitted",
             "notify_status_code": 0,
             "notify_status": "pending",
-            "account_name": null,
-            "account_number": null,
-            "bank_name": null,
-            "branch": null,
-            "province": null,
-            "city": null,
-            "unionpay_code": null,
+            "account_name": "jl888",
+            "account_number": "621700******1234",
+            "bank_name": "中国建设银行",
+            "branch": "深圳福田支行",
+            "province": "广东省",
+            "city": "深圳市",
+            "unionpay_code": "105584000017",
             "created_at": "2025-11-17 04:11:02",
             "extend": []
         },
-        "balance_after": "4680.80",
-        "pending_withdraw": "1216.20",
+        "balance_after": "4180.80",
+        "pending_withdraw": "1716.20",
         "frozen_today": "0.00",
         "fee": "0.00"
     }
@@ -2262,10 +2270,11 @@
 ## 13. 提现详情 `/withdrawdetail`
 
 **参数**：
-| 参数         | 说明                                   |
-|--------------|----------------------------------------|
-| `withdraw_no`| 提现订单号（推荐）                     |
-| `order_no`   | 提现表主键 ID                          |
+| 参数          | 说明                                   |
+|---------------|----------------------------------------|
+| `withdraw_no` | 提现订单号（推荐）                     |
+| `withdraw_id` | 提现表主键 ID                          |
+| `order_no`    | 兼容旧参数，等价于 `withdraw_id`       |
 
 **返回**：提现基础信息、回调日志、上游代付记录。
 
