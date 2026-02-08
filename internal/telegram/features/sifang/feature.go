@@ -18,6 +18,7 @@ import (
 	paymentservice "go_bot/internal/payment/service"
 	"go_bot/internal/payment/sifang"
 	"go_bot/internal/telegram/features/calculator"
+	cryptofeature "go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
@@ -29,6 +30,7 @@ var (
 	chinaLocation          = mustLoadChinaLocation()
 	dateSuffixRegexp       = regexp.MustCompile(`^[0-9\s./\-年月日号]*$`)
 	googleCodeSuffixRegexp = regexp.MustCompile(`\s+(\d{6})$`)
+	fetchC2COrders         = cryptofeature.FetchC2COrders
 )
 
 const (
@@ -46,6 +48,15 @@ type pendingSendMoney struct {
 	amount     float64
 	googleCode string
 	createdAt  time.Time
+}
+
+type sendMoneyQuote struct {
+	paymentMethodName string
+	serialNum         int
+	basePrice         float64
+	floatRate         float64
+	unitPrice         float64
+	usdtAmount        float64
 }
 
 func mustLoadChinaLocation() *time.Location {
@@ -94,6 +105,7 @@ func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
 //   - 余额
 //   - 账单 / 账单10月26（可指定日期）
 //   - 下发 [金额 or 表达式] [可选谷歌验证码]
+//   - 下发 [a|z|k|w][序号] [U金额] [可选谷歌验证码]
 func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 	if msg.Chat.Type != "group" && msg.Chat.Type != "supergroup" {
 		return false
@@ -173,7 +185,7 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 	}
 
 	if isSendMoneyCommand(text) {
-		return f.handleSendMoney(ctx, msg, merchantID, text)
+		return f.handleSendMoney(ctx, msg, merchantID, group.Settings.CryptoFloatRate, text)
 	}
 
 	return nil, false, nil
@@ -581,7 +593,7 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, merchantID int64, text string) (*types.Response, bool, error) {
+func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, merchantID int64, floatRate float64, text string) (*types.Response, bool, error) {
 	if f.userService == nil {
 		logger.L().Error("Sifang send money: user service is nil")
 		return wrapResponse("❌ 未配置管理员校验服务，请联系管理员"), true, nil
@@ -598,7 +610,7 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 	}
 
 	payload := strings.TrimSpace(strings.TrimPrefix(text, "下发"))
-	amount, googleCode, parseErr := parseSendMoneyPayload(payload)
+	amount, googleCode, quote, parseErr := f.resolveSendMoneyPayload(ctx, payload, floatRate)
 	if parseErr != nil {
 		return wrapResponse(fmt.Sprintf("❌ %v", parseErr)), true, nil
 	}
@@ -611,6 +623,17 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 
 	merchantText := strconv.FormatInt(merchantID, 10)
 	message := fmt.Sprintf("是否确认下发 %s 元 | %s", html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText))
+	if quote != nil {
+		message += fmt.Sprintf(
+			"\n💱 报价：欧易%s #%d %.2f + %.2f = %.2f\n数量：%s U",
+			html.EscapeString(quote.paymentMethodName),
+			quote.serialNum,
+			quote.basePrice,
+			quote.floatRate,
+			quote.unitPrice,
+			html.EscapeString(formatFloat(quote.usdtAmount)),
+		)
+	}
 	if googleCode != "" {
 		message += "\n🔐 将附带当前谷歌验证码"
 	}
@@ -625,10 +648,72 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 	}, true, nil
 }
 
-func parseSendMoneyPayload(raw string) (float64, string, error) {
+func (f *Feature) resolveSendMoneyPayload(ctx context.Context, raw string, floatRate float64) (float64, string, *sendMoneyQuote, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return 0, "", fmt.Errorf("下发金额不能为空")
+		return 0, "", nil, fmt.Errorf("下发金额不能为空")
+	}
+
+	payload, googleCode := splitSendMoneyGoogleCode(raw)
+	if payload == "" {
+		return 0, "", nil, fmt.Errorf("下发金额不能为空")
+	}
+
+	if cmdInfo, err := cryptofeature.ParseCommand(payload); err == nil {
+		if !cmdInfo.HasAmount {
+			return 0, "", nil, fmt.Errorf("下发行情指令缺少U金额，示例：下发 z3 100")
+		}
+
+		orders, fetchErr := fetchC2COrders(ctx, cmdInfo.PaymentMethod)
+		if fetchErr != nil {
+			logger.L().Errorf("Sifang send money quote fetch failed: payment_method=%s, err=%v", cmdInfo.PaymentMethod, fetchErr)
+			return 0, "", nil, fmt.Errorf("获取报价失败，请稍后重试")
+		}
+
+		if cmdInfo.SerialNum > len(orders) {
+			return 0, "", nil, fmt.Errorf("商家序号超出范围（最多 %d 个）", len(orders))
+		}
+
+		selected := orders[cmdInfo.SerialNum-1]
+		basePrice, parseErr := strconv.ParseFloat(strings.TrimSpace(selected.Price), 64)
+		if parseErr != nil {
+			logger.L().Errorf("Sifang send money quote price parse failed: serial=%d, price=%s, err=%v", cmdInfo.SerialNum, selected.Price, parseErr)
+			return 0, "", nil, fmt.Errorf("报价解析失败")
+		}
+
+		unitPrice := basePrice + floatRate
+		amount := roundToTwoDecimals(unitPrice * cmdInfo.Amount)
+		if math.IsNaN(amount) || math.IsInf(amount, 0) {
+			return 0, "", nil, fmt.Errorf("金额计算结果异常")
+		}
+		if amount <= 0 {
+			return 0, "", nil, fmt.Errorf("下发金额必须大于 0")
+		}
+
+		quote := &sendMoneyQuote{
+			paymentMethodName: cmdInfo.PaymentMethodName,
+			serialNum:         cmdInfo.SerialNum,
+			basePrice:         basePrice,
+			floatRate:         floatRate,
+			unitPrice:         unitPrice,
+			usdtAmount:        cmdInfo.Amount,
+		}
+
+		return amount, googleCode, quote, nil
+	}
+
+	amount, parseErr := parseSendMoneyAmount(payload)
+	if parseErr != nil {
+		return 0, "", nil, parseErr
+	}
+
+	return amount, googleCode, nil, nil
+}
+
+func splitSendMoneyGoogleCode(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
 	}
 
 	googleCode := ""
@@ -637,10 +722,29 @@ func parseSendMoneyPayload(raw string) (float64, string, error) {
 		raw = strings.TrimSpace(raw[:len(raw)-len(matches[0])])
 	}
 
+	return raw, googleCode
+}
+
+func parseSendMoneyPayload(raw string) (float64, string, error) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return 0, "", fmt.Errorf("下发金额不能为空")
 	}
 
+	raw, googleCode := splitSendMoneyGoogleCode(raw)
+	if raw == "" {
+		return 0, "", fmt.Errorf("下发金额不能为空")
+	}
+
+	amount, err := parseSendMoneyAmount(raw)
+	if err != nil {
+		return 0, "", err
+	}
+
+	return amount, googleCode, nil
+}
+
+func parseSendMoneyAmount(raw string) (float64, error) {
 	var (
 		amount float64
 		err    error
@@ -649,25 +753,25 @@ func parseSendMoneyPayload(raw string) (float64, string, error) {
 	if calculator.IsMathExpression(raw) {
 		amount, err = calculator.Calculate(raw)
 		if err != nil {
-			return 0, "", fmt.Errorf("金额计算失败：%v", err)
+			return 0, fmt.Errorf("金额计算失败：%v", err)
 		}
 	} else {
 		amount, err = strconv.ParseFloat(strings.ReplaceAll(raw, ",", ""), 64)
 		if err != nil {
-			return 0, "", fmt.Errorf("金额格式错误")
+			return 0, fmt.Errorf("金额格式错误")
 		}
 	}
 
 	if math.IsNaN(amount) || math.IsInf(amount, 0) {
-		return 0, "", fmt.Errorf("金额计算结果异常")
+		return 0, fmt.Errorf("金额计算结果异常")
 	}
 
 	amount = roundToTwoDecimals(amount)
 	if amount <= 0 {
-		return 0, "", fmt.Errorf("下发金额必须大于 0")
+		return 0, fmt.Errorf("下发金额必须大于 0")
 	}
 
-	return amount, googleCode, nil
+	return amount, nil
 }
 
 func roundToTwoDecimals(value float64) float64 {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	paymentservice "go_bot/internal/payment/service"
+	cryptofeature "go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
 
@@ -425,7 +426,7 @@ func TestHandleSendMoneyCreatesPending(t *testing.T) {
 		Text: "下发 12",
 	}
 
-	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, msg.Text)
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, cryptofeature.DefaultFloatRate, msg.Text)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -458,6 +459,98 @@ func TestHandleSendMoneyCreatesPending(t *testing.T) {
 	}
 }
 
+func TestHandleSendMoneyCreatesPendingFromQuoteCommand(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	originalFetch := fetchC2COrders
+	fetchC2COrders = func(ctx context.Context, paymentMethod string) ([]cryptofeature.C2COrder, error) {
+		if paymentMethod != "aliPay" {
+			t.Fatalf("unexpected payment method: %s", paymentMethod)
+		}
+		return []cryptofeature.C2COrder{
+			{Price: "7.10", NickName: "M1"},
+			{Price: "7.20", NickName: "M2"},
+			{Price: "7.30", NickName: "M3"},
+		}, nil
+	}
+	t.Cleanup(func() {
+		fetchC2COrders = originalFetch
+	})
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 z3 100 123456",
+	}
+
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, 0.12, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled true")
+	}
+	if resp == nil || resp.ReplyMarkup == nil {
+		t.Fatalf("expected inline keyboard response")
+	}
+	if !strings.Contains(resp.Text, "是否确认下发 742 元") {
+		t.Fatalf("unexpected confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "💱 报价：欧易支付宝 #3 7.30 + 0.12 = 7.42") {
+		t.Fatalf("expected quote details in response: %s", resp.Text)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+	if token == "" {
+		t.Fatalf("expected pending token stored")
+	}
+
+	pending := feature.pending[token]
+	if pending == nil {
+		t.Fatalf("expected pending data")
+	}
+	if pending.amount != 742 {
+		t.Fatalf("expected pending amount 742, got %.2f", pending.amount)
+	}
+	if pending.googleCode != "123456" {
+		t.Fatalf("expected google code 123456, got %s", pending.googleCode)
+	}
+}
+
+func TestHandleSendMoneyQuoteCommandRequiresUSDTAmount(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 z3",
+	}
+
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, 0.12, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled true")
+	}
+	if resp == nil {
+		t.Fatalf("expected response")
+	}
+	if !strings.Contains(resp.Text, "缺少U金额") {
+		t.Fatalf("unexpected response text: %s", resp.Text)
+	}
+}
+
 func TestHandleSendMoneyCallbackConfirm(t *testing.T) {
 	ctx := context.Background()
 	fakeSvc := &fakePaymentService{
@@ -474,7 +567,7 @@ func TestHandleSendMoneyCallbackConfirm(t *testing.T) {
 		From: &botModels.User{ID: 123},
 		Text: "下发 12",
 	}
-	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, msg.Text)
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, cryptofeature.DefaultFloatRate, msg.Text)
 	if err != nil || !handled || resp == nil {
 		t.Fatalf("unexpected setup result: resp=%v handled=%v err=%v", resp, handled, err)
 	}
@@ -519,7 +612,7 @@ func TestHandleSendMoneyCallbackCancel(t *testing.T) {
 		From: &botModels.User{ID: 555},
 		Text: "下发 20",
 	}
-	resp, handled, err := feature.handleSendMoney(ctx, msg, 2024001, msg.Text)
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2024001, cryptofeature.DefaultFloatRate, msg.Text)
 	if err != nil || !handled || resp == nil {
 		t.Fatalf("unexpected setup result: resp=%v handled=%v err=%v", resp, handled, err)
 	}
