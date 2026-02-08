@@ -143,7 +143,8 @@
   - 调用四方支付 `/balance` 接口
   - 支持追加日期后缀（如 `余额10-30`）查询对应历史余额
   - 仅返回目标日期的余额金额，保持消息简洁
-  - 在启用「🔍 四方自动查单」开关时，自动扫描群内文字消息的订单号并异步回复查单结果
+  - 在启用「🔍 四方自动查单」开关时，自动扫描群内文字消息（包含机器人消息）中的订单号并异步回复查单结果
+  - 订单号提取规则：字母数字组合、长度 10-60、且至少包含 1 位数字
 - **Service**: SifangService (`internal/payment/service`)
 - **数据库**: 无
 
@@ -396,7 +397,7 @@
   - 提取媒体元数据（file_id, file_size, mime_type）
   - 提取 caption（媒体说明文字）
   - 调用 MessageService.HandleMediaMessage 记录消息
-  - 若开启「🏦 四方支付查询」与「🔍 四方自动查单」，从 caption/文件名提取订单号并交由 Sifang Feature 异步查单
+  - 若开启「🏦 四方支付查询」与「🔍 四方自动查单」，从 caption/文件名提取订单号并交由 Sifang Feature 异步查单（包含机器人消息）
 - **Service**: MessageService
 - **数据库**: 写入 `messages` 集合（包含 media_file_id, media_file_size, media_mime_type）
 

@@ -244,7 +244,7 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("通道账单[可选日期] - 查看通道维度汇总\n")
 	text.WriteString("提款明细[可选日期] - 查看提款记录\n")
 	text.WriteString("费率 - 查看通道费率\n")
-	text.WriteString("自动查单 - 默认开启，自动识别文字/图片/视频标题中的订单号并异步查询，可在 /configs 的“🔍 四方自动查单”中关闭\n")
+	text.WriteString("自动查单 - 默认开启，自动识别群内文字/图片/视频标题/文件名中的订单号（长度10-60，含数字，支持机器人消息）并异步查询，可在 /configs 的“🔍 四方自动查单”中关闭\n")
 	text.WriteString("下发 <code>金额</code> [谷歌验证码] - 申请下发，支持表达式和谷歌验证码，需在 60 秒内按钮确认\n")
 	text.WriteString("下发 <code>[a|z|k|w][序号] [U金额]</code> [谷歌验证码] - 按欧易报价换算后申请下发，例如：下发 z3 100\n\n")
 	text.WriteString("模拟下单 <code>金额</code> [通道代码] [订单号] - 调用 /createorder 模拟创建订单（会真实写单）\n")
