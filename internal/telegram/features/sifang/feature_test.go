@@ -496,11 +496,26 @@ func TestHandleSendMoneyCreatesPendingFromQuoteCommand(t *testing.T) {
 	if resp == nil || resp.ReplyMarkup == nil {
 		t.Fatalf("expected inline keyboard response")
 	}
-	if !strings.Contains(resp.Text, "是否确认下发 742 元") {
+	if !strings.Contains(resp.Text, "OTC商家实时价格") {
+		t.Fatalf("expected otc header in confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "信息来源: 欧易 <b>支付宝</b>") {
+		t.Fatalf("expected source section in confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "✅<b>7.30        M3</b>___➕<b>0.12</b>🟰<code>7.42</code>⬅️") {
+		t.Fatalf("expected selected row in confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "<code>7.42</code> ✖️ <code>100</code> <b>U</b> 🟰 <code>742.00</code> <b>¥</b>") {
+		t.Fatalf("expected total row in confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "是否确认下发 742 元 | 2023100") {
 		t.Fatalf("unexpected confirmation text: %s", resp.Text)
 	}
-	if !strings.Contains(resp.Text, "💱 报价：欧易支付宝 #3 7.30 + 0.12 = 7.42") {
-		t.Fatalf("expected quote details in response: %s", resp.Text)
+	if !strings.Contains(resp.Text, "报价时间: <code>") {
+		t.Fatalf("expected quote timestamp in confirmation text: %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "来源参数: <code>") || !strings.Contains(resp.Text, "paymentMethod=aliPay") {
+		t.Fatalf("expected source params in confirmation text: %s", resp.Text)
 	}
 
 	token := ""

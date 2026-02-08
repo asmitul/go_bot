@@ -52,11 +52,15 @@ type pendingSendMoney struct {
 
 type sendMoneyQuote struct {
 	paymentMethodName string
+	paymentMethod     string
+	orders            []cryptofeature.C2COrder
 	serialNum         int
 	basePrice         float64
 	floatRate         float64
 	unitPrice         float64
 	usdtAmount        float64
+	quotedAt          time.Time
+	sourceParams      string
 }
 
 func mustLoadChinaLocation() *time.Location {
@@ -621,19 +625,7 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 		return wrapResponse("❌ 创建下发确认状态失败，请稍后重试"), true, nil
 	}
 
-	merchantText := strconv.FormatInt(merchantID, 10)
-	message := fmt.Sprintf("是否确认下发 %s 元 | %s", html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText))
-	if quote != nil {
-		message += fmt.Sprintf(
-			"\n💱 报价：欧易%s #%d %.2f + %.2f = %.2f\n数量：%s U",
-			html.EscapeString(quote.paymentMethodName),
-			quote.serialNum,
-			quote.basePrice,
-			quote.floatRate,
-			quote.unitPrice,
-			html.EscapeString(formatFloat(quote.usdtAmount)),
-		)
-	}
+	message := buildSendMoneyConfirmationMessage(merchantID, amount, quote)
 	if googleCode != "" {
 		message += "\n🔐 将附带当前谷歌验证码"
 	}
@@ -690,13 +682,23 @@ func (f *Feature) resolveSendMoneyPayload(ctx context.Context, raw string, float
 			return 0, "", nil, fmt.Errorf("下发金额必须大于 0")
 		}
 
+		maxDisplay := 10
+		if len(orders) < maxDisplay {
+			maxDisplay = len(orders)
+		}
+		displayOrders := append([]cryptofeature.C2COrder{}, orders[:maxDisplay]...)
+
 		quote := &sendMoneyQuote{
 			paymentMethodName: cmdInfo.PaymentMethodName,
+			paymentMethod:     cmdInfo.PaymentMethod,
+			orders:            displayOrders,
 			serialNum:         cmdInfo.SerialNum,
 			basePrice:         basePrice,
 			floatRate:         floatRate,
 			unitPrice:         unitPrice,
 			usdtAmount:        cmdInfo.Amount,
+			quotedAt:          time.Now().In(chinaLocation),
+			sourceParams:      buildQuoteSourceParams(cmdInfo.PaymentMethod),
 		}
 
 		return amount, googleCode, quote, nil
@@ -708,6 +710,58 @@ func (f *Feature) resolveSendMoneyPayload(ctx context.Context, raw string, float
 	}
 
 	return amount, googleCode, nil, nil
+}
+
+func buildSendMoneyConfirmationMessage(merchantID int64, amount float64, quote *sendMoneyQuote) string {
+	merchantText := strconv.FormatInt(merchantID, 10)
+	if quote == nil {
+		return fmt.Sprintf("是否确认下发 %s 元 | %s", html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText))
+	}
+
+	var response strings.Builder
+	response.WriteString("<b>OTC商家实时价格</b>\n\n")
+	response.WriteString(fmt.Sprintf("信息来源: 欧易 <b>%s</b>\n", html.EscapeString(quote.paymentMethodName)))
+	if !quote.quotedAt.IsZero() {
+		response.WriteString(fmt.Sprintf("报价时间: <code>%s</code>\n", html.EscapeString(quote.quotedAt.Format("2006-01-02 15:04:05"))))
+	}
+	if strings.TrimSpace(quote.sourceParams) != "" {
+		response.WriteString(fmt.Sprintf("来源参数: <code>%s</code>\n", html.EscapeString(quote.sourceParams)))
+	}
+	response.WriteString("\n")
+
+	for i, order := range quote.orders {
+		price, err := strconv.ParseFloat(strings.TrimSpace(order.Price), 64)
+		if err != nil {
+			price = 0
+		}
+		name := strings.TrimSpace(order.NickName)
+		if name == "" {
+			name = "-"
+		}
+
+		if i == quote.serialNum-1 {
+			if quote.floatRate > 0 {
+				response.WriteString(fmt.Sprintf("✅<b>%.2f        %s</b>___➕<b>%.2f</b>🟰<code>%.2f</code>⬅️\n",
+					price, html.EscapeString(name), quote.floatRate, quote.unitPrice))
+			} else {
+				response.WriteString(fmt.Sprintf("✅<b>%.2f        %s</b> 🟰 <code>%.2f</code>⬅️\n",
+					price, html.EscapeString(name), quote.unitPrice))
+			}
+		} else {
+			response.WriteString(fmt.Sprintf("     <code>%.2f   %s</code>\n", price, html.EscapeString(name)))
+		}
+	}
+
+	response.WriteString(fmt.Sprintf("\n<code>%.2f</code> ✖️ <code>%s</code> <b>U</b> 🟰 <code>%.2f</code> <b>¥</b>\n",
+		quote.unitPrice, html.EscapeString(formatFloat(quote.usdtAmount)), amount))
+	response.WriteString(fmt.Sprintf("是否确认下发 %s 元 | %s",
+		html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText)))
+
+	return response.String()
+}
+
+func buildQuoteSourceParams(paymentMethod string) string {
+	return fmt.Sprintf("quoteCurrency=CNY&baseCurrency=USDT&side=sell&paymentMethod=%s&userType=all", paymentMethod)
 }
 
 func splitSendMoneyGoogleCode(raw string) (string, string) {
