@@ -221,22 +221,29 @@ func IsMathExpression(text string) bool {
 		return false
 	}
 
-	// 至少包含一个运算符（排除纯数字）
-	hasOperator := false
-	for i, ch := range cleaned {
-		switch ch {
-		case '+', '*', '/':
-			hasOperator = true
-		case '-':
-			if i > 0 {
-				hasOperator = true
-			}
+	// 至少包含一个二元运算符（排除纯数字/纯符号数字）
+	// 例如：+7050、-5、(+5) 都不应触发计算器
+	runes := []rune(cleaned)
+	hasBinaryOperator := false
+	for i, ch := range runes {
+		if ch != '+' && ch != '-' && ch != '*' && ch != '/' {
+			continue
 		}
-		if hasOperator {
+		if i == 0 || i == len(runes)-1 {
+			continue
+		}
+
+		prev := runes[i-1]
+		next := runes[i+1]
+
+		prevCanEndOperand := unicode.IsDigit(prev) || prev == ')' || prev == '.'
+		nextCanStartOperand := unicode.IsDigit(next) || next == '(' || next == '+' || next == '-' || next == '.'
+		if prevCanEndOperand && nextCanStartOperand {
+			hasBinaryOperator = true
 			break
 		}
 	}
-	if !hasOperator {
+	if !hasBinaryOperator {
 		return false
 	}
 

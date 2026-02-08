@@ -101,6 +101,7 @@ func TestIsMathExpression(t *testing.T) {
 		{"带括号", "(1+2)*3", true},
 		{"小数", "1.5+2.5", true},
 		{"负数", "-5+3", true},
+		{"前导正号表达式", "+5+3", true},
 		{"带空格", "1 + 2", true},
 		{"复杂表达式", "(10+5)*2-3", true},
 
@@ -116,8 +117,11 @@ func TestIsMathExpression(t *testing.T) {
 		{"特殊字符", "1+2@", false},
 		{"单个数字", "1", false},
 		{"多位数字", "12345", false},
+		{"纯正号数字", "+7050", false},
 		{"纯负数", "-5", false},
 		{"括号包裹数字", "(5)", false},
+		{"括号包裹正数", "(+5)", false},
+		{"括号包裹负数", "(-5)", false},
 	}
 
 	for _, tt := range tests {
