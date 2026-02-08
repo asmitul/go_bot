@@ -52,15 +52,12 @@ type pendingSendMoney struct {
 
 type sendMoneyQuote struct {
 	paymentMethodName string
-	paymentMethod     string
 	orders            []cryptofeature.C2COrder
 	serialNum         int
 	basePrice         float64
 	floatRate         float64
 	unitPrice         float64
 	usdtAmount        float64
-	quotedAt          time.Time
-	sourceParams      string
 }
 
 func mustLoadChinaLocation() *time.Location {
@@ -690,15 +687,12 @@ func (f *Feature) resolveSendMoneyPayload(ctx context.Context, raw string, float
 
 		quote := &sendMoneyQuote{
 			paymentMethodName: cmdInfo.PaymentMethodName,
-			paymentMethod:     cmdInfo.PaymentMethod,
 			orders:            displayOrders,
 			serialNum:         cmdInfo.SerialNum,
 			basePrice:         basePrice,
 			floatRate:         floatRate,
 			unitPrice:         unitPrice,
 			usdtAmount:        cmdInfo.Amount,
-			quotedAt:          time.Now().In(chinaLocation),
-			sourceParams:      buildQuoteSourceParams(cmdInfo.PaymentMethod),
 		}
 
 		return amount, googleCode, quote, nil
@@ -721,12 +715,6 @@ func buildSendMoneyConfirmationMessage(merchantID int64, amount float64, quote *
 	var response strings.Builder
 	response.WriteString("<b>OTC商家实时价格</b>\n\n")
 	response.WriteString(fmt.Sprintf("信息来源: 欧易 <b>%s</b>\n", html.EscapeString(quote.paymentMethodName)))
-	if !quote.quotedAt.IsZero() {
-		response.WriteString(fmt.Sprintf("报价时间: <code>%s</code>\n", html.EscapeString(quote.quotedAt.Format("2006-01-02 15:04:05"))))
-	}
-	if strings.TrimSpace(quote.sourceParams) != "" {
-		response.WriteString(fmt.Sprintf("来源参数: <code>%s</code>\n", html.EscapeString(quote.sourceParams)))
-	}
 	response.WriteString("\n")
 
 	for i, order := range quote.orders {
@@ -758,10 +746,6 @@ func buildSendMoneyConfirmationMessage(merchantID int64, amount float64, quote *
 		html.EscapeString(formatFloat(amount)), html.EscapeString(merchantText)))
 
 	return response.String()
-}
-
-func buildQuoteSourceParams(paymentMethod string) string {
-	return fmt.Sprintf("quoteCurrency=CNY&baseCurrency=USDT&side=sell&paymentMethod=%s&userType=all", paymentMethod)
 }
 
 func splitSendMoneyGoogleCode(raw string) (string, string) {

@@ -511,12 +511,6 @@ func TestHandleSendMoneyCreatesPendingFromQuoteCommand(t *testing.T) {
 	if !strings.Contains(resp.Text, "是否确认下发 742 元 | 2023100") {
 		t.Fatalf("unexpected confirmation text: %s", resp.Text)
 	}
-	if !strings.Contains(resp.Text, "报价时间: <code>") {
-		t.Fatalf("expected quote timestamp in confirmation text: %s", resp.Text)
-	}
-	if !strings.Contains(resp.Text, "来源参数: <code>") || !strings.Contains(resp.Text, "paymentMethod=aliPay") {
-		t.Fatalf("expected source params in confirmation text: %s", resp.Text)
-	}
 
 	token := ""
 	for data := range feature.pending {
