@@ -706,6 +706,7 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 	}
 
 	if msg.From.IsBot {
+		b.tryTriggerSifangAutoLookup(ctx, msg)
 		return
 	}
 
@@ -1032,11 +1033,6 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 		return
 	}
 
-	if msg.From.IsBot {
-		return
-	}
-
-	b.registerUserFromTelegram(ctx, msg.From)
 	var messageType, fileID, mimeType string
 	var fileSize int64
 	var fileNames []string
@@ -1091,6 +1087,13 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	} else {
 		return // 不是支持的媒体类型
 	}
+
+	if msg.From.IsBot {
+		b.tryTriggerSifangAutoLookup(ctx, msg, fileNames...)
+		return
+	}
+
+	b.registerUserFromTelegram(ctx, msg.From)
 
 	// 构造媒体消息信息
 	mediaMsg := &service.MediaMessageInfo{
