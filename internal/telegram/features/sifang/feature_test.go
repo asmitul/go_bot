@@ -333,6 +333,28 @@ func TestMatchAcceptsSendMoneyCommand(t *testing.T) {
 	}
 }
 
+func TestMatchAcceptsCreateOrderCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "模拟下单 50",
+	}
+	if !f.Match(context.Background(), msg) {
+		t.Fatalf("expected create order command to match")
+	}
+}
+
+func TestMatchAcceptsCreateOrderAliasCommand(t *testing.T) {
+	f := &Feature{}
+	msg := &botModels.Message{
+		Chat: botModels.Chat{Type: "group"},
+		Text: "模拟创建订单 50",
+	}
+	if !f.Match(context.Background(), msg) {
+		t.Fatalf("expected create order alias command to match")
+	}
+}
+
 func TestFormatWithdrawListMessage(t *testing.T) {
 	list := &paymentservice.WithdrawList{
 		Items: []*paymentservice.Withdraw{
@@ -652,6 +674,78 @@ func TestHandleSendMoneyCallbackCancel(t *testing.T) {
 	}
 }
 
+func TestHandleCreateOrder(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{
+		createOrderResp: &paymentservice.CreateOrderResult{
+			MerchantID:      "2023100",
+			MerchantOrderNo: "M-2026",
+			Amount:          "88.80",
+			ChannelCode:     "wxhftest",
+			PaymentURL:      "https://example.com/pay/ok",
+			Status:          "0",
+		},
+	}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "模拟下单 88.8 wxhftest M-2026",
+	}
+
+	respText, handled, err := feature.handleCreateOrder(ctx, msg, 2023100, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled=true")
+	}
+	if !strings.Contains(respText, "🧪 模拟下单成功") {
+		t.Fatalf("unexpected response: %s", respText)
+	}
+	if !strings.Contains(respText, "M-2026") || !strings.Contains(respText, "https://example.com/pay/ok") {
+		t.Fatalf("missing order details in response: %s", respText)
+	}
+	if fakeSvc.lastCreateOrderMerchantID != 2023100 {
+		t.Fatalf("expected merchant id 2023100, got %d", fakeSvc.lastCreateOrderMerchantID)
+	}
+	if fakeSvc.lastCreateOrderReq.Amount != 88.8 {
+		t.Fatalf("expected amount 88.8, got %.2f", fakeSvc.lastCreateOrderReq.Amount)
+	}
+	if fakeSvc.lastCreateOrderReq.ChannelCode != "wxhftest" || fakeSvc.lastCreateOrderReq.MerchantOrderNo != "M-2026" {
+		t.Fatalf("unexpected create order request: %#v", fakeSvc.lastCreateOrderReq)
+	}
+}
+
+func TestHandleCreateOrder_RequiresAdmin(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: false}
+	feature := New(fakeSvc, stubUser)
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "模拟下单 50",
+	}
+
+	respText, handled, err := feature.handleCreateOrder(ctx, msg, 2023100, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled=true")
+	}
+	if !strings.Contains(respText, "仅管理员可以模拟下单") {
+		t.Fatalf("unexpected response: %s", respText)
+	}
+	if fakeSvc.lastCreateOrderReq.Amount != 0 {
+		t.Fatalf("expected no create order call, got %#v", fakeSvc.lastCreateOrderReq)
+	}
+}
+
 func TestHandleChannelRates(t *testing.T) {
 	fake := &fakePaymentService{
 		channelStatusResp: []*paymentservice.ChannelStatus{
@@ -885,22 +979,26 @@ func TestHandleChannelSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
 }
 
 type fakePaymentService struct {
-	balanceResp        *paymentservice.Balance
-	balanceErr         error
-	summaryResp        *paymentservice.SummaryByDay
-	summaryErr         error
-	channelSummaryResp []*paymentservice.SummaryByDayChannel
-	channelSummaryErr  error
-	withdrawResp       *paymentservice.WithdrawList
-	withdrawErr        error
-	channelStatusResp  []*paymentservice.ChannelStatus
-	channelStatusErr   error
-	lastHistoryDays    int
-	sendMoneyResult    *paymentservice.SendMoneyResult
-	sendMoneyErr       error
-	lastSendAmount     float64
-	orderDetailResp    *paymentservice.OrderDetail
-	orderDetailErr     error
+	balanceResp               *paymentservice.Balance
+	balanceErr                error
+	summaryResp               *paymentservice.SummaryByDay
+	summaryErr                error
+	channelSummaryResp        []*paymentservice.SummaryByDayChannel
+	channelSummaryErr         error
+	withdrawResp              *paymentservice.WithdrawList
+	withdrawErr               error
+	channelStatusResp         []*paymentservice.ChannelStatus
+	channelStatusErr          error
+	lastHistoryDays           int
+	sendMoneyResult           *paymentservice.SendMoneyResult
+	sendMoneyErr              error
+	lastSendAmount            float64
+	createOrderResp           *paymentservice.CreateOrderResult
+	createOrderErr            error
+	lastCreateOrderReq        paymentservice.CreateOrderRequest
+	lastCreateOrderMerchantID int64
+	orderDetailResp           *paymentservice.OrderDetail
+	orderDetailErr            error
 }
 
 func (f *fakePaymentService) GetBalance(ctx context.Context, merchantID int64, historyDays int) (*paymentservice.Balance, error) {
@@ -965,6 +1063,15 @@ func (f *fakePaymentService) SendMoney(ctx context.Context, merchantID int64, am
 		return nil, f.sendMoneyErr
 	}
 	return f.sendMoneyResult, nil
+}
+
+func (f *fakePaymentService) CreateOrder(ctx context.Context, merchantID int64, req paymentservice.CreateOrderRequest) (*paymentservice.CreateOrderResult, error) {
+	f.lastCreateOrderMerchantID = merchantID
+	f.lastCreateOrderReq = req
+	if f.createOrderErr != nil {
+		return nil, f.createOrderErr
+	}
+	return f.createOrderResp, nil
 }
 
 func (f *fakePaymentService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderDetail, error) {

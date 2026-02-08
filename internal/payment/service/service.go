@@ -21,6 +21,7 @@ type Service interface {
 	GetChannelStatus(ctx context.Context, merchantID int64) ([]*ChannelStatus, error)
 	GetWithdrawList(ctx context.Context, merchantID int64, start, end time.Time, page, pageSize int) (*WithdrawList, error)
 	SendMoney(ctx context.Context, merchantID int64, amount float64, opts SendMoneyOptions) (*SendMoneyResult, error)
+	CreateOrder(ctx context.Context, merchantID int64, req CreateOrderRequest) (*CreateOrderResult, error)
 	GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderDetail, error)
 	FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderChannelBinding, error)
 }
@@ -43,6 +44,42 @@ type SendMoneyResult struct {
 	PendingWithdraw string
 	FrozenToday     string
 	Fee             string
+}
+
+// CreateOrderRequest 模拟下单请求参数
+type CreateOrderRequest struct {
+	MerchantOrderNo string
+	OrderNo         string
+	Amount          float64
+	ChannelCode     string
+	NotifyURL       string
+	ReturnURL       string
+	Description     string
+	Attach          string
+	ClientIP        string
+	OrderStyle      string
+	ScanStyle       string
+	NotifyStyle     string
+	BankCode        string
+	PaymentMethod   string
+	SubUserID       string
+	SignString      string
+	JumpFlag        string
+}
+
+// CreateOrderResult 模拟下单结果
+type CreateOrderResult struct {
+	MerchantID      string
+	MerchantOrderNo string
+	Amount          string
+	ChannelCode     string
+	Description     string
+	PaymentURL      string
+	Payment         string
+	OrderID         string
+	PlatformOrderNo string
+	OrderMD5        string
+	Status          string
 }
 
 // OrderDetail 订单详情结构
@@ -362,6 +399,80 @@ func (s *sifangService) SendMoney(ctx context.Context, merchantID int64, amount 
 	}
 
 	result := decodeSendMoney(raw)
+	if result != nil && strings.TrimSpace(result.MerchantID) == "" {
+		result.MerchantID = strconv.FormatInt(merchantID, 10)
+	}
+
+	return result, nil
+}
+
+func (s *sifangService) CreateOrder(ctx context.Context, merchantID int64, req CreateOrderRequest) (*CreateOrderResult, error) {
+	if merchantID == 0 {
+		return nil, fmt.Errorf("merchant id is required")
+	}
+	if req.Amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+
+	business := map[string]string{
+		"amount": fmt.Sprintf("%.2f", req.Amount),
+	}
+
+	if value := strings.TrimSpace(req.MerchantOrderNo); value != "" {
+		business["merchant_order_no"] = value
+	}
+	if value := strings.TrimSpace(req.OrderNo); value != "" {
+		business["order_no"] = value
+	}
+	if value := strings.TrimSpace(req.ChannelCode); value != "" {
+		business["channel_code"] = value
+	}
+	if value := strings.TrimSpace(req.NotifyURL); value != "" {
+		business["notify_url"] = value
+	}
+	if value := strings.TrimSpace(req.ReturnURL); value != "" {
+		business["return_url"] = value
+	}
+	if value := strings.TrimSpace(req.Description); value != "" {
+		business["description"] = value
+	}
+	if value := strings.TrimSpace(req.Attach); value != "" {
+		business["attach"] = value
+	}
+	if value := strings.TrimSpace(req.ClientIP); value != "" {
+		business["client_ip"] = value
+	}
+	if value := strings.TrimSpace(req.OrderStyle); value != "" {
+		business["order_style"] = value
+	}
+	if value := strings.TrimSpace(req.ScanStyle); value != "" {
+		business["scan_style"] = value
+	}
+	if value := strings.TrimSpace(req.NotifyStyle); value != "" {
+		business["notify_style"] = value
+	}
+	if value := strings.TrimSpace(req.BankCode); value != "" {
+		business["bank_code"] = value
+	}
+	if value := strings.TrimSpace(req.PaymentMethod); value != "" {
+		business["payment_method"] = value
+	}
+	if value := strings.TrimSpace(req.SubUserID); value != "" {
+		business["sub_userid"] = value
+	}
+	if value := strings.TrimSpace(req.SignString); value != "" {
+		business["sign_string"] = value
+	}
+	if value := strings.TrimSpace(req.JumpFlag); value != "" {
+		business["jump_flag"] = value
+	}
+
+	raw := make(map[string]interface{})
+	if err := s.client.Post(ctx, "createorder", merchantID, business, &raw); err != nil {
+		return nil, err
+	}
+
+	result := decodeCreateOrder(raw)
 	if result != nil && strings.TrimSpace(result.MerchantID) == "" {
 		result.MerchantID = strconv.FormatInt(merchantID, 10)
 	}
@@ -1296,6 +1407,52 @@ func decodeSendMoney(raw map[string]interface{}) *SendMoneyResult {
 	}
 
 	return result
+}
+
+func decodeCreateOrder(raw map[string]interface{}) *CreateOrderResult {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := &CreateOrderResult{
+		MerchantID:      pickString(raw, "merchant_id", "fxid"),
+		MerchantOrderNo: pickString(raw, "merchant_order_no", "order_no"),
+		Amount:          pickString(raw, "amount", "money", "total_amount"),
+		ChannelCode:     pickString(raw, "channel_code", "channel", "pay_channel"),
+		Description:     pickString(raw, "description", "body", "subject"),
+		PaymentURL:      pickString(raw, "payment_url", "pay_url", "url", "cashier_url"),
+		OrderID:         pickString(raw, "order_id", "id"),
+		PlatformOrderNo: pickString(raw, "platform_order_no", "platform_no", "sys_order_no"),
+		OrderMD5:        pickString(raw, "order_md5", "order_sign", "md5"),
+		Status:          pickString(raw, "status", "status_code"),
+	}
+
+	if paymentRaw, ok := raw["payment"]; ok {
+		result.Payment = stringifyJSONValue(paymentRaw)
+	}
+
+	if result.MerchantID == "" && result.MerchantOrderNo == "" && result.Amount == "" &&
+		result.ChannelCode == "" && result.PaymentURL == "" && result.Payment == "" &&
+		result.OrderID == "" && result.PlatformOrderNo == "" && result.OrderMD5 == "" && result.Status == "" {
+		return nil
+	}
+
+	return result
+}
+
+func stringifyJSONValue(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return strings.TrimSpace(stringify(v))
+		}
+		return strings.TrimSpace(string(raw))
+	}
 }
 
 func extractChannelSummaries(value interface{}) []*SummaryByDayChannel {

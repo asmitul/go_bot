@@ -31,6 +31,7 @@ var (
 	dateSuffixRegexp       = regexp.MustCompile(`^[0-9\s./\-年月日号]*$`)
 	googleCodeSuffixRegexp = regexp.MustCompile(`\s+(\d{6})$`)
 	fetchC2COrders         = cryptofeature.FetchC2COrders
+	createOrderPrefixes    = []string{"模拟下单", "模拟创建订单"}
 )
 
 const (
@@ -106,6 +107,7 @@ func (f *Feature) Enabled(ctx context.Context, group *models.Group) bool {
 //   - 余额
 //   - 账单 / 账单10月26（可指定日期）
 //   - 下发 [金额 or 表达式] [可选谷歌验证码]
+//   - 模拟下单 / 模拟创建订单 [金额 or 表达式] [可选通道代码] [可选订单号]
 //   - 下发 [a|z|k|w][序号] [U金额] [可选谷歌验证码]
 func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 	if msg.Chat.Type != "group" && msg.Chat.Type != "supergroup" {
@@ -138,6 +140,10 @@ func (f *Feature) Match(ctx context.Context, msg *botModels.Message) bool {
 	}
 
 	if isSendMoneyCommand(text) {
+		return true
+	}
+
+	if isCreateOrderCommand(text) {
 		return true
 	}
 
@@ -187,6 +193,11 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 
 	if isSendMoneyCommand(text) {
 		return f.handleSendMoney(ctx, msg, merchantID, group.Settings.CryptoFloatRate, text)
+	}
+
+	if isCreateOrderCommand(text) {
+		respText, handled, err := f.handleCreateOrder(ctx, msg, merchantID, text)
+		return wrapResponse(respText), handled, err
 	}
 
 	return nil, false, nil
@@ -594,6 +605,130 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+type createOrderCommand struct {
+	amount          float64
+	channelCode     string
+	merchantOrderNo string
+}
+
+func (f *Feature) handleCreateOrder(ctx context.Context, msg *botModels.Message, merchantID int64, text string) (string, bool, error) {
+	if f.userService == nil {
+		logger.L().Error("Sifang create order: user service is nil")
+		return "❌ 未配置管理员校验服务，请联系管理员", true, nil
+	}
+
+	isAdmin, err := f.userService.CheckAdminPermission(ctx, msg.From.ID)
+	if err != nil {
+		logger.L().Errorf("Sifang create order admin check failed: user_id=%d, err=%v", msg.From.ID, err)
+		return "❌ 权限检查失败，请稍后重试", true, nil
+	}
+	if !isAdmin {
+		logger.L().Warnf("Sifang create order unauthorized: user_id=%d, chat_id=%d", msg.From.ID, msg.Chat.ID)
+		return "❌ 仅管理员可以模拟下单", true, nil
+	}
+
+	cmd, err := parseCreateOrderCommand(text)
+	if err != nil {
+		return fmt.Sprintf("❌ %v", err), true, nil
+	}
+
+	req := paymentservice.CreateOrderRequest{
+		Amount:          cmd.amount,
+		ChannelCode:     cmd.channelCode,
+		MerchantOrderNo: cmd.merchantOrderNo,
+	}
+
+	result, err := f.paymentService.CreateOrder(ctx, merchantID, req)
+	if err != nil {
+		logger.L().Errorf("Sifang create order failed: merchant_id=%d, user_id=%d, amount=%.2f, err=%v", merchantID, msg.From.ID, cmd.amount, err)
+		return fmt.Sprintf("❌ 模拟下单失败：%v", err), true, nil
+	}
+	if result == nil {
+		return "❌ 模拟下单失败：返回数据为空", true, nil
+	}
+
+	logger.L().Infof("Sifang create order success: merchant_id=%d, user_id=%d, amount=%.2f, order_no=%s, channel=%s",
+		merchantID, msg.From.ID, cmd.amount, result.MerchantOrderNo, result.ChannelCode)
+
+	return formatCreateOrderMessage(merchantID, cmd.amount, result), true, nil
+}
+
+func parseCreateOrderCommand(text string) (*createOrderCommand, error) {
+	payload, ok := trimCreateOrderPrefix(text)
+	if !ok {
+		return nil, fmt.Errorf("请使用：模拟下单 <金额> [通道代码] [订单号]")
+	}
+	if payload == "" {
+		return nil, fmt.Errorf("请使用：模拟下单 <金额> [通道代码] [订单号]")
+	}
+
+	fields := strings.Fields(payload)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("请使用：模拟下单 <金额> [通道代码] [订单号]")
+	}
+	if len(fields) > 3 {
+		return nil, fmt.Errorf("参数过多，请使用：模拟下单 <金额> [通道代码] [订单号]")
+	}
+
+	amount, err := parseSendMoneyAmount(fields[0])
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := &createOrderCommand{amount: amount}
+	if len(fields) >= 2 {
+		cmd.channelCode = strings.TrimSpace(fields[1])
+	}
+	if len(fields) >= 3 {
+		cmd.merchantOrderNo = strings.TrimSpace(fields[2])
+	}
+
+	return cmd, nil
+}
+
+func formatCreateOrderMessage(merchantID int64, requestAmount float64, result *paymentservice.CreateOrderResult) string {
+	merchantText := strconv.FormatInt(merchantID, 10)
+	if id := strings.TrimSpace(result.MerchantID); id != "" {
+		merchantText = id
+	}
+
+	orderNo := strings.TrimSpace(result.MerchantOrderNo)
+	if orderNo == "" {
+		orderNo = "-"
+	}
+
+	amountText := formatFloat(requestAmount)
+	if amount, ok := parseAmountToFloat(strings.TrimSpace(result.Amount)); ok {
+		amountText = formatFloat(amount)
+	}
+
+	channel := strings.TrimSpace(result.ChannelCode)
+	if channel == "" {
+		channel = "-"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🧪 模拟下单成功")
+	sb.WriteString(fmt.Sprintf("\n商户：%s", html.EscapeString(merchantText)))
+	sb.WriteString(fmt.Sprintf("\n订单号：<code>%s</code>", html.EscapeString(orderNo)))
+	sb.WriteString(fmt.Sprintf("\n金额：%s", html.EscapeString(amountText)))
+	sb.WriteString(fmt.Sprintf("\n通道：<code>%s</code>", html.EscapeString(channel)))
+
+	if payURL := strings.TrimSpace(result.PaymentURL); payURL != "" {
+		sb.WriteString(fmt.Sprintf("\n支付链接：%s", html.EscapeString(payURL)))
+	}
+
+	if payment := strings.TrimSpace(result.Payment); payment != "" {
+		sb.WriteString(fmt.Sprintf("\n支付参数：<code>%s</code>", html.EscapeString(payment)))
+	}
+
+	if status := strings.TrimSpace(result.Status); status != "" {
+		sb.WriteString(fmt.Sprintf("\n状态：%s", html.EscapeString(status)))
+	}
+
+	return sb.String()
+}
+
 func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, merchantID int64, floatRate float64, text string) (*types.Response, bool, error) {
 	if f.userService == nil {
 		logger.L().Error("Sifang send money: user service is nil")
@@ -938,6 +1073,27 @@ func isSendMoneyCommand(text string) bool {
 	}
 	payload := strings.TrimSpace(strings.TrimPrefix(text, "下发"))
 	return payload != ""
+}
+
+func isCreateOrderCommand(text string) bool {
+	payload, ok := trimCreateOrderPrefix(text)
+	if !ok {
+		return false
+	}
+	return payload != ""
+}
+
+func trimCreateOrderPrefix(text string) (string, bool) {
+	normalized := strings.TrimSpace(text)
+	if normalized == "" {
+		return "", false
+	}
+	for _, prefix := range createOrderPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(normalized, prefix)), true
+		}
+	}
+	return "", false
 }
 
 func (f *Feature) createPendingSend(chatID, userID, merchantID int64, amount float64, googleCode string) (*pendingSendMoney, error) {

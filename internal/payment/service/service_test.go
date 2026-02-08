@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -824,5 +825,103 @@ func TestDecodeSendMoney(t *testing.T) {
 func TestDecodeSendMoney_Empty(t *testing.T) {
 	if decodeSendMoney(map[string]interface{}{}) != nil {
 		t.Fatalf("expected nil for empty map")
+	}
+}
+
+func TestDecodeCreateOrder(t *testing.T) {
+	raw := map[string]interface{}{
+		"merchant_id":       "2023100",
+		"merchant_order_no": "M-1001",
+		"amount":            "50.00",
+		"channel_code":      "wxhftest",
+		"description":       "商品支付",
+		"payment_url":       "https://example.com/pay/abc",
+		"payment": map[string]interface{}{
+			"qrcode": "https://example.com/qr.png",
+		},
+		"order_id":          32180458,
+		"platform_order_no": "P-1",
+		"order_md5":         "5efbeca974a515c5",
+		"status":            0,
+	}
+
+	result := decodeCreateOrder(raw)
+	if result == nil {
+		t.Fatalf("expected result, got nil")
+	}
+	if result.MerchantID != "2023100" || result.MerchantOrderNo != "M-1001" {
+		t.Fatalf("unexpected merchant fields: %#v", result)
+	}
+	if result.Amount != "50.00" || result.ChannelCode != "wxhftest" {
+		t.Fatalf("unexpected amount/channel fields: %#v", result)
+	}
+	if result.PaymentURL != "https://example.com/pay/abc" {
+		t.Fatalf("unexpected payment url: %#v", result)
+	}
+	if !strings.Contains(result.Payment, "\"qrcode\":\"https://example.com/qr.png\"") {
+		t.Fatalf("unexpected payment payload: %s", result.Payment)
+	}
+	if result.OrderID != "32180458" || result.OrderMD5 != "5efbeca974a515c5" || result.Status != "0" {
+		t.Fatalf("unexpected order fields: %#v", result)
+	}
+}
+
+func TestSifangService_CreateOrder(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/createorder" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("amount"); got != "88.80" {
+			t.Fatalf("unexpected amount: %s", got)
+		}
+		if got := r.Form.Get("channel_code"); got != "wxhftest" {
+			t.Fatalf("unexpected channel_code: %s", got)
+		}
+		if got := r.Form.Get("merchant_order_no"); got != "M-2026" {
+			t.Fatalf("unexpected merchant_order_no: %s", got)
+		}
+		if got := r.Form.Get("description"); got != "测试订单" {
+			t.Fatalf("unexpected description: %s", got)
+		}
+		fmt.Fprintf(w, `{"code":0,"message":"订单创建成功","data":{"merchant_id":"2023100","merchant_order_no":"M-2026","amount":"88.80","channel_code":"wxhftest","payment_url":"https://example.com/pay/ok","order_id":123456,"platform_order_no":"P-200","order_md5":"abc123","status":0}}`)
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time {
+		return time.Unix(1700000000, 0)
+	}))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	result, err := svc.CreateOrder(context.Background(), 2023100, CreateOrderRequest{
+		Amount:          88.8,
+		ChannelCode:     "wxhftest",
+		MerchantOrderNo: "M-2026",
+		Description:     "测试订单",
+	})
+	if err != nil {
+		t.Fatalf("CreateOrder returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatalf("expected result, got nil")
+	}
+	if result.MerchantOrderNo != "M-2026" || result.OrderID != "123456" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.PaymentURL != "https://example.com/pay/ok" {
+		t.Fatalf("unexpected payment url: %#v", result)
 	}
 }

@@ -239,6 +239,10 @@ func (s *stubPaymentService) SendMoney(ctx context.Context, merchantID int64, am
 	panic("not implemented")
 }
 
+func (s *stubPaymentService) CreateOrder(ctx context.Context, merchantID int64, req paymentservice.CreateOrderRequest) (*paymentservice.CreateOrderResult, error) {
+	panic("not implemented")
+}
+
 func (s *stubPaymentService) GetOrderDetail(ctx context.Context, merchantID int64, orderNo string, numberType paymentservice.OrderNumberType) (*paymentservice.OrderDetail, error) {
 	panic("not implemented")
 }
