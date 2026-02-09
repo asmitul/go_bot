@@ -138,7 +138,7 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 		go func(g *models.Group) {
 			defer wg.Done()
 
-			forwardedMsgID, err := s.forwardToGroup(ctx, botInstance, message, g.TelegramID, limiter)
+			forwardedMsgID, targetGroupID, err := s.forwardToGroup(ctx, botInstance, message, g.TelegramID, limiter)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -147,16 +147,16 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 			if err == nil {
 				successCount++
 				status = models.ForwardStatusSuccess
-				logger.L().Debugf("Forwarded to group %d: message_id=%d", g.TelegramID, forwardedMsgID)
+				logger.L().Debugf("Forwarded to group %d: message_id=%d", targetGroupID, forwardedMsgID)
 			} else {
 				failedCount++
-				logger.L().Errorf("Failed to forward to group %d: %v", g.TelegramID, err)
+				logger.L().Errorf("Failed to forward to group %d: %v", targetGroupID, err)
 			}
 
 			records = append(records, &models.ForwardRecord{
 				TaskID:             taskID,
 				ChannelMessageID:   int64(message.ID),
-				TargetGroupID:      g.TelegramID,
+				TargetGroupID:      targetGroupID,
 				ForwardedMessageID: forwardedMsgID,
 				Status:             status,
 				CreatedAt:          time.Now(),
@@ -183,37 +183,47 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 }
 
 // forwardToGroup 转发到单个群组（带重试）
-func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groupID int64, limiter *RateLimiter) (int64, error) {
+func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groupID int64, limiter *RateLimiter) (int64, int64, error) {
+	currentGroupID := groupID
 	var lastErr error
 	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
 		// 等待速率限制
 		if err := limiter.Wait(ctx); err != nil {
-			return 0, fmt.Errorf("rate limiter wait error: %w", err)
+			return 0, currentGroupID, fmt.Errorf("rate limiter wait error: %w", err)
 		}
 
 		// 尝试转发消息
 		msg, err := botInstance.ForwardMessage(ctx, &bot.ForwardMessageParams{
-			ChatID:     groupID,
+			ChatID:     currentGroupID,
 			FromChatID: message.Chat.ID,
 			MessageID:  message.ID,
 		})
 
 		if err == nil {
-			return int64(msg.ID), nil
+			return int64(msg.ID), currentGroupID, nil
 		}
 
 		lastErr = err
 
+		migratedGroupID, ok := migrateToChatIDFromError(err)
+		if ok && migratedGroupID != currentGroupID {
+			logger.L().Warnf("Detected group migration during forward: old_group_id=%d, new_group_id=%d",
+				currentGroupID, migratedGroupID)
+			s.persistMigratedGroupID(ctx, currentGroupID, migratedGroupID)
+			currentGroupID = migratedGroupID
+			continue
+		}
+
 		if !shouldRetryForward(err) {
-			return 0, fmt.Errorf("failed to forward to group %d: %w", groupID, err)
+			return 0, currentGroupID, fmt.Errorf("failed to forward to group %d: %w", currentGroupID, err)
 		}
 
 		if attempt < forwardMaxRetryAttempts {
-			delay := calculateForwardRetryDelay(err, attempt, groupID)
+			delay := calculateForwardRetryDelay(err, attempt, currentGroupID)
 			logger.L().Warnf("Forward attempt %d/%d failed for group %d: %v, retrying in %v",
-				attempt, forwardMaxRetryAttempts, groupID, err, delay)
+				attempt, forwardMaxRetryAttempts, currentGroupID, err, delay)
 			if err := sleepWithContext(ctx, delay); err != nil {
-				return 0, fmt.Errorf("forward retry interrupted for group %d: %w", groupID, err)
+				return 0, currentGroupID, fmt.Errorf("forward retry interrupted for group %d: %w", currentGroupID, err)
 			}
 		}
 	}
@@ -221,8 +231,8 @@ func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, mess
 	if lastErr == nil {
 		lastErr = errors.New("unknown forward error")
 	}
-	return 0, fmt.Errorf("failed to forward to group %d after %d attempts: %w",
-		groupID, forwardMaxRetryAttempts, lastErr)
+	return 0, currentGroupID, fmt.Errorf("failed to forward to group %d after %d attempts: %w",
+		currentGroupID, forwardMaxRetryAttempts, lastErr)
 }
 
 // RecallForwardedMessages 撤回转发消息
@@ -390,7 +400,7 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 		go func(g *models.Group) {
 			defer wg.Done()
 
-			forwardedMsgIDs, err := s.forwardMediaGroupToGroup(ctx, botInstance, messages[0].Chat.ID, messageIDs, g.TelegramID, limiter)
+			forwardedMsgIDs, targetGroupID, err := s.forwardMediaGroupToGroup(ctx, botInstance, messages[0].Chat.ID, messageIDs, g.TelegramID, limiter)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -402,16 +412,16 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 					records = append(records, &models.ForwardRecord{
 						TaskID:             taskID,
 						ChannelMessageID:   int64(messageIDs[i]),
-						TargetGroupID:      g.TelegramID,
+						TargetGroupID:      targetGroupID,
 						ForwardedMessageID: int64(fwdID),
 						Status:             models.ForwardStatusSuccess,
 						CreatedAt:          time.Now(),
 					})
 				}
-				logger.L().Debugf("Forwarded media group to group %d: %d messages", g.TelegramID, len(forwardedMsgIDs))
+				logger.L().Debugf("Forwarded media group to group %d: %d messages", targetGroupID, len(forwardedMsgIDs))
 			} else {
 				failedCount++
-				logger.L().Errorf("Failed to forward media group to group %d: %v", g.TelegramID, err)
+				logger.L().Errorf("Failed to forward media group to group %d: %v", targetGroupID, err)
 			}
 		}(group)
 	}
@@ -435,17 +445,18 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 }
 
 // forwardMediaGroupToGroup 转发媒体组到单个群组（带重试）
-func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot.Bot, fromChatID int64, messageIDs []int, groupID int64, limiter *RateLimiter) ([]int, error) {
+func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot.Bot, fromChatID int64, messageIDs []int, groupID int64, limiter *RateLimiter) ([]int, int64, error) {
+	currentGroupID := groupID
 	var lastErr error
 	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
 		// 等待速率限制
 		if err := limiter.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("rate limiter wait error: %w", err)
+			return nil, currentGroupID, fmt.Errorf("rate limiter wait error: %w", err)
 		}
 
 		// 使用 ForwardMessages API 批量转发
 		result, err := botInstance.ForwardMessages(ctx, &bot.ForwardMessagesParams{
-			ChatID:     groupID,
+			ChatID:     currentGroupID,
 			FromChatID: fromChatID,
 			MessageIDs: messageIDs,
 		})
@@ -456,21 +467,30 @@ func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot
 			for j, msgID := range result {
 				ids[j] = msgID.ID
 			}
-			return ids, nil
+			return ids, currentGroupID, nil
 		}
 
 		lastErr = err
 
+		migratedGroupID, ok := migrateToChatIDFromError(err)
+		if ok && migratedGroupID != currentGroupID {
+			logger.L().Warnf("Detected group migration during media forward: old_group_id=%d, new_group_id=%d",
+				currentGroupID, migratedGroupID)
+			s.persistMigratedGroupID(ctx, currentGroupID, migratedGroupID)
+			currentGroupID = migratedGroupID
+			continue
+		}
+
 		if !shouldRetryForward(err) {
-			return nil, fmt.Errorf("failed to forward media group to group %d: %w", groupID, err)
+			return nil, currentGroupID, fmt.Errorf("failed to forward media group to group %d: %w", currentGroupID, err)
 		}
 
 		if attempt < forwardMaxRetryAttempts {
-			delay := calculateForwardRetryDelay(err, attempt, groupID)
+			delay := calculateForwardRetryDelay(err, attempt, currentGroupID)
 			logger.L().Warnf("Media group forward attempt %d/%d failed for group %d: %v, retrying in %v",
-				attempt, forwardMaxRetryAttempts, groupID, err, delay)
+				attempt, forwardMaxRetryAttempts, currentGroupID, err, delay)
 			if err := sleepWithContext(ctx, delay); err != nil {
-				return nil, fmt.Errorf("media group retry interrupted for group %d: %w", groupID, err)
+				return nil, currentGroupID, fmt.Errorf("media group retry interrupted for group %d: %w", currentGroupID, err)
 			}
 		}
 	}
@@ -478,12 +498,17 @@ func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot
 	if lastErr == nil {
 		lastErr = errors.New("unknown media group forward error")
 	}
-	return nil, fmt.Errorf("failed to forward media group to group %d after %d attempts: %w",
-		groupID, forwardMaxRetryAttempts, lastErr)
+	return nil, currentGroupID, fmt.Errorf("failed to forward media group to group %d after %d attempts: %w",
+		currentGroupID, forwardMaxRetryAttempts, lastErr)
 }
 
 func shouldRetryForward(err error) bool {
 	if err == nil {
+		return false
+	}
+
+	var migrateErr *bot.MigrateError
+	if errors.As(err, &migrateErr) {
 		return false
 	}
 
@@ -500,6 +525,51 @@ func shouldRetryForward(err error) bool {
 	}
 
 	return true
+}
+
+func migrateToChatIDFromError(err error) (int64, bool) {
+	if err == nil {
+		return 0, false
+	}
+
+	var migrateErr *bot.MigrateError
+	if !errors.As(err, &migrateErr) {
+		return 0, false
+	}
+
+	if migrateErr.MigrateToChatID == 0 {
+		return 0, false
+	}
+
+	return int64(migrateErr.MigrateToChatID), true
+}
+
+func (s *Service) persistMigratedGroupID(ctx context.Context, oldGroupID, newGroupID int64) {
+	if oldGroupID == newGroupID {
+		return
+	}
+
+	group, err := s.groupService.GetGroupInfo(ctx, oldGroupID)
+	if err != nil {
+		logger.L().Warnf("Failed to load migrated source group %d: %v", oldGroupID, err)
+		return
+	}
+
+	migratedGroup := *group
+	migratedGroup.TelegramID = newGroupID
+	migratedGroup.Type = "supergroup"
+	migratedGroup.BotStatus = models.BotStatusActive
+	migratedGroup.BotLeftAt = nil
+
+	if err := s.groupService.CreateOrUpdateGroup(ctx, &migratedGroup); err != nil {
+		logger.L().Warnf("Failed to persist migrated group %d -> %d: %v", oldGroupID, newGroupID, err)
+		return
+	}
+
+	if err := s.groupService.MarkBotLeft(ctx, oldGroupID); err != nil {
+		logger.L().Warnf("Failed to mark old group as left after migration old=%d new=%d: %v",
+			oldGroupID, newGroupID, err)
+	}
 }
 
 func calculateForwardRetryDelay(err error, attempt int, groupID int64) time.Duration {

@@ -34,6 +34,14 @@ func TestShouldRetryForward(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "migrate error non retryable",
+			err: &bot.MigrateError{
+				Message:         "bad request: group upgraded",
+				MigrateToChatID: -1001234567890,
+			},
+			want: false,
+		},
+		{
 			name: "unauthorized non retryable",
 			err:  fmt.Errorf("%w, invalid token", bot.ErrorUnauthorized),
 			want: false,
@@ -60,6 +68,64 @@ func TestShouldRetryForward(t *testing.T) {
 			got := shouldRetryForward(tt.err)
 			if got != tt.want {
 				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestMigrateToChatIDFromError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int64
+		ok   bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: 0,
+			ok:   false,
+		},
+		{
+			name: "not migrate error",
+			err:  errors.New("temporary network error"),
+			want: 0,
+			ok:   false,
+		},
+		{
+			name: "migrate error",
+			err: &bot.MigrateError{
+				Message:         "bad request: group chat was upgraded",
+				MigrateToChatID: -1003848752937,
+			},
+			want: -1003848752937,
+			ok:   true,
+		},
+		{
+			name: "wrapped migrate error",
+			err: fmt.Errorf("wrap: %w", &bot.MigrateError{
+				Message:         "bad request: group chat was upgraded",
+				MigrateToChatID: -1005006007008,
+			}),
+			want: -1005006007008,
+			ok:   true,
+		},
+		{
+			name: "migrate error with zero id",
+			err: &bot.MigrateError{
+				Message:         "bad request: group chat was upgraded",
+				MigrateToChatID: 0,
+			},
+			want: 0,
+			ok:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := migrateToChatIDFromError(tt.err)
+			if ok != tt.ok || got != tt.want {
+				t.Fatalf("expected (%d, %v), got (%d, %v)", tt.want, tt.ok, got, ok)
 			}
 		})
 	}
