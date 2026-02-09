@@ -2,6 +2,7 @@ package forward
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -15,6 +16,14 @@ import (
 
 	"github.com/go-telegram/bot"
 	botModels "github.com/go-telegram/bot/models"
+)
+
+const (
+	forwardRatePerSecond         = 20
+	recallRatePerSecond          = 20
+	forwardMaxRetryAttempts      = 5
+	defaultForwardRetryDelay     = 2 * time.Second
+	maxForwardExponentialBackoff = 10 * time.Second
 )
 
 // Service 转发服务实现
@@ -114,7 +123,7 @@ func (s *Service) HandleChannelMessage(ctx context.Context, botInterface interfa
 // forwardTask 异步转发任务
 func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groups []*models.Group, taskID string) {
 	startTime := time.Now()
-	limiter := NewRateLimiter(30) // 30条/秒
+	limiter := NewRateLimiter(forwardRatePerSecond)
 	defer limiter.Close()
 
 	var wg sync.WaitGroup
@@ -175,7 +184,8 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 
 // forwardToGroup 转发到单个群组（带重试）
 func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groupID int64, limiter *RateLimiter) (int64, error) {
-	for i := 0; i < 3; i++ {
+	var lastErr error
+	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
 		// 等待速率限制
 		if err := limiter.Wait(ctx); err != nil {
 			return 0, fmt.Errorf("rate limiter wait error: %w", err)
@@ -192,14 +202,27 @@ func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, mess
 			return int64(msg.ID), nil
 		}
 
-		// 如果不是最后一次重试，等待2秒后重试
-		if i < 2 {
-			logger.L().Warnf("Forward attempt %d failed for group %d: %v, retrying in 2s", i+1, groupID, err)
-			time.Sleep(2 * time.Second)
+		lastErr = err
+
+		if !shouldRetryForward(err) {
+			return 0, fmt.Errorf("failed to forward to group %d: %w", groupID, err)
+		}
+
+		if attempt < forwardMaxRetryAttempts {
+			delay := calculateForwardRetryDelay(err, attempt, groupID)
+			logger.L().Warnf("Forward attempt %d/%d failed for group %d: %v, retrying in %v",
+				attempt, forwardMaxRetryAttempts, groupID, err, delay)
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return 0, fmt.Errorf("forward retry interrupted for group %d: %w", groupID, err)
+			}
 		}
 	}
 
-	return 0, fmt.Errorf("failed after 3 retries")
+	if lastErr == nil {
+		lastErr = errors.New("unknown forward error")
+	}
+	return 0, fmt.Errorf("failed to forward to group %d after %d attempts: %w",
+		groupID, forwardMaxRetryAttempts, lastErr)
 }
 
 // RecallForwardedMessages 撤回转发消息
@@ -232,7 +255,7 @@ func (s *Service) RecallForwardedMessages(ctx context.Context, botInterface inte
 	logger.L().Infof("Starting recall: task_id=%s, total_records=%d", taskID, len(records))
 
 	// 批量删除消息
-	limiter := NewRateLimiter(30)
+	limiter := NewRateLimiter(recallRatePerSecond)
 	defer limiter.Close()
 
 	successCount := 0
@@ -345,7 +368,7 @@ func (s *Service) handleMediaGroupMessage(ctx context.Context, botInstance *bot.
 // forwardMediaGroup 批量转发媒体组
 func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, messages []*botModels.Message, groups []*models.Group, taskID string) {
 	startTime := time.Now()
-	limiter := NewRateLimiter(30)
+	limiter := NewRateLimiter(forwardRatePerSecond)
 	defer limiter.Close()
 
 	// 提取消息 ID 列表
@@ -413,7 +436,8 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 
 // forwardMediaGroupToGroup 转发媒体组到单个群组（带重试）
 func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot.Bot, fromChatID int64, messageIDs []int, groupID int64, limiter *RateLimiter) ([]int, error) {
-	for i := 0; i < 3; i++ {
+	var lastErr error
+	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
 		// 等待速率限制
 		if err := limiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("rate limiter wait error: %w", err)
@@ -435,12 +459,85 @@ func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot
 			return ids, nil
 		}
 
-		// 如果不是最后一次重试，等待2秒后重试
-		if i < 2 {
-			logger.L().Warnf("Media group forward attempt %d failed for group %d: %v, retrying in 2s", i+1, groupID, err)
-			time.Sleep(2 * time.Second)
+		lastErr = err
+
+		if !shouldRetryForward(err) {
+			return nil, fmt.Errorf("failed to forward media group to group %d: %w", groupID, err)
+		}
+
+		if attempt < forwardMaxRetryAttempts {
+			delay := calculateForwardRetryDelay(err, attempt, groupID)
+			logger.L().Warnf("Media group forward attempt %d/%d failed for group %d: %v, retrying in %v",
+				attempt, forwardMaxRetryAttempts, groupID, err, delay)
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return nil, fmt.Errorf("media group retry interrupted for group %d: %w", groupID, err)
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("failed after 3 retries")
+	if lastErr == nil {
+		lastErr = errors.New("unknown media group forward error")
+	}
+	return nil, fmt.Errorf("failed to forward media group to group %d after %d attempts: %w",
+		groupID, forwardMaxRetryAttempts, lastErr)
+}
+
+func shouldRetryForward(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if bot.IsTooManyRequestsError(err) {
+		return true
+	}
+
+	// 这类错误通常是永久性错误（比如 bot 被踢出群、群不存在、无权限），无需重试。
+	if errors.Is(err, bot.ErrorForbidden) ||
+		errors.Is(err, bot.ErrorBadRequest) ||
+		errors.Is(err, bot.ErrorUnauthorized) ||
+		errors.Is(err, bot.ErrorNotFound) {
+		return false
+	}
+
+	return true
+}
+
+func calculateForwardRetryDelay(err error, attempt int, groupID int64) time.Duration {
+	var tooManyErr *bot.TooManyRequestsError
+	if errors.As(err, &tooManyErr) {
+		retryAfter := time.Duration(tooManyErr.RetryAfter) * time.Second
+		if retryAfter <= 0 {
+			retryAfter = defaultForwardRetryDelay
+		}
+		return retryAfter + forwardRetryJitter(groupID)
+	}
+
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	delay := time.Second * time.Duration(1<<uint(attempt-1))
+	if delay > maxForwardExponentialBackoff {
+		return maxForwardExponentialBackoff
+	}
+	return delay
+}
+
+func forwardRetryJitter(groupID int64) time.Duration {
+	if groupID < 0 {
+		groupID = -groupID
+	}
+	return time.Duration(groupID%5+1) * 200 * time.Millisecond
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
