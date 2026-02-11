@@ -727,6 +727,10 @@ func (b *Bot) handleTextMessage(ctx context.Context, botInstance *bot.Bot, updat
 		return
 	}
 
+	if b.tryRelayOrderCascadeReply(ctx, msg) {
+		return
+	}
+
 	// 优先检查用户输入状态（用于配置菜单输入）
 	if msg.From != nil && b.configMenuService != nil {
 		// 先检查是否有待处理状态
@@ -1094,6 +1098,10 @@ func (b *Bot) handleMediaMessage(ctx context.Context, botInstance *bot.Bot, upda
 	}
 
 	b.registerUserFromTelegram(ctx, msg.From)
+
+	if b.tryRelayOrderCascadeReply(ctx, msg) {
+		return
+	}
 
 	// 构造媒体消息信息
 	mediaMsg := &service.MediaMessageInfo{

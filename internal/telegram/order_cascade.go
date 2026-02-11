@@ -353,6 +353,80 @@ func (b *Bot) getOrderCascadeState(token string) (*orderCascadeState, bool) {
 	return state, true
 }
 
+func (b *Bot) findOrderCascadeStateByUpstreamMessage(upstreamChatID int64, upstreamMessageID int) (*orderCascadeState, bool) {
+	if upstreamChatID == 0 || upstreamMessageID == 0 {
+		return nil, false
+	}
+
+	now := time.Now()
+
+	b.orderCascadeMu.Lock()
+	defer b.orderCascadeMu.Unlock()
+
+	var matched *orderCascadeState
+	for token, state := range b.orderCascadeStates {
+		if state == nil || now.After(state.ExpiresAt) {
+			delete(b.orderCascadeStates, token)
+			continue
+		}
+
+		if state.UpstreamChatID == upstreamChatID && state.UpstreamMessageID == upstreamMessageID {
+			matched = state
+		}
+	}
+
+	return matched, matched != nil
+}
+
+func isOrderCascadeRelayContent(msg *botModels.Message) bool {
+	if msg == nil {
+		return false
+	}
+
+	return msg.Text != "" || len(msg.Photo) > 0 || msg.Video != nil
+}
+
+func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Message) bool {
+	if msg == nil || msg.From == nil || msg.From.IsBot || msg.ReplyToMessage == nil {
+		return false
+	}
+
+	if !isOrderCascadeRelayContent(msg) {
+		return false
+	}
+
+	state, ok := b.findOrderCascadeStateByUpstreamMessage(msg.Chat.ID, msg.ReplyToMessage.ID)
+	if !ok || state == nil || state.MerchantChatID == 0 {
+		return false
+	}
+
+	params := &bot.CopyMessageParams{
+		ChatID:     state.MerchantChatID,
+		FromChatID: msg.Chat.ID,
+		MessageID:  msg.ID,
+	}
+
+	if state.MerchantMessageID > 0 {
+		params.ReplyParameters = &botModels.ReplyParameters{
+			MessageID:                state.MerchantMessageID,
+			AllowSendingWithoutReply: true,
+		}
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, orderCascadeSendTimeout)
+	defer cancel()
+
+	if _, err := b.bot.CopyMessage(sendCtx, params); err != nil {
+		logger.L().Errorf("Failed to relay upstream reply to merchant: upstream_chat=%d upstream_message=%d merchant_chat=%d merchant_reply_to=%d err=%v",
+			msg.Chat.ID, msg.ID, state.MerchantChatID, state.MerchantMessageID, err)
+		return false
+	}
+
+	logger.L().Infof("Cascade reply relayed: upstream_chat=%d upstream_message=%d merchant_chat=%d merchant_reply_to=%d order_no=%s",
+		msg.Chat.ID, msg.ID, state.MerchantChatID, state.MerchantMessageID, state.OrderNo)
+	return true
+}
+
 func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, actor *botModels.User, timestamp time.Time) string {
 	if state == nil {
 		return ""
