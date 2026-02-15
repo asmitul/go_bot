@@ -968,7 +968,10 @@ func formatSendMoneyMessage(merchantID int64, requestAmount float64, result *pay
 		}
 	}
 
-	return fmt.Sprintf("已成功下发 %s 元给商户 %s", html.EscapeString(amountText), html.EscapeString(merchantText))
+	return fmt.Sprintf("已成功下发 <code>%s</code> 元给商户 <code>%s</code>",
+		html.EscapeString(amountText),
+		html.EscapeString(merchantText),
+	)
 }
 
 func combineAmounts(merchant, agent string) string {
@@ -1240,7 +1243,10 @@ func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.
 		f.deletePending(token)
 		result.ShouldEdit = true
 		merchantText := strconv.FormatInt(pending.merchantID, 10)
-		result.Text = fmt.Sprintf("已取消下发 %s 元给商户 %s", html.EscapeString(formatFloat(pending.amount)), html.EscapeString(merchantText))
+		result.Text = fmt.Sprintf("已取消下发 <code>%s</code> 元给商户 <code>%s</code>",
+			html.EscapeString(formatFloat(pending.amount)),
+			html.EscapeString(merchantText),
+		)
 		result.Answer = "已取消"
 		return result, nil
 	case sendMoneyActionConfirm:

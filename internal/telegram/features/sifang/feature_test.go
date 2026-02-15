@@ -430,7 +430,7 @@ func TestFormatSendMoneyMessage(t *testing.T) {
 	}
 
 	message := formatSendMoneyMessage(2024164, 21750, result)
-	expected := "已成功下发 21750 元给商户 2024164"
+	expected := "已成功下发 <code>21750</code> 元给商户 <code>2024164</code>"
 	if message != expected {
 		t.Fatalf("unexpected send money message: %s", message)
 	}
