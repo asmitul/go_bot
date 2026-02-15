@@ -30,7 +30,7 @@ func TestProcess_SuccessFormatsCopyFriendlyResult(t *testing.T) {
 		t.Fatalf("expected no reply markup for calculator response")
 	}
 
-	want := "🧮 <code>1+2*3</code>\n<pre>7</pre>"
+	want := "🧮 1+2*3 = <code>7</code>"
 	if resp.Text != want {
 		t.Fatalf("unexpected response text:\nwant: %s\ngot:  %s", want, resp.Text)
 	}

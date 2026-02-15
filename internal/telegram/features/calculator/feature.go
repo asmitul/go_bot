@@ -60,7 +60,7 @@ func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message,
 	logger.L().Infof("Calculator: %s = %s (chat_id=%d)", msg.Text, resultText, msg.Chat.ID)
 
 	return &types.Response{
-		Text: fmt.Sprintf("🧮 <code>%s</code>\n<pre>%s</pre>", expressionText, html.EscapeString(resultText)),
+		Text: fmt.Sprintf("🧮 %s = <code>%s</code>", expressionText, html.EscapeString(resultText)),
 	}, true, nil
 }
 
