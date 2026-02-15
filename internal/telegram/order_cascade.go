@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
-	"strconv"
 	"strings"
 	"time"
 
@@ -140,7 +139,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			statusText = strings.TrimSpace(binding.Status)
 		}
 
-		orderFull := resolveCascadeMerchantOrderNo(merchantID, binding, orderUpper)
+		orderFull := resolveCascadeMerchantOrderNo(binding, orderUpper)
 		if orderFull == "" {
 			orderFull = orderUpper
 		}
@@ -301,12 +300,12 @@ func resolveCascadeInterfaceDescriptor(bindings []models.InterfaceBinding, inter
 	return cleanName, ""
 }
 
-func resolveCascadeMerchantOrderNo(merchantID int64, binding *paymentservice.OrderChannelBinding, fallback string) string {
+func resolveCascadeMerchantOrderNo(binding *paymentservice.OrderChannelBinding, fallback string) string {
 	candidates := []string{}
 	if binding != nil {
 		candidates = append(candidates,
-			strings.TrimSpace(binding.MerchantOrderNo),
 			strings.TrimSpace(binding.MerchantOrderNoFull),
+			strings.TrimSpace(binding.MerchantOrderNo),
 		)
 	}
 	candidates = append(candidates, strings.TrimSpace(fallback))
@@ -315,26 +314,10 @@ func resolveCascadeMerchantOrderNo(merchantID int64, binding *paymentservice.Ord
 		if candidate == "" {
 			continue
 		}
-		if normalized := stripCascadeMerchantPrefix(candidate, merchantID); normalized != "" {
-			return normalized
-		}
+		return candidate
 	}
 
 	return strings.TrimSpace(fallback)
-}
-
-func stripCascadeMerchantPrefix(orderNo string, merchantID int64) string {
-	trimmed := strings.TrimSpace(orderNo)
-	if trimmed == "" || merchantID <= 0 {
-		return trimmed
-	}
-
-	prefix := strconv.FormatInt(merchantID, 10)
-	if strings.HasPrefix(trimmed, prefix) && len(trimmed) > len(prefix) {
-		return strings.TrimSpace(trimmed[len(prefix):])
-	}
-
-	return trimmed
 }
 
 func generateOrderCascadeToken() string {

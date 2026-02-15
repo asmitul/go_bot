@@ -159,26 +159,33 @@ func TestBuildOrderCascadeFeedbackMessage(t *testing.T) {
 }
 
 func TestResolveCascadeMerchantOrderNo(t *testing.T) {
-	t.Run("prefer merchant order no", func(t *testing.T) {
+	t.Run("prefer merchant full order no", func(t *testing.T) {
 		binding := &paymentservice.OrderChannelBinding{
 			MerchantOrderNo:     "UR863638992959049681",
 			MerchantOrderNoFull: "2023173UR863638992959049681",
 		}
 
-		got := resolveCascadeMerchantOrderNo(2023173, binding, "fallback")
-		if got != "UR863638992959049681" {
-			t.Fatalf("expected raw merchant order no, got %s", got)
+		got := resolveCascadeMerchantOrderNo(binding, "fallback")
+		if got != "2023173UR863638992959049681" {
+			t.Fatalf("expected full merchant order no, got %s", got)
 		}
 	})
 
-	t.Run("strip merchant prefix when only full available", func(t *testing.T) {
+	t.Run("fallback to merchant order no", func(t *testing.T) {
 		binding := &paymentservice.OrderChannelBinding{
-			MerchantOrderNoFull: "2023173UR863638992959049681",
+			MerchantOrderNo: "UR863638992959049681",
 		}
 
-		got := resolveCascadeMerchantOrderNo(2023173, binding, "fallback")
+		got := resolveCascadeMerchantOrderNo(binding, "fallback")
 		if got != "UR863638992959049681" {
-			t.Fatalf("expected merchant prefix stripped, got %s", got)
+			t.Fatalf("expected merchant order no, got %s", got)
+		}
+	})
+
+	t.Run("fallback to input order no", func(t *testing.T) {
+		got := resolveCascadeMerchantOrderNo(nil, "fallback")
+		if got != "fallback" {
+			t.Fatalf("expected fallback order no, got %s", got)
 		}
 	})
 }
