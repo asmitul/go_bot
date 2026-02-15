@@ -383,6 +383,63 @@ func TestFormatWithdrawListMessage(t *testing.T) {
 	}
 }
 
+func TestFormatWithdrawListMessageWithQuotes(t *testing.T) {
+	list := &paymentservice.WithdrawList{
+		Items: []*paymentservice.Withdraw{
+			{
+				WithdrawNo: "W2026",
+				Amount:     "694.00",
+				CreatedAt:  "2026-02-15 16:21:29",
+			},
+			{
+				WithdrawNo: "W-OLD",
+				Amount:     "300.00",
+				CreatedAt:  "2026-02-15 16:20:49",
+			},
+		},
+	}
+
+	lookup := buildWithdrawQuoteLookup([]*models.WithdrawQuoteRecord{
+		{
+			WithdrawNo: "W2026",
+			Rate:       6.94,
+			USDTAmount: 100,
+		},
+	})
+
+	got := formatWithdrawListMessageWithQuotes("2026-02-15", list, lookup)
+	expected := "💸 提款明细（总计 994｜2 笔）\n<blockquote>16:21:29      694.00      6.94 ✖️ 100 U\n16:20:49      300.00</blockquote>"
+	if got != expected {
+		t.Fatalf("unexpected withdraw message with quote:\n%s", got)
+	}
+}
+
+func TestFormatWithdrawListMessageWithIncompleteQuoteFallback(t *testing.T) {
+	list := &paymentservice.WithdrawList{
+		Items: []*paymentservice.Withdraw{
+			{
+				WithdrawNo: "W2027",
+				Amount:     "500.00",
+				CreatedAt:  "2026-02-15 12:00:00",
+			},
+		},
+	}
+
+	lookup := buildWithdrawQuoteLookup([]*models.WithdrawQuoteRecord{
+		{
+			WithdrawNo: "W2027",
+			Rate:       6.94,
+			USDTAmount: 0,
+		},
+	})
+
+	got := formatWithdrawListMessageWithQuotes("2026-02-15", list, lookup)
+	expected := "💸 提款明细（总计 500｜1 笔）\n<blockquote>12:00:00      500.00</blockquote>"
+	if got != expected {
+		t.Fatalf("unexpected fallback message:\n%s", got)
+	}
+}
+
 func TestParseSendMoneyPayload_Number(t *testing.T) {
 	amount, code, err := parseSendMoneyPayload(" 1,234.5678 ")
 	if err != nil {
@@ -629,6 +686,79 @@ func TestHandleSendMoneyCallbackConfirm(t *testing.T) {
 	}
 	if fakeSvc.lastSendAmount != 12 {
 		t.Fatalf("expected send amount 12, got %.2f", fakeSvc.lastSendAmount)
+	}
+}
+
+func TestHandleSendMoneyCallbackConfirmPersistsQuoteSnapshot(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{
+		sendMoneyResult: &paymentservice.SendMoneyResult{
+			MerchantID: "2023100",
+			Withdraw: &paymentservice.Withdraw{
+				Amount:     "694.00",
+				WithdrawNo: "WQ-1",
+				OrderNo:    "ORDER-1",
+			},
+		},
+	}
+	stubUser := &stubUserService{isAdmin: true}
+	quoteRepo := &fakeWithdrawQuoteRepo{}
+	feature := New(fakeSvc, stubUser)
+	feature.SetWithdrawQuoteRepository(quoteRepo)
+
+	originalFetch := fetchC2COrders
+	fetchC2COrders = func(ctx context.Context, paymentMethod string) ([]cryptofeature.C2COrder, error) {
+		return []cryptofeature.C2COrder{
+			{Price: "6.82", NickName: "M1"},
+		}, nil
+	}
+	t.Cleanup(func() {
+		fetchC2COrders = originalFetch
+	})
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 z1 100",
+	}
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, 0.12, msg.Text)
+	if err != nil || !handled || resp == nil {
+		t.Fatalf("unexpected setup result: resp=%v handled=%v err=%v", resp, handled, err)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+	if token == "" {
+		t.Fatalf("token not stored")
+	}
+
+	query := &botModels.CallbackQuery{
+		From:    botModels.User{ID: 123},
+		Message: botModels.MaybeInaccessibleMessage{Message: &botModels.Message{Chat: botModels.Chat{ID: -1}, ID: 99}},
+	}
+	result, err := feature.HandleSendMoneyCallback(ctx, query, sendMoneyActionConfirm, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.ShouldEdit {
+		t.Fatalf("expected edit result")
+	}
+
+	if len(quoteRepo.records) != 1 {
+		t.Fatalf("expected one quote record, got %d", len(quoteRepo.records))
+	}
+	record := quoteRepo.records[0]
+	if record.WithdrawNo != "WQ-1" || record.OrderNo != "ORDER-1" {
+		t.Fatalf("unexpected keys: %#v", record)
+	}
+	if record.Rate != 6.94 || record.USDTAmount != 100 {
+		t.Fatalf("unexpected quote snapshot: rate=%.2f usdt=%.2f", record.Rate, record.USDTAmount)
+	}
+	if record.Amount != 694 {
+		t.Fatalf("unexpected amount: %.2f", record.Amount)
 	}
 }
 
@@ -1118,5 +1248,26 @@ func (s *stubUserService) CheckAdminPermission(ctx context.Context, telegramID i
 }
 
 func (s *stubUserService) UpdateUserActivity(ctx context.Context, telegramID int64) error {
+	return nil
+}
+
+type fakeWithdrawQuoteRepo struct {
+	records []*models.WithdrawQuoteRecord
+}
+
+func (r *fakeWithdrawQuoteRepo) Upsert(ctx context.Context, record *models.WithdrawQuoteRecord) error {
+	if record == nil {
+		return nil
+	}
+	cloned := *record
+	r.records = append(r.records, &cloned)
+	return nil
+}
+
+func (r *fakeWithdrawQuoteRepo) ListByMerchantAndDateRange(ctx context.Context, merchantID int64, startTime, endTime time.Time) ([]*models.WithdrawQuoteRecord, error) {
+	return r.records, nil
+}
+
+func (r *fakeWithdrawQuoteRepo) EnsureIndexes(ctx context.Context) error {
 	return nil
 }

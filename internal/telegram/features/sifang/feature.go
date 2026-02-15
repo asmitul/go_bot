@@ -21,6 +21,7 @@ import (
 	cryptofeature "go_bot/internal/telegram/features/crypto"
 	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
+	"go_bot/internal/telegram/repository"
 	"go_bot/internal/telegram/service"
 
 	botModels "github.com/go-telegram/bot/models"
@@ -47,8 +48,14 @@ type pendingSendMoney struct {
 	userID     int64
 	merchantID int64
 	amount     float64
+	quote      *sendMoneyQuoteSnapshot
 	googleCode string
 	createdAt  time.Time
+}
+
+type sendMoneyQuoteSnapshot struct {
+	rate       float64
+	usdtAmount float64
 }
 
 type sendMoneyQuote struct {
@@ -71,10 +78,11 @@ func mustLoadChinaLocation() *time.Location {
 
 // Feature 四方支付功能
 type Feature struct {
-	paymentService paymentservice.Service
-	userService    service.UserService
-	mu             sync.Mutex
-	pending        map[string]*pendingSendMoney
+	paymentService    paymentservice.Service
+	userService       service.UserService
+	withdrawQuoteRepo repository.WithdrawQuoteRepository
+	mu                sync.Mutex
+	pending           map[string]*pendingSendMoney
 }
 
 // New 创建四方支付功能实例
@@ -84,6 +92,11 @@ func New(paymentSvc paymentservice.Service, userSvc service.UserService) *Featur
 		userService:    userSvc,
 		pending:        make(map[string]*pendingSendMoney),
 	}
+}
+
+// SetWithdrawQuoteRepository 设置下发汇率快照仓储（可选）
+func (f *Feature) SetWithdrawQuoteRepository(repo repository.WithdrawQuoteRepository) {
+	f.withdrawQuoteRepo = repo
 }
 
 // Name 功能名称
@@ -332,7 +345,8 @@ func (f *Feature) queryWithdrawMessage(ctx context.Context, merchantID int64, ta
 		return "", err
 	}
 
-	return formatWithdrawListMessage(targetDate.Format("2006-01-02"), list), nil
+	quoteLookup := f.loadWithdrawQuoteLookup(ctx, merchantID, start, start.Add(24*time.Hour))
+	return formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), list, quoteLookup), nil
 }
 
 func parseSummaryDate(raw string, now time.Time, usage string) (time.Time, error) {
@@ -562,17 +576,44 @@ func (f *Feature) handleWithdrawList(ctx context.Context, merchantID int64, text
 		return fmt.Sprintf("❌ 查询提款明细失败：%v", err), true, nil
 	}
 
-	message := formatWithdrawListMessage(targetDate.Format("2006-01-02"), list)
-	logger.L().Infof("Sifang withdraw list queried: merchant_id=%d, date=%s, count=%d", merchantID, targetDate.Format("2006-01-02"), len(list.Items))
+	quoteLookup := f.loadWithdrawQuoteLookup(ctx, merchantID, start, start.Add(24*time.Hour))
+	message := formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), list, quoteLookup)
+	itemCount := 0
+	if list != nil {
+		itemCount = len(list.Items)
+	}
+	logger.L().Infof("Sifang withdraw list queried: merchant_id=%d, date=%s, count=%d", merchantID, targetDate.Format("2006-01-02"), itemCount)
 	return message, true, nil
 }
 
+func (f *Feature) loadWithdrawQuoteLookup(ctx context.Context, merchantID int64, start, end time.Time) map[string]*models.WithdrawQuoteRecord {
+	if f.withdrawQuoteRepo == nil {
+		return nil
+	}
+
+	records, err := f.withdrawQuoteRepo.ListByMerchantAndDateRange(ctx, merchantID, start, end)
+	if err != nil {
+		logger.L().Errorf("Sifang withdraw quote query failed: merchant_id=%d, err=%v", merchantID, err)
+		return nil
+	}
+
+	return buildWithdrawQuoteLookup(records)
+}
+
 func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) string {
+	return formatWithdrawListMessageWithQuotes(date, list, nil)
+}
+
+func formatWithdrawListMessageWithQuotes(date string, list *paymentservice.WithdrawList, quoteLookup map[string]*models.WithdrawQuoteRecord) string {
 	var sb strings.Builder
 
 	totalAmount := 0.0
 	itemCount := 0
-	for _, item := range list.Items {
+	items := []*paymentservice.Withdraw{}
+	if list != nil {
+		items = list.Items
+	}
+	for _, item := range items {
 		if amount, ok := parseAmountToFloat(item.Amount); ok {
 			totalAmount += amount
 		}
@@ -588,7 +629,7 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 	sb.WriteString(fmt.Sprintf("%s（总计 %s｜%d 笔）\n", title, html.EscapeString(formatFloat(totalAmount)), itemCount))
 	sb.WriteString("<blockquote>")
 
-	for _, item := range list.Items {
+	for _, item := range items {
 		created := strings.TrimSpace(item.CreatedAt)
 		timePart := extractTime(created)
 		if timePart == "" {
@@ -600,10 +641,80 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 			amount = "0"
 		}
 
-		sb.WriteString(fmt.Sprintf("%s      %s\n", html.EscapeString(timePart), html.EscapeString(amount)))
+		quoteText := buildWithdrawQuoteText(item, quoteLookup)
+		if quoteText == "" {
+			sb.WriteString(fmt.Sprintf("%s      %s\n", html.EscapeString(timePart), html.EscapeString(amount)))
+		} else {
+			sb.WriteString(fmt.Sprintf("%s      %s      %s\n",
+				html.EscapeString(timePart),
+				html.EscapeString(amount),
+				html.EscapeString(quoteText),
+			))
+		}
 	}
 
 	return strings.TrimRight(sb.String(), "\n") + "</blockquote>"
+}
+
+func buildWithdrawQuoteLookup(records []*models.WithdrawQuoteRecord) map[string]*models.WithdrawQuoteRecord {
+	if len(records) == 0 {
+		return nil
+	}
+
+	lookup := make(map[string]*models.WithdrawQuoteRecord, len(records)*2)
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+
+		if key := buildWithdrawLookupKey("withdraw_no", record.WithdrawNo); key != "" {
+			lookup[key] = record
+		}
+		if key := buildWithdrawLookupKey("order_no", record.OrderNo); key != "" {
+			if _, exists := lookup[key]; !exists {
+				lookup[key] = record
+			}
+		}
+	}
+
+	if len(lookup) == 0 {
+		return nil
+	}
+	return lookup
+}
+
+func buildWithdrawQuoteText(item *paymentservice.Withdraw, lookup map[string]*models.WithdrawQuoteRecord) string {
+	record := findWithdrawQuoteRecord(item, lookup)
+	if record == nil || record.Rate <= 0 || record.USDTAmount <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s ✖️ %s U", formatFloat(record.Rate), formatFloat(record.USDTAmount))
+}
+
+func findWithdrawQuoteRecord(item *paymentservice.Withdraw, lookup map[string]*models.WithdrawQuoteRecord) *models.WithdrawQuoteRecord {
+	if item == nil || len(lookup) == 0 {
+		return nil
+	}
+
+	if key := buildWithdrawLookupKey("withdraw_no", item.WithdrawNo); key != "" {
+		if record, ok := lookup[key]; ok {
+			return record
+		}
+	}
+	if key := buildWithdrawLookupKey("order_no", item.OrderNo); key != "" {
+		if record, ok := lookup[key]; ok {
+			return record
+		}
+	}
+	return nil
+}
+
+func buildWithdrawLookupKey(prefix, value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	return prefix + ":" + trimmed
 }
 
 type createOrderCommand struct {
@@ -757,6 +868,7 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 		logger.L().Errorf("Sifang create pending send failed: chat_id=%d, user_id=%d, err=%v", msg.Chat.ID, msg.From.ID, err)
 		return wrapResponse("❌ 创建下发确认状态失败，请稍后重试"), true, nil
 	}
+	pending.quote = snapshotSendMoneyQuote(quote)
 
 	message := buildSendMoneyConfirmationMessage(merchantID, amount, quote)
 	if googleCode != "" {
@@ -771,6 +883,21 @@ func (f *Feature) handleSendMoney(ctx context.Context, msg *botModels.Message, m
 		Text:        message,
 		ReplyMarkup: markup,
 	}, true, nil
+}
+
+func snapshotSendMoneyQuote(quote *sendMoneyQuote) *sendMoneyQuoteSnapshot {
+	if quote == nil {
+		return nil
+	}
+	rate := roundToTwoDecimals(quote.unitPrice)
+	usdtAmount := roundToTwoDecimals(quote.usdtAmount)
+	if rate <= 0 || usdtAmount <= 0 {
+		return nil
+	}
+	return &sendMoneyQuoteSnapshot{
+		rate:       rate,
+		usdtAmount: usdtAmount,
+	}
 }
 
 func (f *Feature) resolveSendMoneyPayload(ctx context.Context, raw string, floatRate float64) (float64, string, *sendMoneyQuote, error) {
@@ -1269,6 +1396,7 @@ func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.
 		}
 
 		message := formatSendMoneyMessage(pending.merchantID, pending.amount, sendResult)
+		f.persistSendMoneyQuote(ctx, pending, sendResult)
 		if sendResult != nil && sendResult.Withdraw != nil {
 			logger.L().Infof("Sifang send money response detail: merchant_id=%d, withdraw_no=%s, response_amount=%s, status=%s",
 				pending.merchantID,
@@ -1288,6 +1416,37 @@ func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.
 		result.Answer = "未知操作"
 		result.ShowAlert = true
 		return result, nil
+	}
+}
+
+func (f *Feature) persistSendMoneyQuote(ctx context.Context, pending *pendingSendMoney, sendResult *paymentservice.SendMoneyResult) {
+	if f.withdrawQuoteRepo == nil || pending == nil || pending.quote == nil {
+		return
+	}
+
+	record := &models.WithdrawQuoteRecord{
+		MerchantID: pending.merchantID,
+		ChatID:     pending.chatID,
+		UserID:     pending.userID,
+		Amount:     pending.amount,
+		Rate:       pending.quote.rate,
+		USDTAmount: pending.quote.usdtAmount,
+		CreatedAt:  time.Now(),
+	}
+
+	if sendResult != nil && sendResult.Withdraw != nil {
+		record.WithdrawNo = strings.TrimSpace(sendResult.Withdraw.WithdrawNo)
+		record.OrderNo = strings.TrimSpace(sendResult.Withdraw.OrderNo)
+		if amount, ok := parseAmountToFloat(strings.TrimSpace(sendResult.Withdraw.Amount)); ok && amount > 0 {
+			record.Amount = amount
+		}
+	}
+
+	if err := f.withdrawQuoteRepo.Upsert(ctx, record); err != nil {
+		logger.L().Errorf(
+			"Sifang persist withdraw quote failed: merchant_id=%d, withdraw_no=%s, order_no=%s, err=%v",
+			record.MerchantID, record.WithdrawNo, record.OrderNo, err,
+		)
 	}
 }
 

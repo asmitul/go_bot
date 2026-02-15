@@ -70,6 +70,7 @@ type Bot struct {
 	messageRepo         repository.MessageRepository
 	forwardRecordRepo   repository.ForwardRecordRepository
 	accountingRepo      repository.AccountingRepository
+	withdrawQuoteRepo   repository.WithdrawQuoteRepository
 	upstreamBalanceRepo repository.UpstreamBalanceRepository
 
 	orderCascadeStates map[string]*orderCascadeState
@@ -89,6 +90,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	messageRepo := repository.NewMongoMessageRepository(db)
 	forwardRecordRepo := repository.NewForwardRecordRepository(db)
 	accountingRepo := repository.NewMongoAccountingRepository(db)
+	withdrawQuoteRepo := repository.NewMongoWithdrawQuoteRepository(db)
 	upstreamBalanceRepo := repository.NewMongoUpstreamBalanceRepository(db)
 
 	// 创建 services
@@ -151,6 +153,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		messageRepo:          messageRepo,
 		forwardRecordRepo:    forwardRecordRepo,
 		accountingRepo:       accountingRepo,
+		withdrawQuoteRepo:    withdrawQuoteRepo,
 		upstreamBalanceRepo:  upstreamBalanceRepo,
 		orderCascadeStates:   make(map[string]*orderCascadeState),
 	}
@@ -318,6 +321,13 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 	}
 	logger.L().Debug("Accounting indexes ensured")
 
+	if b.withdrawQuoteRepo != nil {
+		if err := b.withdrawQuoteRepo.EnsureIndexes(ctx); err != nil {
+			return fmt.Errorf("failed to ensure withdraw quote indexes: %w", err)
+		}
+		logger.L().Debug("Withdraw quote indexes ensured")
+	}
+
 	if b.upstreamBalanceRepo != nil {
 		if err := b.upstreamBalanceRepo.EnsureIndexes(ctx); err != nil {
 			return fmt.Errorf("failed to ensure upstream balance indexes: %w", err)
@@ -395,6 +405,7 @@ func (b *Bot) registerFeatures() {
 
 	// 注册四方支付功能
 	b.sifangFeature = sifangfeature.New(b.paymentService, b.userService)
+	b.sifangFeature.SetWithdrawQuoteRepository(b.withdrawQuoteRepo)
 	b.featureManager.Register(b.sifangFeature)
 
 	// 注册加密货币价格查询功能

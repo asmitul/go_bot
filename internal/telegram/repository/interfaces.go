@@ -127,6 +127,18 @@ type AccountingRepository interface {
 	EnsureIndexes(ctx context.Context) error
 }
 
+// WithdrawQuoteRepository 提款行情快照数据访问接口
+type WithdrawQuoteRepository interface {
+	// Upsert 保存或更新一条快照记录（按商户+提现单号/订单号去重）
+	Upsert(ctx context.Context, record *models.WithdrawQuoteRecord) error
+
+	// ListByMerchantAndDateRange 按商户与时间范围查询快照记录
+	ListByMerchantAndDateRange(ctx context.Context, merchantID int64, startTime, endTime time.Time) ([]*models.WithdrawQuoteRecord, error)
+
+	// EnsureIndexes 确保索引存在
+	EnsureIndexes(ctx context.Context) error
+}
+
 // UpstreamBalanceRepository 上游群余额数据访问接口
 type UpstreamBalanceRepository interface {
 	// Get 获取或创建余额记录
