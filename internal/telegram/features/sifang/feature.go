@@ -586,6 +586,7 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 	}
 
 	sb.WriteString(fmt.Sprintf("%s（总计 %s｜%d 笔）\n", title, html.EscapeString(formatFloat(totalAmount)), itemCount))
+	sb.WriteString("<blockquote>")
 
 	for _, item := range list.Items {
 		created := strings.TrimSpace(item.CreatedAt)
@@ -602,7 +603,7 @@ func formatWithdrawListMessage(date string, list *paymentservice.WithdrawList) s
 		sb.WriteString(fmt.Sprintf("%s      %s\n", html.EscapeString(timePart), html.EscapeString(amount)))
 	}
 
-	return strings.TrimRight(sb.String(), "\n")
+	return strings.TrimRight(sb.String(), "\n") + "</blockquote>"
 }
 
 type createOrderCommand struct {

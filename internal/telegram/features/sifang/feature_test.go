@@ -372,7 +372,7 @@ func TestFormatWithdrawListMessage(t *testing.T) {
 	}
 
 	got := formatWithdrawListMessage("2025-10-31", list)
-	expected := "💸 提款明细（总计 100｜1 笔）\n10:00:00      100.00"
+	expected := "💸 提款明细（总计 100｜1 笔）\n<blockquote>10:00:00      100.00</blockquote>"
 	if got != expected {
 		t.Fatalf("unexpected withdraw message:\n%s", got)
 	}
