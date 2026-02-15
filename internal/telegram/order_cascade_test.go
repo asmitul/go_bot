@@ -153,10 +153,29 @@ func TestBuildOrderCascadeFeedbackMessage(t *testing.T) {
 		if !strings.Contains(text, "结果：🛠 人工处理") {
 			t.Fatalf("expected action in feedback, got %s", text)
 		}
-		if strings.Contains(text, "接口：") || strings.Contains(text, "通道：") || strings.Contains(text, "反馈人：") || strings.Contains(text, "时间：") {
+		if strings.Contains(text, "接口：") || strings.Contains(text, "反馈人：") || strings.Contains(text, "时间：") {
 			t.Fatalf("expected compact feedback format, got %s", text)
 		}
 	})
+}
+
+func TestBuildOrderCascadeDirectTextReplyMessage(t *testing.T) {
+	state := &orderCascadeState{
+		MerchantReplyOn:   false,
+		OrderNo:           "ORD-9",
+		MerchantOrderFull: "FULL-9",
+	}
+
+	text := buildOrderCascadeDirectTextReplyMessage(state, "已处理 <ok>")
+	if !strings.Contains(text, "<pre><code>FULL-9</code></pre>") {
+		t.Fatalf("expected order code block in relay text, got %s", text)
+	}
+	if !strings.Contains(text, "结果：已处理 &lt;ok&gt;") {
+		t.Fatalf("expected escaped compact relay result, got %s", text)
+	}
+	if strings.Contains(text, "反馈人：") || strings.Contains(text, "时间：") || strings.Contains(text, "接口：") {
+		t.Fatalf("expected no verbose context in relay text, got %s", text)
+	}
 }
 
 func TestResolveCascadeMerchantOrderNo(t *testing.T) {

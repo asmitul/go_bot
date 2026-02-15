@@ -421,9 +421,8 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 	}
 
 	merchantReplyOn := b.resolveCascadeMerchantReplyMode(state)
-	now := time.Now()
 	if !merchantReplyOn && strings.TrimSpace(msg.Text) != "" {
-		directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text, msg.From, now)
+		directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text)
 		if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, directText, nil); err != nil {
 			logger.L().Errorf("Failed to relay upstream text reply to merchant directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
 				msg.Chat.ID, msg.ID, state.MerchantChatID, err)
@@ -435,10 +434,10 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 	}
 
 	if !merchantReplyOn {
-		contextText := buildOrderCascadeRelayContextMessage(state, msg.From, now)
-		if contextText != "" {
-			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, contextText, nil); err != nil {
-				logger.L().Errorf("Failed to send cascade relay context to merchant: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
+		compactText := buildOrderCascadeCompactResultMessage(state, describeOrderCascadeReplyResult(msg))
+		if compactText != "" {
+			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, compactText, nil); err != nil {
+				logger.L().Errorf("Failed to send cascade relay summary to merchant: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
 					msg.Chat.ID, msg.ID, state.MerchantChatID, err)
 				return false
 			}
@@ -499,22 +498,12 @@ func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, _
 		return ""
 	}
 
-	if state.MerchantReplyOn {
-		return orderCascadeActionLabel(action)
-	}
-
-	orderNo := strings.TrimSpace(state.MerchantOrderFull)
-	if orderNo == "" {
-		orderNo = strings.TrimSpace(state.OrderNo)
-	}
 	actionLabel := orderCascadeActionLabel(action)
-
-	builder := &strings.Builder{}
-	if orderNo != "" {
-		builder.WriteString(fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(orderNo)))
+	if state.MerchantReplyOn {
+		return actionLabel
 	}
-	builder.WriteString(fmt.Sprintf("结果：%s", actionLabel))
-	return strings.TrimRight(builder.String(), "\n")
+
+	return buildOrderCascadeCompactResultMessage(state, actionLabel)
 }
 
 func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botModels.User, timestamp time.Time) string {
@@ -548,16 +537,53 @@ func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botMo
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-func buildOrderCascadeDirectTextReplyMessage(state *orderCascadeState, text string, actor *botModels.User, timestamp time.Time) string {
-	contextText := buildOrderCascadeRelayContextMessage(state, actor, timestamp)
+func buildOrderCascadeDirectTextReplyMessage(state *orderCascadeState, text string) string {
 	content := strings.TrimSpace(text)
 	if content == "" {
-		return contextText
+		content = "上游回复"
 	}
-	if contextText == "" {
-		return html.EscapeString(content)
+	return buildOrderCascadeCompactResultMessage(state, html.EscapeString(content))
+}
+
+func buildOrderCascadeCompactResultMessage(state *orderCascadeState, result string) string {
+	trimmedResult := strings.TrimSpace(result)
+	if trimmedResult == "" {
+		return ""
 	}
-	return fmt.Sprintf("%s\n回复内容：%s", contextText, html.EscapeString(content))
+
+	builder := &strings.Builder{}
+	if orderNo := resolveOrderCascadeDisplayOrderNo(state); orderNo != "" {
+		builder.WriteString(fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(orderNo)))
+	}
+	builder.WriteString(fmt.Sprintf("结果：%s", trimmedResult))
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func resolveOrderCascadeDisplayOrderNo(state *orderCascadeState) string {
+	if state == nil {
+		return ""
+	}
+
+	orderNo := strings.TrimSpace(state.MerchantOrderFull)
+	if orderNo == "" {
+		orderNo = strings.TrimSpace(state.OrderNo)
+	}
+	return orderNo
+}
+
+func describeOrderCascadeReplyResult(msg *botModels.Message) string {
+	if msg == nil {
+		return "上游回复"
+	}
+
+	switch {
+	case len(msg.Photo) > 0:
+		return "上游回复图片"
+	case msg.Video != nil:
+		return "上游回复视频"
+	default:
+		return "上游回复"
+	}
 }
 
 func orderCascadeActionLabel(action string) string {
