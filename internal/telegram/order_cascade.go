@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,10 +140,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			statusText = strings.TrimSpace(binding.Status)
 		}
 
-		orderFull := strings.TrimSpace(binding.MerchantOrderNoFull)
-		if orderFull == "" {
-			orderFull = strings.TrimSpace(binding.MerchantOrderNo)
-		}
+		orderFull := resolveCascadeMerchantOrderNo(merchantID, binding, orderUpper)
 		if orderFull == "" {
 			orderFull = orderUpper
 		}
@@ -303,6 +301,42 @@ func resolveCascadeInterfaceDescriptor(bindings []models.InterfaceBinding, inter
 	return cleanName, ""
 }
 
+func resolveCascadeMerchantOrderNo(merchantID int64, binding *paymentservice.OrderChannelBinding, fallback string) string {
+	candidates := []string{}
+	if binding != nil {
+		candidates = append(candidates,
+			strings.TrimSpace(binding.MerchantOrderNo),
+			strings.TrimSpace(binding.MerchantOrderNoFull),
+		)
+	}
+	candidates = append(candidates, strings.TrimSpace(fallback))
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if normalized := stripCascadeMerchantPrefix(candidate, merchantID); normalized != "" {
+			return normalized
+		}
+	}
+
+	return strings.TrimSpace(fallback)
+}
+
+func stripCascadeMerchantPrefix(orderNo string, merchantID int64) string {
+	trimmed := strings.TrimSpace(orderNo)
+	if trimmed == "" || merchantID <= 0 {
+		return trimmed
+	}
+
+	prefix := strconv.FormatInt(merchantID, 10)
+	if strings.HasPrefix(trimmed, prefix) && len(trimmed) > len(prefix) {
+		return strings.TrimSpace(trimmed[len(prefix):])
+	}
+
+	return trimmed
+}
+
 func generateOrderCascadeToken() string {
 	buffer := make([]byte, 6)
 	if _, err := rand.Read(buffer); err != nil {
@@ -453,7 +487,7 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 	return true
 }
 
-func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, actor *botModels.User, timestamp time.Time) string {
+func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, _ *botModels.User, _ time.Time) string {
 	if state == nil {
 		return ""
 	}
@@ -462,38 +496,17 @@ func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, a
 		return orderCascadeActionLabel(action)
 	}
 
-	if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-
 	orderNo := strings.TrimSpace(state.MerchantOrderFull)
 	if orderNo == "" {
 		orderNo = strings.TrimSpace(state.OrderNo)
 	}
-
-	interfaceName := strings.TrimSpace(state.InterfaceName)
-	if interfaceName == "" && strings.TrimSpace(state.InterfaceID) != "" {
-		interfaceName = fmt.Sprintf("接口 %s", strings.TrimSpace(state.InterfaceID))
-	}
-
-	channelName := strings.TrimSpace(state.ChannelName)
-	actorText := formatCascadeActor(actor)
 	actionLabel := orderCascadeActionLabel(action)
 
 	builder := &strings.Builder{}
-	builder.WriteString("📣 <b>上游反馈</b>\n")
 	if orderNo != "" {
-		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
+		builder.WriteString(fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(orderNo)))
 	}
-	if interfaceName != "" {
-		builder.WriteString(fmt.Sprintf("接口：%s\n", html.EscapeString(interfaceName)))
-	}
-	if channelName != "" {
-		builder.WriteString(fmt.Sprintf("通道：%s\n", html.EscapeString(channelName)))
-	}
-	builder.WriteString(fmt.Sprintf("结果：%s\n", actionLabel))
-	builder.WriteString(fmt.Sprintf("反馈人：%s\n", actorText))
-	builder.WriteString(fmt.Sprintf("时间：%s", timestamp.Format("2006-01-02 15:04:05")))
+	builder.WriteString(fmt.Sprintf("结果：%s", actionLabel))
 	return strings.TrimRight(builder.String(), "\n")
 }
 

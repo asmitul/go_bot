@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	paymentservice "go_bot/internal/payment/service"
+
 	botModels "github.com/go-telegram/bot/models"
 )
 
@@ -144,14 +146,39 @@ func TestBuildOrderCascadeFeedbackMessage(t *testing.T) {
 		}
 
 		text := buildOrderCascadeFeedbackMessage(state, orderCascadeActionManual, user, when)
-		if !strings.Contains(text, "订单号：<code>FULL-2</code>") {
-			t.Fatalf("expected order code in feedback, got %s", text)
+		if !strings.Contains(text, "<pre><code>FULL-2</code></pre>") {
+			t.Fatalf("expected order code block in feedback, got %s", text)
 		}
 		if !strings.Contains(text, "结果：🛠 人工处理") {
 			t.Fatalf("expected action in feedback, got %s", text)
 		}
-		if !strings.Contains(text, "反馈人：@tester") {
-			t.Fatalf("expected actor in feedback, got %s", text)
+		if strings.Contains(text, "接口：") || strings.Contains(text, "通道：") || strings.Contains(text, "反馈人：") || strings.Contains(text, "时间：") {
+			t.Fatalf("expected compact feedback format, got %s", text)
+		}
+	})
+}
+
+func TestResolveCascadeMerchantOrderNo(t *testing.T) {
+	t.Run("prefer merchant order no", func(t *testing.T) {
+		binding := &paymentservice.OrderChannelBinding{
+			MerchantOrderNo:     "UR863638992959049681",
+			MerchantOrderNoFull: "2023173UR863638992959049681",
+		}
+
+		got := resolveCascadeMerchantOrderNo(2023173, binding, "fallback")
+		if got != "UR863638992959049681" {
+			t.Fatalf("expected raw merchant order no, got %s", got)
+		}
+	})
+
+	t.Run("strip merchant prefix when only full available", func(t *testing.T) {
+		binding := &paymentservice.OrderChannelBinding{
+			MerchantOrderNoFull: "2023173UR863638992959049681",
+		}
+
+		got := resolveCascadeMerchantOrderNo(2023173, binding, "fallback")
+		if got != "UR863638992959049681" {
+			t.Fatalf("expected merchant prefix stripped, got %s", got)
 		}
 	})
 }
