@@ -158,6 +158,16 @@ func buildBillStyleDemoExamples() []billStyleDemoExample {
 			parseMode: botModels.ParseModeHTML,
 		},
 		{
+			text: "[示例 05-B] blockquote + code 受限说明\n" +
+				"Telegram 不支持在 blockquote 内嵌 code/pre（实体嵌套限制）。",
+		},
+		{
+			text: "[示例 05-C] 替代方案：pre + 引用符号模拟\n" +
+				"💸 提款明细（总计 1388｜2 笔）\n" +
+				"<pre>│ 16:21:29   694.00\n│ 16:20:49   694.00</pre>",
+			parseMode: botModels.ParseModeHTML,
+		},
+		{
 			text: "[示例 06] 可展开 blockquote\n" +
 				"💸 提款明细（总计 1388｜2 笔）\n" +
 				"<blockquote expandable>16:21:29      694.00\n16:20:49      694.00\n（点击展开或收起）</blockquote>",
