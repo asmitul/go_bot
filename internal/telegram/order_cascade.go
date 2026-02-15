@@ -421,27 +421,51 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 	}
 
 	merchantReplyOn := b.resolveCascadeMerchantReplyMode(state)
-	if !merchantReplyOn && strings.TrimSpace(msg.Text) != "" {
-		directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text)
-		if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, directText, nil); err != nil {
-			logger.L().Errorf("Failed to relay upstream text reply to merchant directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
-				msg.Chat.ID, msg.ID, state.MerchantChatID, err)
-			return false
-		}
-		logger.L().Infof("Cascade text reply relayed directly: upstream_chat=%d upstream_message=%d merchant_chat=%d order_no=%s",
-			msg.Chat.ID, msg.ID, state.MerchantChatID, state.OrderNo)
-		return true
-	}
-
 	if !merchantReplyOn {
-		compactText := buildOrderCascadeCompactResultMessage(state, describeOrderCascadeReplyResult(msg))
-		if compactText != "" {
-			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, compactText, nil); err != nil {
-				logger.L().Errorf("Failed to send cascade relay summary to merchant: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
+		if strings.TrimSpace(msg.Text) != "" {
+			directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text)
+			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, directText, nil); err != nil {
+				logger.L().Errorf("Failed to relay upstream text reply to merchant directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
 					msg.Chat.ID, msg.ID, state.MerchantChatID, err)
 				return false
 			}
+			logger.L().Infof("Cascade text reply relayed directly: upstream_chat=%d upstream_message=%d merchant_chat=%d order_no=%s",
+				msg.Chat.ID, msg.ID, state.MerchantChatID, state.OrderNo)
+			return true
 		}
+
+		compactText := buildOrderCascadeCompactResultMessage(state, describeOrderCascadeReplyResult(msg))
+		sendCtx, cancel := context.WithTimeout(ctx, orderCascadeSendTimeout)
+		defer cancel()
+
+		var err error
+		switch {
+		case len(msg.Photo) > 0:
+			_, err = b.bot.SendPhoto(sendCtx, &bot.SendPhotoParams{
+				ChatID:    state.MerchantChatID,
+				Photo:     &botModels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
+				Caption:   compactText,
+				ParseMode: botModels.ParseModeHTML,
+			})
+		case msg.Video != nil:
+			_, err = b.bot.SendVideo(sendCtx, &bot.SendVideoParams{
+				ChatID:    state.MerchantChatID,
+				Video:     &botModels.InputFileString{Data: msg.Video.FileID},
+				Caption:   compactText,
+				ParseMode: botModels.ParseModeHTML,
+			})
+		default:
+			_, err = b.sendMessageWithMarkupAndMessage(sendCtx, state.MerchantChatID, compactText, nil)
+		}
+		if err != nil {
+			logger.L().Errorf("Failed to relay upstream reply summary directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
+				msg.Chat.ID, msg.ID, state.MerchantChatID, err)
+			return false
+		}
+
+		logger.L().Infof("Cascade reply relayed directly without quote: upstream_chat=%d upstream_message=%d merchant_chat=%d order_no=%s",
+			msg.Chat.ID, msg.ID, state.MerchantChatID, state.OrderNo)
+		return true
 	}
 
 	params := &bot.CopyMessageParams{
@@ -525,7 +549,7 @@ func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botMo
 	}
 
 	builder := &strings.Builder{}
-	builder.WriteString("📨 <b>上游回复</b>\n")
+	builder.WriteString("📨 <b>回复</b>\n")
 	if orderNo != "" {
 		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
 	}
@@ -540,7 +564,7 @@ func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botMo
 func buildOrderCascadeDirectTextReplyMessage(state *orderCascadeState, text string) string {
 	content := strings.TrimSpace(text)
 	if content == "" {
-		content = "上游回复"
+		content = "回复"
 	}
 	return buildOrderCascadeCompactResultMessage(state, html.EscapeString(content))
 }
@@ -573,16 +597,16 @@ func resolveOrderCascadeDisplayOrderNo(state *orderCascadeState) string {
 
 func describeOrderCascadeReplyResult(msg *botModels.Message) string {
 	if msg == nil {
-		return "上游回复"
+		return "回复"
 	}
 
 	switch {
 	case len(msg.Photo) > 0:
-		return "上游回复图片"
+		return "回复图片"
 	case msg.Video != nil:
-		return "上游回复视频"
+		return "回复视频"
 	default:
-		return "上游回复"
+		return "回复"
 	}
 }
 
