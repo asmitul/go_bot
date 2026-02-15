@@ -949,7 +949,7 @@ func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.B
 	}
 
 	var replyTo []int
-	if state.MerchantMessageID > 0 {
+	if state.MerchantReplyOn && state.MerchantMessageID > 0 {
 		replyTo = append(replyTo, state.MerchantMessageID)
 	}
 

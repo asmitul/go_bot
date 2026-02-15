@@ -110,20 +110,48 @@ func TestBuildOrderCascadeMessageIncludesFields(t *testing.T) {
 }
 
 func TestBuildOrderCascadeFeedbackMessage(t *testing.T) {
-	state := &orderCascadeState{
-		SourceGroupTitle:   "商户群",
-		UpstreamGroupTitle: "上游群",
-		InterfaceID:        "123",
-		InterfaceName:      "接口X",
-		OrderNo:            "ORD-2",
-		MerchantOrderFull:  "FULL-2",
-		ChannelName:        "USDT",
-	}
 	user := &botModels.User{Username: "tester"}
 	when := time.Date(2024, 11, 20, 10, 30, 0, 0, time.UTC)
 
-	text := buildOrderCascadeFeedbackMessage(state, orderCascadeActionManual, user, when)
-	if text != "🛠 人工处理" {
-		t.Fatalf("unexpected feedback text: %s", text)
-	}
+	t.Run("reply mode", func(t *testing.T) {
+		state := &orderCascadeState{
+			MerchantReplyOn:    true,
+			SourceGroupTitle:   "商户群",
+			UpstreamGroupTitle: "上游群",
+			InterfaceID:        "123",
+			InterfaceName:      "接口X",
+			OrderNo:            "ORD-2",
+			MerchantOrderFull:  "FULL-2",
+			ChannelName:        "USDT",
+		}
+
+		text := buildOrderCascadeFeedbackMessage(state, orderCascadeActionManual, user, when)
+		if text != "🛠 人工处理" {
+			t.Fatalf("unexpected feedback text: %s", text)
+		}
+	})
+
+	t.Run("direct mode includes order info", func(t *testing.T) {
+		state := &orderCascadeState{
+			MerchantReplyOn:    false,
+			SourceGroupTitle:   "商户群",
+			UpstreamGroupTitle: "上游群",
+			InterfaceID:        "123",
+			InterfaceName:      "接口X",
+			OrderNo:            "ORD-2",
+			MerchantOrderFull:  "FULL-2",
+			ChannelName:        "USDT",
+		}
+
+		text := buildOrderCascadeFeedbackMessage(state, orderCascadeActionManual, user, when)
+		if !strings.Contains(text, "订单号：<code>FULL-2</code>") {
+			t.Fatalf("expected order code in feedback, got %s", text)
+		}
+		if !strings.Contains(text, "结果：🛠 人工处理") {
+			t.Fatalf("expected action in feedback, got %s", text)
+		}
+		if !strings.Contains(text, "反馈人：@tester") {
+			t.Fatalf("expected actor in feedback, got %s", text)
+		}
+	})
 }

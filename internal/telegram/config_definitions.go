@@ -189,6 +189,26 @@ func (b *Bot) getConfigItems() []models.ConfigItem {
 			RequireAdmin: true,
 		},
 
+		// 订单联动回传引用开关（仅商户群）
+		{
+			ID:       "cascade_reply_enabled",
+			Name:     "回传引用消息",
+			Icon:     "💬",
+			Type:     models.ConfigTypeToggle,
+			Category: "订单联动",
+			AllowedTiers: []models.GroupTier{
+				models.GroupTierMerchant,
+			},
+			ToggleGetter: func(g *models.Group) bool {
+				return models.IsCascadeReplyEnabled(g.Settings)
+			},
+			ToggleSetter: func(s *models.GroupSettings, val bool) {
+				s.CascadeReplyEnabled = val
+				s.CascadeReplyConfigured = true
+			},
+			RequireAdmin: true,
+		},
+
 		// 订单联动转发开关（仅上游群）
 		{
 			ID:       "cascade_forward_enabled",

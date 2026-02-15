@@ -101,4 +101,15 @@ func TestTierHelpers(t *testing.T) {
 	if list != expected {
 		t.Fatalf("expected %s, got %s", expected, list)
 	}
+
+	if !IsCascadeReplyEnabled(GroupSettings{}) {
+		t.Fatalf("expected cascade reply to be enabled by default")
+	}
+
+	if IsCascadeReplyEnabled(GroupSettings{
+		CascadeReplyEnabled:    false,
+		CascadeReplyConfigured: true,
+	}) {
+		t.Fatalf("expected configured cascade reply switch to be honored")
+	}
 }

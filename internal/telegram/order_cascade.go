@@ -58,6 +58,7 @@ type orderCascadeState struct {
 	Token              string
 	MerchantChatID     int64
 	MerchantMessageID  int
+	MerchantReplyOn    bool
 	UpstreamChatID     int64
 	UpstreamMessageID  int
 	OrderNo            string
@@ -194,6 +195,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			Token:              token,
 			MerchantChatID:     msg.Chat.ID,
 			MerchantMessageID:  msg.ID,
+			MerchantReplyOn:    models.IsCascadeReplyEnabled(group.Settings),
 			UpstreamChatID:     upstreamGroup.TelegramID,
 			UpstreamMessageID:  sent.ID,
 			OrderNo:            orderUpper,
@@ -400,13 +402,37 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 		return false
 	}
 
+	now := time.Now()
+	if !state.MerchantReplyOn && strings.TrimSpace(msg.Text) != "" {
+		directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text, msg.From, now)
+		if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, directText, nil); err != nil {
+			logger.L().Errorf("Failed to relay upstream text reply to merchant directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
+				msg.Chat.ID, msg.ID, state.MerchantChatID, err)
+			return false
+		}
+		logger.L().Infof("Cascade text reply relayed directly: upstream_chat=%d upstream_message=%d merchant_chat=%d order_no=%s",
+			msg.Chat.ID, msg.ID, state.MerchantChatID, state.OrderNo)
+		return true
+	}
+
+	if !state.MerchantReplyOn {
+		contextText := buildOrderCascadeRelayContextMessage(state, msg.From, now)
+		if contextText != "" {
+			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, contextText, nil); err != nil {
+				logger.L().Errorf("Failed to send cascade relay context to merchant: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
+					msg.Chat.ID, msg.ID, state.MerchantChatID, err)
+				return false
+			}
+		}
+	}
+
 	params := &bot.CopyMessageParams{
 		ChatID:     state.MerchantChatID,
 		FromChatID: msg.Chat.ID,
 		MessageID:  msg.ID,
 	}
 
-	if state.MerchantMessageID > 0 {
+	if state.MerchantReplyOn && state.MerchantMessageID > 0 {
 		params.ReplyParameters = &botModels.ReplyParameters{
 			MessageID:                state.MerchantMessageID,
 			AllowSendingWithoutReply: true,
@@ -432,7 +458,86 @@ func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, a
 		return ""
 	}
 
-	return orderCascadeActionLabel(action)
+	if state.MerchantReplyOn {
+		return orderCascadeActionLabel(action)
+	}
+
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	orderNo := strings.TrimSpace(state.MerchantOrderFull)
+	if orderNo == "" {
+		orderNo = strings.TrimSpace(state.OrderNo)
+	}
+
+	interfaceName := strings.TrimSpace(state.InterfaceName)
+	if interfaceName == "" && strings.TrimSpace(state.InterfaceID) != "" {
+		interfaceName = fmt.Sprintf("接口 %s", strings.TrimSpace(state.InterfaceID))
+	}
+
+	channelName := strings.TrimSpace(state.ChannelName)
+	actorText := formatCascadeActor(actor)
+	actionLabel := orderCascadeActionLabel(action)
+
+	builder := &strings.Builder{}
+	builder.WriteString("📣 <b>上游反馈</b>\n")
+	if orderNo != "" {
+		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
+	}
+	if interfaceName != "" {
+		builder.WriteString(fmt.Sprintf("接口：%s\n", html.EscapeString(interfaceName)))
+	}
+	if channelName != "" {
+		builder.WriteString(fmt.Sprintf("通道：%s\n", html.EscapeString(channelName)))
+	}
+	builder.WriteString(fmt.Sprintf("结果：%s\n", actionLabel))
+	builder.WriteString(fmt.Sprintf("反馈人：%s\n", actorText))
+	builder.WriteString(fmt.Sprintf("时间：%s", timestamp.Format("2006-01-02 15:04:05")))
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botModels.User, timestamp time.Time) string {
+	if state == nil {
+		return ""
+	}
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	orderNo := strings.TrimSpace(state.MerchantOrderFull)
+	if orderNo == "" {
+		orderNo = strings.TrimSpace(state.OrderNo)
+	}
+
+	interfaceName := strings.TrimSpace(state.InterfaceName)
+	if interfaceName == "" && strings.TrimSpace(state.InterfaceID) != "" {
+		interfaceName = fmt.Sprintf("接口 %s", strings.TrimSpace(state.InterfaceID))
+	}
+
+	builder := &strings.Builder{}
+	builder.WriteString("📨 <b>上游回复</b>\n")
+	if orderNo != "" {
+		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
+	}
+	if interfaceName != "" {
+		builder.WriteString(fmt.Sprintf("接口：%s\n", html.EscapeString(interfaceName)))
+	}
+	builder.WriteString(fmt.Sprintf("反馈人：%s\n", formatCascadeActor(actor)))
+	builder.WriteString(fmt.Sprintf("时间：%s", timestamp.Format("2006-01-02 15:04:05")))
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func buildOrderCascadeDirectTextReplyMessage(state *orderCascadeState, text string, actor *botModels.User, timestamp time.Time) string {
+	contextText := buildOrderCascadeRelayContextMessage(state, actor, timestamp)
+	content := strings.TrimSpace(text)
+	if content == "" {
+		return contextText
+	}
+	if contextText == "" {
+		return html.EscapeString(content)
+	}
+	return fmt.Sprintf("%s\n回复内容：%s", contextText, html.EscapeString(content))
 }
 
 func orderCascadeActionLabel(action string) string {

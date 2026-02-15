@@ -64,6 +64,8 @@ type GroupSettings struct {
 	SifangAutoLookupEnabled  bool               `bson:"sifang_auto_lookup_enabled"`   // 是否启用四方支付自动查单
 	CascadeForwardEnabled    bool               `bson:"cascade_forward_enabled"`      // 是否启用订单联动转发
 	CascadeForwardConfigured bool               `bson:"cascade_forward_configured"`   // 是否已手动配置转单开关
+	CascadeReplyEnabled      bool               `bson:"cascade_reply_enabled"`        // 订单联动回传时是否引用商户原消息
+	CascadeReplyConfigured   bool               `bson:"cascade_reply_configured"`     // 是否已手动配置回传引用开关
 	BalanceMonitorEnabled    bool               `bson:"balance_monitor_enabled"`      // 是否启用上游余额轮询告警
 	BalanceMonitorConfigured bool               `bson:"balance_monitor_configured"`   // 是否已手动配置轮询告警
 	BalanceMonitorInterval   int                `bson:"balance_monitor_interval"`     // 轮询间隔（分钟），0 表示使用默认
@@ -152,6 +154,14 @@ func NormalizeGroupTier(tier GroupTier) GroupTier {
 func IsBalanceMonitorEnabled(settings GroupSettings) bool {
 	if settings.BalanceMonitorConfigured {
 		return settings.BalanceMonitorEnabled
+	}
+	return true
+}
+
+// IsCascadeReplyEnabled 返回订单联动回传时是否引用商户原消息（未配置时默认开启）
+func IsCascadeReplyEnabled(settings GroupSettings) bool {
+	if settings.CascadeReplyConfigured {
+		return settings.CascadeReplyEnabled
 	}
 	return true
 }

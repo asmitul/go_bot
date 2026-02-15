@@ -73,6 +73,8 @@ func (s *GroupServiceImpl) GetOrCreateGroup(ctx context.Context, chatInfo *Teleg
 			SifangAutoLookupEnabled:  true,
 			CascadeForwardEnabled:    true,
 			CascadeForwardConfigured: true,
+			CascadeReplyEnabled:      true,
+			CascadeReplyConfigured:   true,
 		},
 		Stats: models.GroupStats{},
 		// BotJoinedAt、CreatedAt、UpdatedAt 由 CreateOrUpdate 的 $setOnInsert 自动设置
@@ -239,6 +241,7 @@ func ensureGroupTier(group *models.Group) {
 
 	group.Settings.InterfaceBindings = models.NormalizeInterfaceBindings(group.Settings.InterfaceBindings)
 	ensureCascadeForwardDefaults(&group.Settings)
+	ensureCascadeReplyDefaults(&group.Settings)
 
 	if group.Tier != "" {
 		return
@@ -259,5 +262,15 @@ func ensureCascadeForwardDefaults(settings *models.GroupSettings) {
 	if !settings.CascadeForwardConfigured {
 		settings.CascadeForwardEnabled = true
 		settings.CascadeForwardConfigured = true
+	}
+}
+
+func ensureCascadeReplyDefaults(settings *models.GroupSettings) {
+	if settings == nil {
+		return
+	}
+	if !settings.CascadeReplyConfigured {
+		settings.CascadeReplyEnabled = true
+		settings.CascadeReplyConfigured = true
 	}
 }
