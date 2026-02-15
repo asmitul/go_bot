@@ -144,7 +144,7 @@ func (r *MongoWithdrawQuoteRepository) EnsureIndexes(ctx context.Context) error 
 				SetPartialFilterExpression(bson.M{
 					"withdraw_no": bson.M{
 						"$exists": true,
-						"$ne":     "",
+						"$gt":     "",
 					},
 				}),
 		},
@@ -158,7 +158,7 @@ func (r *MongoWithdrawQuoteRepository) EnsureIndexes(ctx context.Context) error 
 				SetPartialFilterExpression(bson.M{
 					"order_no": bson.M{
 						"$exists": true,
-						"$ne":     "",
+						"$gt":     "",
 					},
 				}),
 		},
