@@ -57,11 +57,22 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireAdmin(b.handleLeave)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/configs", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireAdmin(b.handleConfigs)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, billStyleDemoCommandSlash, bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleBillStyleDemo)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, billStyleDemoCommandCN, bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleBillStyleDemo)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, billStyleDemoCommandCNSimple, bot.MatchTypeExact,
+		b.asyncHandler(b.RequireAdmin(b.handleBillStyleDemo)))
 
 	// 配置菜单回调查询处理器
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
 		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "config:")
 	}, b.asyncHandler(b.handleConfigCallback))
+
+	// 账单样式预览回调处理器（临时）
+	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
+		return update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, billStyleDemoCallbackPrefix)
+	}, b.asyncHandler(b.handleBillStyleDemoCallback))
 
 	// 四方下发确认回调处理器
 	b.bot.RegisterHandlerMatchFunc(func(update *botModels.Update) bool {
