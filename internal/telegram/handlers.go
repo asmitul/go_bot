@@ -953,14 +953,17 @@ func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.B
 	}
 
 	now := time.Now()
-	feedback := buildOrderCascadeFeedbackMessage(state, action, &query.From, now)
+	merchantReplyOn := b.resolveCascadeMerchantReplyMode(state)
+	feedbackState := *state
+	feedbackState.MerchantReplyOn = merchantReplyOn
+	feedback := buildOrderCascadeFeedbackMessage(&feedbackState, action, &query.From, now)
 	if strings.TrimSpace(feedback) == "" {
 		b.answerCallback(ctx, botInstance, query.ID, "暂无法处理", true)
 		return
 	}
 
 	var replyTo []int
-	if state.MerchantReplyOn && state.MerchantMessageID > 0 {
+	if merchantReplyOn && state.MerchantMessageID > 0 {
 		replyTo = append(replyTo, state.MerchantMessageID)
 	}
 

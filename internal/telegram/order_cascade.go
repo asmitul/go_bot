@@ -23,6 +23,7 @@ const (
 	orderCascadeLookupTimeout = 8 * time.Second
 	orderCascadeSendTimeout   = 5 * time.Second
 	orderCascadeStateTTL      = 2 * time.Hour
+	orderCascadeGroupTimeout  = 3 * time.Second
 )
 
 const (
@@ -419,8 +420,9 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 		return false
 	}
 
+	merchantReplyOn := b.resolveCascadeMerchantReplyMode(state)
 	now := time.Now()
-	if !state.MerchantReplyOn && strings.TrimSpace(msg.Text) != "" {
+	if !merchantReplyOn && strings.TrimSpace(msg.Text) != "" {
 		directText := buildOrderCascadeDirectTextReplyMessage(state, msg.Text, msg.From, now)
 		if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, directText, nil); err != nil {
 			logger.L().Errorf("Failed to relay upstream text reply to merchant directly: upstream_chat=%d upstream_message=%d merchant_chat=%d err=%v",
@@ -432,7 +434,7 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 		return true
 	}
 
-	if !state.MerchantReplyOn {
+	if !merchantReplyOn {
 		contextText := buildOrderCascadeRelayContextMessage(state, msg.From, now)
 		if contextText != "" {
 			if _, err := b.sendMessageWithMarkupAndMessage(ctx, state.MerchantChatID, contextText, nil); err != nil {
@@ -449,7 +451,7 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 		MessageID:  msg.ID,
 	}
 
-	if state.MerchantReplyOn && state.MerchantMessageID > 0 {
+	if merchantReplyOn && state.MerchantMessageID > 0 {
 		params.ReplyParameters = &botModels.ReplyParameters{
 			MessageID:                state.MerchantMessageID,
 			AllowSendingWithoutReply: true,
@@ -468,6 +470,28 @@ func (b *Bot) tryRelayOrderCascadeReply(ctx context.Context, msg *botModels.Mess
 	logger.L().Infof("Cascade reply relayed: upstream_chat=%d upstream_message=%d merchant_chat=%d merchant_reply_to=%d order_no=%s",
 		msg.Chat.ID, msg.ID, state.MerchantChatID, state.MerchantMessageID, state.OrderNo)
 	return true
+}
+
+func (b *Bot) resolveCascadeMerchantReplyMode(state *orderCascadeState) bool {
+	if state == nil {
+		return true
+	}
+
+	fallback := state.MerchantReplyOn
+	if b.groupService == nil || state.MerchantChatID == 0 {
+		return fallback
+	}
+
+	lookupCtx, cancel := context.WithTimeout(context.Background(), orderCascadeGroupTimeout)
+	defer cancel()
+
+	group, err := b.groupService.GetGroupInfo(lookupCtx, state.MerchantChatID)
+	if err != nil || group == nil {
+		logger.L().Warnf("Order cascade resolve reply mode failed: merchant_chat=%d err=%v", state.MerchantChatID, err)
+		return fallback
+	}
+
+	return models.IsCascadeReplyEnabled(group.Settings)
 }
 
 func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, _ *botModels.User, _ time.Time) string {

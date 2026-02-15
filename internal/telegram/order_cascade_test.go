@@ -6,6 +6,7 @@ import (
 	"time"
 
 	paymentservice "go_bot/internal/payment/service"
+	"go_bot/internal/telegram/models"
 
 	botModels "github.com/go-telegram/bot/models"
 )
@@ -186,6 +187,41 @@ func TestResolveCascadeMerchantOrderNo(t *testing.T) {
 		got := resolveCascadeMerchantOrderNo(nil, "fallback")
 		if got != "fallback" {
 			t.Fatalf("expected fallback order no, got %s", got)
+		}
+	})
+}
+
+func TestResolveCascadeMerchantReplyMode(t *testing.T) {
+	t.Run("prefer latest merchant group setting", func(t *testing.T) {
+		b := &Bot{
+			groupService: &autoLookupTestGroupService{
+				group: &models.Group{
+					Settings: models.GroupSettings{
+						CascadeReplyEnabled:    false,
+						CascadeReplyConfigured: true,
+					},
+				},
+			},
+		}
+		state := &orderCascadeState{
+			MerchantChatID:  -20001,
+			MerchantReplyOn: true,
+		}
+
+		if got := b.resolveCascadeMerchantReplyMode(state); got {
+			t.Fatalf("expected latest group setting false, got true")
+		}
+	})
+
+	t.Run("fallback to state when group service unavailable", func(t *testing.T) {
+		b := &Bot{}
+		state := &orderCascadeState{
+			MerchantChatID:  -20001,
+			MerchantReplyOn: false,
+		}
+
+		if got := b.resolveCascadeMerchantReplyMode(state); got {
+			t.Fatalf("expected fallback false, got true")
 		}
 	})
 }
