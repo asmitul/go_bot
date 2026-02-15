@@ -599,6 +599,12 @@ func describeOrderCascadeReplyResult(msg *botModels.Message) string {
 	if msg == nil {
 		return "回复"
 	}
+	if caption := strings.TrimSpace(msg.Caption); caption != "" {
+		return html.EscapeString(caption)
+	}
+	if text := strings.TrimSpace(msg.Text); text != "" {
+		return html.EscapeString(text)
+	}
 
 	switch {
 	case len(msg.Photo) > 0:

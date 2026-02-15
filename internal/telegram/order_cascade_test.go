@@ -178,6 +178,31 @@ func TestBuildOrderCascadeDirectTextReplyMessage(t *testing.T) {
 	}
 }
 
+func TestDescribeOrderCascadeReplyResult(t *testing.T) {
+	t.Run("prefer media caption", func(t *testing.T) {
+		msg := &botModels.Message{
+			Caption: "描述 <ok>",
+			Photo:   []botModels.PhotoSize{{FileID: "photo-id"}},
+		}
+
+		got := describeOrderCascadeReplyResult(msg)
+		if got != "描述 &lt;ok&gt;" {
+			t.Fatalf("expected escaped caption, got %s", got)
+		}
+	})
+
+	t.Run("fallback to media type", func(t *testing.T) {
+		msg := &botModels.Message{
+			Photo: []botModels.PhotoSize{{FileID: "photo-id"}},
+		}
+
+		got := describeOrderCascadeReplyResult(msg)
+		if got != "回复图片" {
+			t.Fatalf("expected media fallback label, got %s", got)
+		}
+	})
+}
+
 func TestResolveCascadeMerchantOrderNo(t *testing.T) {
 	t.Run("prefer merchant full order no", func(t *testing.T) {
 		binding := &paymentservice.OrderChannelBinding{
