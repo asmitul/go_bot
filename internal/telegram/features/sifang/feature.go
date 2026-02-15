@@ -1372,11 +1372,12 @@ func sendMoneyCallbackData(action, token string) string {
 
 // SendMoneyCallbackResult 表示处理回调后的结果
 type SendMoneyCallbackResult struct {
-	ShouldEdit bool
-	Text       string
-	Markup     botModels.ReplyMarkup
-	Answer     string
-	ShowAlert  bool
+	ShouldEdit   bool
+	Text         string
+	Markup       botModels.ReplyMarkup
+	Answer       string
+	ShowAlert    bool
+	FollowupText string
 }
 
 // HandleSendMoneyCallback 处理确认/取消回调
@@ -1444,6 +1445,12 @@ func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.
 		result.ShouldEdit = true
 		result.Text = message
 		result.Answer = "下发成功"
+		summaryMessage, _, summaryErr := f.handleSummary(ctx, pending.merchantID, "账单")
+		if summaryErr != nil {
+			logger.L().Errorf("Sifang auto summary after send money failed: merchant_id=%d, err=%v", pending.merchantID, summaryErr)
+		} else if strings.TrimSpace(summaryMessage) != "" {
+			result.FollowupText = summaryMessage
+		}
 		return result, nil
 	default:
 		result.ShouldEdit = false

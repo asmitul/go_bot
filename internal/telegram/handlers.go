@@ -924,6 +924,13 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 	}
 
 	if result != nil {
+		if followup := strings.TrimSpace(result.FollowupText); followup != "" {
+			if msg := query.Message.Message; msg != nil {
+				if _, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, followup, nil, msg.ID); sendErr != nil {
+					logger.L().Errorf("send sifang send money followup failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, sendErr)
+				}
+			}
+		}
 		b.answerCallback(ctx, botInstance, query.ID, result.Answer, result.ShowAlert)
 	} else {
 		b.answerCallback(ctx, botInstance, query.ID, "", false)

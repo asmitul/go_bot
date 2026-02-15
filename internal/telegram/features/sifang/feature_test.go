@@ -684,6 +684,9 @@ func TestHandleSendMoneyCallbackConfirm(t *testing.T) {
 	if !strings.Contains(result.Text, "已成功下发") {
 		t.Fatalf("unexpected success text: %s", result.Text)
 	}
+	if !strings.Contains(result.FollowupText, "📑 账单 - ") {
+		t.Fatalf("expected followup summary text, got %s", result.FollowupText)
+	}
 	if fakeSvc.lastSendAmount != 12 {
 		t.Fatalf("expected send amount 12, got %.2f", fakeSvc.lastSendAmount)
 	}
@@ -798,6 +801,9 @@ func TestHandleSendMoneyCallbackCancel(t *testing.T) {
 	}
 	if !strings.Contains(result.Text, "已取消下发") {
 		t.Fatalf("unexpected cancel text: %s", result.Text)
+	}
+	if result.FollowupText != "" {
+		t.Fatalf("expected empty followup text for cancel, got %s", result.FollowupText)
 	}
 	if _, ok := feature.pending[token]; ok {
 		t.Fatalf("expected pending cleared")
