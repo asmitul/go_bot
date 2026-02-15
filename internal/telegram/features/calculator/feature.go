@@ -3,6 +3,9 @@ package calculator
 import (
 	"context"
 	"fmt"
+	"html"
+	"strconv"
+	"strings"
 
 	botModels "github.com/go-telegram/bot/models"
 	"go_bot/internal/logger"
@@ -52,10 +55,17 @@ func (f *CalculatorFeature) Process(ctx context.Context, msg *botModels.Message,
 	}
 
 	// 计算成功
-	logger.L().Infof("Calculator: %s = %g (chat_id=%d)", msg.Text, result, msg.Chat.ID)
+	resultText := formatResult(result)
+	expressionText := html.EscapeString(strings.TrimSpace(msg.Text))
+	logger.L().Infof("Calculator: %s = %s (chat_id=%d)", msg.Text, resultText, msg.Chat.ID)
+
 	return &types.Response{
-		Text: fmt.Sprintf("🧮 %s = %g", msg.Text, result),
+		Text: fmt.Sprintf("🧮 <code>%s</code>\n<pre>%s</pre>", expressionText, html.EscapeString(resultText)),
 	}, true, nil
+}
+
+func formatResult(result float64) string {
+	return strconv.FormatFloat(result, 'f', -1, 64)
 }
 
 // Priority 返回优先级(20 = 高优先级)
