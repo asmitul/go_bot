@@ -956,7 +956,7 @@ func TestHandleSummaryIncludesWithdrawAndBalance(t *testing.T) {
 		},
 		withdrawResp: &paymentservice.WithdrawList{
 			Items: []*paymentservice.Withdraw{
-				{Amount: "100", CreatedAt: today + " 10:00:00"},
+				{Amount: "100", Status: "paid", CreatedAt: today + " 10:00:00"},
 			},
 		},
 	}
@@ -977,6 +977,35 @@ func TestHandleSummaryIncludesWithdrawAndBalance(t *testing.T) {
 	}
 }
 
+func TestHandleSummaryWithdrawOnlyKeepsSuccessfulItems(t *testing.T) {
+	now := time.Now().In(chinaLocation)
+	today := now.Format("2006-01-02")
+	fake := &fakePaymentService{
+		balanceResp: &paymentservice.Balance{
+			Balance: "5000",
+		},
+		withdrawResp: &paymentservice.WithdrawList{
+			Items: []*paymentservice.Withdraw{
+				{Amount: "100", Status: "paid", CreatedAt: today + " 10:00:00"},
+				{Amount: "200", Status: "cancelled", CreatedAt: today + " 11:00:00"},
+			},
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	message, _, err := feature.handleSummary(context.Background(), 1001, "账单")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(message, "总计 100｜1 笔") {
+		t.Fatalf("expected only successful withdraw in summary, got %s", message)
+	}
+	if strings.Contains(message, "11:00:00      200") {
+		t.Fatalf("expected failed withdraw excluded, got %s", message)
+	}
+}
+
 func TestBuildSummaryMessageMatchesHandleSummary(t *testing.T) {
 	now := time.Now().In(chinaLocation)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, chinaLocation)
@@ -988,7 +1017,7 @@ func TestBuildSummaryMessageMatchesHandleSummary(t *testing.T) {
 		},
 		withdrawResp: &paymentservice.WithdrawList{
 			Items: []*paymentservice.Withdraw{
-				{Amount: "100", CreatedAt: today.Format("2006-01-02") + " 10:00:00"},
+				{Amount: "100", Status: "paid", CreatedAt: today.Format("2006-01-02") + " 10:00:00"},
 			},
 		},
 	}
@@ -1052,7 +1081,7 @@ func TestHandleChannelSummaryIncludesWithdrawAndBalance(t *testing.T) {
 		},
 		withdrawResp: &paymentservice.WithdrawList{
 			Items: []*paymentservice.Withdraw{
-				{Amount: "100", CreatedAt: today + " 08:00:00"},
+				{Amount: "100", Status: "paid", CreatedAt: today + " 08:00:00"},
 			},
 		},
 	}
@@ -1105,6 +1134,34 @@ func TestHandleChannelSummaryUsesHistoryBalanceForPastDate(t *testing.T) {
 	}
 	if fake.lastHistoryDays <= 0 {
 		t.Fatalf("expected history_days > 0, got %d", fake.lastHistoryDays)
+	}
+}
+
+func TestHandleWithdrawListOnlyKeepsSuccessfulItems(t *testing.T) {
+	now := time.Now().In(chinaLocation)
+	today := now.Format("2006-01-02")
+	fake := &fakePaymentService{
+		withdrawResp: &paymentservice.WithdrawList{
+			Items: []*paymentservice.Withdraw{
+				{Amount: "100", Status: "paid", CreatedAt: today + " 10:00:00"},
+				{Amount: "200", Status: "cancelled", CreatedAt: today + " 11:00:00"},
+			},
+		},
+	}
+	feature := &Feature{paymentService: fake}
+
+	message, handled, err := feature.handleWithdrawList(context.Background(), 1001, "提款明细")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected command to be handled")
+	}
+	if !strings.Contains(message, "总计 100｜1 笔") {
+		t.Fatalf("expected only successful withdraw in details, got %s", message)
+	}
+	if strings.Contains(message, "11:00:00      200") {
+		t.Fatalf("expected failed withdraw excluded, got %s", message)
 	}
 }
 

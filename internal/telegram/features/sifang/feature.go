@@ -345,8 +345,41 @@ func (f *Feature) queryWithdrawMessage(ctx context.Context, merchantID int64, ta
 		return "", err
 	}
 
+	filtered := filterSuccessfulWithdrawList(list)
 	quoteLookup := f.loadWithdrawQuoteLookup(ctx, merchantID, start, start.Add(24*time.Hour))
-	return formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), list, quoteLookup), nil
+	return formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), filtered, quoteLookup), nil
+}
+
+func filterSuccessfulWithdrawList(list *paymentservice.WithdrawList) *paymentservice.WithdrawList {
+	if list == nil {
+		return &paymentservice.WithdrawList{Items: []*paymentservice.Withdraw{}}
+	}
+
+	filteredItems := make([]*paymentservice.Withdraw, 0, len(list.Items))
+	for _, item := range list.Items {
+		if isSuccessfulWithdraw(item) {
+			filteredItems = append(filteredItems, item)
+		}
+	}
+
+	copy := *list
+	copy.Total = len(filteredItems)
+	copy.Items = filteredItems
+	return &copy
+}
+
+func isSuccessfulWithdraw(item *paymentservice.Withdraw) bool {
+	if item == nil {
+		return false
+	}
+
+	status := strings.ToLower(strings.TrimSpace(item.Status))
+	switch status {
+	case "1", "paid", "success", "succeed", "succeeded", "completed", "complete", "done", "已支付", "支付成功", "成功":
+		return true
+	default:
+		return strings.TrimSpace(item.PaidAt) != ""
+	}
 }
 
 func parseSummaryDate(raw string, now time.Time, usage string) (time.Time, error) {
@@ -576,11 +609,12 @@ func (f *Feature) handleWithdrawList(ctx context.Context, merchantID int64, text
 		return fmt.Sprintf("❌ 查询提款明细失败：%v", err), true, nil
 	}
 
+	filtered := filterSuccessfulWithdrawList(list)
 	quoteLookup := f.loadWithdrawQuoteLookup(ctx, merchantID, start, start.Add(24*time.Hour))
-	message := formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), list, quoteLookup)
+	message := formatWithdrawListMessageWithQuotes(targetDate.Format("2006-01-02"), filtered, quoteLookup)
 	itemCount := 0
-	if list != nil {
-		itemCount = len(list.Items)
+	if filtered != nil {
+		itemCount = len(filtered.Items)
 	}
 	logger.L().Infof("Sifang withdraw list queried: merchant_id=%d, date=%s, count=%d", merchantID, targetDate.Format("2006-01-02"), itemCount)
 	return message, true, nil
