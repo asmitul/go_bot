@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +64,7 @@ type orderCascadeState struct {
 	UpstreamChatID     int64
 	UpstreamMessageID  int
 	OrderNo            string
+	MerchantOrderNo    string
 	HasMedia           bool
 	MerchantOrderFull  string
 	InterfaceID        string
@@ -140,14 +142,18 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			statusText = strings.TrimSpace(binding.Status)
 		}
 
-		orderFull := resolveCascadeMerchantOrderNo(binding, orderUpper)
+		orderFull := resolveCascadeMerchantOrderNoFull(binding, orderUpper)
 		if orderFull == "" {
 			orderFull = orderUpper
+		}
+		orderNo := resolveCascadeMerchantOrderNo(merchantID, binding, orderUpper)
+		if orderNo == "" {
+			orderNo = orderUpper
 		}
 
 		payload := orderCascadeMessagePayload{
 			MerchantOrderNoFull: orderFull,
-			OrderNo:             orderUpper,
+			OrderNo:             orderNo,
 			StatusText:          statusText,
 		}
 
@@ -197,6 +203,7 @@ func (b *Bot) startOrderCascadeWorkflow(group *models.Group, msg *botModels.Mess
 			UpstreamChatID:     upstreamGroup.TelegramID,
 			UpstreamMessageID:  sent.ID,
 			OrderNo:            orderUpper,
+			MerchantOrderNo:    orderNo,
 			MerchantOrderFull:  orderFull,
 			InterfaceID:        interfaceID,
 			InterfaceName:      interfaceName,
@@ -301,7 +308,7 @@ func resolveCascadeInterfaceDescriptor(bindings []models.InterfaceBinding, inter
 	return cleanName, ""
 }
 
-func resolveCascadeMerchantOrderNo(binding *paymentservice.OrderChannelBinding, fallback string) string {
+func resolveCascadeMerchantOrderNoFull(binding *paymentservice.OrderChannelBinding, fallback string) string {
 	candidates := []string{}
 	if binding != nil {
 		candidates = append(candidates,
@@ -319,6 +326,43 @@ func resolveCascadeMerchantOrderNo(binding *paymentservice.OrderChannelBinding, 
 	}
 
 	return strings.TrimSpace(fallback)
+}
+
+func resolveCascadeMerchantOrderNo(merchantID int64, binding *paymentservice.OrderChannelBinding, fallback string) string {
+	candidates := []string{}
+	if binding != nil {
+		candidates = append(candidates,
+			strings.TrimSpace(binding.MerchantOrderNo),
+			strings.TrimSpace(binding.MerchantOrderNoFull),
+		)
+	}
+	candidates = append(candidates, strings.TrimSpace(fallback))
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if normalized := stripCascadeMerchantPrefix(candidate, merchantID); normalized != "" {
+			return normalized
+		}
+		return candidate
+	}
+
+	return strings.TrimSpace(fallback)
+}
+
+func stripCascadeMerchantPrefix(orderNo string, merchantID int64) string {
+	trimmed := strings.TrimSpace(orderNo)
+	if trimmed == "" || merchantID <= 0 {
+		return trimmed
+	}
+
+	prefix := strconv.FormatInt(merchantID, 10)
+	if strings.HasPrefix(trimmed, prefix) && len(trimmed) > len(prefix) {
+		return strings.TrimSpace(trimmed[len(prefix):])
+	}
+
+	return trimmed
 }
 
 func generateOrderCascadeToken() string {
@@ -538,10 +582,7 @@ func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botMo
 		timestamp = time.Now()
 	}
 
-	orderNo := strings.TrimSpace(state.MerchantOrderFull)
-	if orderNo == "" {
-		orderNo = strings.TrimSpace(state.OrderNo)
-	}
+	orderNo := resolveOrderCascadeDisplayOrderNo(state)
 
 	interfaceName := strings.TrimSpace(state.InterfaceName)
 	if interfaceName == "" && strings.TrimSpace(state.InterfaceID) != "" {
@@ -588,11 +629,13 @@ func resolveOrderCascadeDisplayOrderNo(state *orderCascadeState) string {
 		return ""
 	}
 
-	orderNo := strings.TrimSpace(state.MerchantOrderFull)
-	if orderNo == "" {
-		orderNo = strings.TrimSpace(state.OrderNo)
+	if orderNo := strings.TrimSpace(state.MerchantOrderNo); orderNo != "" {
+		return orderNo
 	}
-	return orderNo
+	if orderNo := strings.TrimSpace(state.OrderNo); orderNo != "" {
+		return orderNo
+	}
+	return strings.TrimSpace(state.MerchantOrderFull)
 }
 
 func describeOrderCascadeReplyResult(msg *botModels.Message) string {
