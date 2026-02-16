@@ -25,6 +25,7 @@ var (
 type AccountingServiceImpl struct {
 	accountingRepo repository.AccountingRepository
 	groupRepo      repository.GroupRepository
+	location       *time.Location
 }
 
 // NewAccountingService 创建记账服务
@@ -32,7 +33,16 @@ func NewAccountingService(accountingRepo repository.AccountingRepository, groupR
 	return &AccountingServiceImpl{
 		accountingRepo: accountingRepo,
 		groupRepo:      groupRepo,
+		location:       loadAccountingLocation(),
 	}
+}
+
+func loadAccountingLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
 }
 
 // AddRecord 添加记账记录
@@ -62,7 +72,7 @@ func (s *AccountingServiceImpl) AddRecord(ctx context.Context, chatID, userID in
 		Amount:       amount,
 		Currency:     currency,
 		OriginalExpr: expression,
-		RecordedAt:   time.Now(),
+		RecordedAt:   time.Now().In(s.location),
 	}
 
 	if err := s.accountingRepo.CreateRecord(ctx, record); err != nil {
@@ -119,8 +129,8 @@ func parseCurrency(code string) string {
 
 // QueryRecords 查询并格式化账单
 func (s *AccountingServiceImpl) QueryRecords(ctx context.Context, chatID int64) (string, error) {
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	now := time.Now().In(s.location)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.location)
 	todayEnd := todayStart.Add(24 * time.Hour)
 	yesterdayStart := todayStart.Add(-24 * time.Hour)
 
@@ -199,7 +209,7 @@ func (s *AccountingServiceImpl) formatAccountingReport(
 	if len(usdTodayRecords) > 0 {
 		sb.WriteString("今日明细:\n")
 		for _, r := range usdTodayRecords {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.Format("15:04"), formatAmount(r.Amount)))
+			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.In(s.location).Format("15:04"), formatAmount(r.Amount)))
 		}
 	} else {
 		sb.WriteString("今日明细: 无\n")
@@ -212,7 +222,7 @@ func (s *AccountingServiceImpl) formatAccountingReport(
 	if len(cnyTodayRecords) > 0 {
 		sb.WriteString("今日明细:\n")
 		for _, r := range cnyTodayRecords {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.Format("15:04"), formatAmount(r.Amount)))
+			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.In(s.location).Format("15:04"), formatAmount(r.Amount)))
 		}
 	} else {
 		sb.WriteString("今日明细: 无\n")
