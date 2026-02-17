@@ -250,11 +250,11 @@ func TestFormatChannelRatesMessage(t *testing.T) {
 	if !strings.Contains(message, "📡 通道费率") {
 		t.Fatalf("expected header, got %s", message)
 	}
-	if !strings.Contains(message, "✅") || !strings.Contains(message, "❌") {
-		t.Fatalf("expected status icons, got %s", message)
+	if !strings.Contains(message, "✅") || strings.Contains(message, "❌") {
+		t.Fatalf("expected only enabled status, got %s", message)
 	}
-	if !strings.Contains(message, "cjwxhf") || !strings.Contains(message, "tbsqhf") {
-		t.Fatalf("expected channel codes, got %s", message)
+	if !strings.Contains(message, "cjwxhf") {
+		t.Fatalf("expected enabled channel code, got %s", message)
 	}
 	if !strings.Contains(message, "10%") {
 		t.Fatalf("expected formatted rate, got %s", message)
@@ -262,8 +262,36 @@ func TestFormatChannelRatesMessage(t *testing.T) {
 	if !strings.Contains(message, "</pre>") {
 		t.Fatalf("expected preformatted block, got %s", message)
 	}
+	if strings.Contains(message, "tbsqhf") {
+		t.Fatalf("expected disabled channel to be skipped, got %s", message)
+	}
 	if strings.Contains(message, "wxhftest") {
 		t.Fatalf("expected test channel to be skipped, got %s", message)
+	}
+}
+
+func TestFormatChannelRatesMessage_NoEnabledChannels(t *testing.T) {
+	items := []*paymentservice.ChannelStatus{
+		{
+			ChannelCode:     "tbsqhf",
+			ChannelName:     "淘宝授权话费",
+			SystemEnabled:   true,
+			MerchantEnabled: false,
+			Rate:            "0.09",
+		},
+		{
+			ChannelCode:     "wxhftest",
+			ChannelName:     "微信测试",
+			SystemEnabled:   true,
+			MerchantEnabled: true,
+			Rate:            "0.08",
+		},
+	}
+
+	message := formatChannelRatesMessage(items)
+	expected := "ℹ️ 暂无已开通通道数据"
+	if message != expected {
+		t.Fatalf("expected %q, got %q", expected, message)
 	}
 }
 

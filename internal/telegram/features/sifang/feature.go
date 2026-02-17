@@ -1520,6 +1520,7 @@ func formatChannelRatesMessage(items []*paymentservice.ChannelStatus) string {
 	}
 
 	var sb strings.Builder
+	hasEnabledChannel := false
 	sb.WriteString("📡 通道费率\n")
 	sb.WriteString("<pre>")
 	sb.WriteString("状态  通道代码    费率   通道名称\n")
@@ -1535,10 +1536,10 @@ func formatChannelRatesMessage(items []*paymentservice.ChannelStatus) string {
 			continue
 		}
 
-		status := "❌"
-		if item.SystemEnabled && item.MerchantEnabled {
-			status = "✅"
+		if !item.SystemEnabled || !item.MerchantEnabled {
+			continue
 		}
+		hasEnabledChannel = true
 
 		code := originalCode
 		if code == "" {
@@ -1552,12 +1553,15 @@ func formatChannelRatesMessage(items []*paymentservice.ChannelStatus) string {
 		rate := formatChannelRate(item.Rate)
 
 		line := fmt.Sprintf("%s %-8s %-6s %s\n",
-			status,
+			"✅",
 			html.EscapeString(code),
 			html.EscapeString(rate),
 			html.EscapeString(name),
 		)
 		sb.WriteString(line)
+	}
+	if !hasEnabledChannel {
+		return "ℹ️ 暂无已开通通道数据"
 	}
 
 	output := strings.TrimRight(sb.String(), "\n")
