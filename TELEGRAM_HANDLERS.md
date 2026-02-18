@@ -245,6 +245,7 @@
 - **主要功能**:
   - 确保当前群组存在并启用收支记账功能（GroupService.GetOrCreateGroup）
   - 通过 AccountingService 查询当日收支明细并格式化输出
+  - 统计窗口按北京时间（Asia/Shanghai）切日（00:00 为日界线）
 - **Service**: GroupService, AccountingService
 - **数据库**: 读取 `groups.settings.accounting_enabled`、`accounting_records`
 

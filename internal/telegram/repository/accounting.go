@@ -13,6 +13,16 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var accountingLocation = loadAccountingLocation()
+
+func loadAccountingLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}
+
 // MongoAccountingRepository 收支记账数据访问层（MongoDB 实现）
 type MongoAccountingRepository struct {
 	collection *mongo.Collection
@@ -27,7 +37,7 @@ func NewMongoAccountingRepository(db *mongo.Database) AccountingRepository {
 
 // CreateRecord 创建记账记录
 func (r *MongoAccountingRepository) CreateRecord(ctx context.Context, record *models.AccountingRecord) error {
-	now := time.Now()
+	now := time.Now().In(accountingLocation)
 	record.CreatedAt = now
 
 	// 如果没有设置记录时间，使用当前时间
@@ -77,7 +87,7 @@ func (r *MongoAccountingRepository) GetRecordsByDateRange(ctx context.Context, c
 
 // GetRecentRecords 获取最近N天的记录（用于删除界面）
 func (r *MongoAccountingRepository) GetRecentRecords(ctx context.Context, chatID int64, days int) ([]*models.AccountingRecord, error) {
-	startTime := time.Now().AddDate(0, 0, -days)
+	startTime := time.Now().In(accountingLocation).AddDate(0, 0, -days)
 
 	filter := bson.M{
 		"chat_id": chatID,
