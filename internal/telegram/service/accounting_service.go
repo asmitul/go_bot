@@ -59,6 +59,9 @@ func (s *AccountingServiceImpl) AddRecord(ctx context.Context, chatID, userID in
 		logger.L().Errorf("Failed to calculate expression %s: %v", expression, err)
 		return fmt.Errorf("计算失败: %v", err)
 	}
+	if amount <= 0 {
+		return fmt.Errorf("金额必须大于0")
+	}
 
 	// 如果是支出，金额为负数
 	if !isIncome {
@@ -259,12 +262,12 @@ func (s *AccountingServiceImpl) GetRecentRecordsForDeletion(ctx context.Context,
 }
 
 // DeleteRecord 删除记录
-func (s *AccountingServiceImpl) DeleteRecord(ctx context.Context, recordID string) error {
-	if err := s.accountingRepo.DeleteRecord(ctx, recordID); err != nil {
-		logger.L().Errorf("Failed to delete record %s: %v", recordID, err)
+func (s *AccountingServiceImpl) DeleteRecord(ctx context.Context, chatID int64, recordID string) error {
+	if err := s.accountingRepo.DeleteRecord(ctx, chatID, recordID); err != nil {
+		logger.L().Errorf("Failed to delete record %s for chat %d: %v", recordID, chatID, err)
 		return fmt.Errorf("删除失败")
 	}
-	logger.L().Infof("Accounting record %s deleted", recordID)
+	logger.L().Infof("Accounting record %s deleted for chat %d", recordID, chatID)
 	return nil
 }
 

@@ -114,13 +114,16 @@ func (r *MongoAccountingRepository) GetRecentRecords(ctx context.Context, chatID
 }
 
 // DeleteRecord 删除单条记录
-func (r *MongoAccountingRepository) DeleteRecord(ctx context.Context, recordID string) error {
+func (r *MongoAccountingRepository) DeleteRecord(ctx context.Context, chatID int64, recordID string) error {
 	objID, err := primitive.ObjectIDFromHex(recordID)
 	if err != nil {
 		return fmt.Errorf("invalid record ID: %w", err)
 	}
 
-	filter := bson.M{"_id": objID}
+	filter := bson.M{
+		"_id":     objID,
+		"chat_id": chatID,
+	}
 	result, err := r.collection.DeleteOne(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("failed to delete accounting record: %w", err)

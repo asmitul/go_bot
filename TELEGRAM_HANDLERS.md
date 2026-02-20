@@ -350,10 +350,12 @@
 ### 2.3 AccountingDeleteCallback - 删除记账记录
 
 - **文件位置**: `internal/telegram/handlers.go:933`
-- **权限**: Admin+（间接依赖前置命令）
+- **权限**: Admin+（回调处理器内显式校验 `CheckAdminPermission`）
 - **触发**: `acc_del:<record_id>`
 - **主要功能**:
+  - 校验 callback 消息可访问，避免无效回调导致空指针
   - 调用 AccountingService.DeleteRecord 删除对应记录
+  - 删除条件同时要求 `record_id` 与当前 `chat_id`，防止跨群误删
   - 使用 AnswerCallbackQuery 返回结果
   - 删除成功后自动发送最新账单
 - **Service**: AccountingService

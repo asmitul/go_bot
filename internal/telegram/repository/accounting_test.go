@@ -264,7 +264,7 @@ func TestMongoAccountingRepositoryDeleteRecord(t *testing.T) {
 	mt.Run("invalid object id", func(mt *mtest.T) {
 		repo := &MongoAccountingRepository{collection: mt.Coll}
 
-		err := repo.DeleteRecord(context.Background(), "not-hex")
+		err := repo.DeleteRecord(context.Background(), -5001, "not-hex")
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}
@@ -280,7 +280,7 @@ func TestMongoAccountingRepositoryDeleteRecord(t *testing.T) {
 		))
 
 		id := primitive.NewObjectID().Hex()
-		if err := repo.DeleteRecord(context.Background(), id); err != nil {
+		if err := repo.DeleteRecord(context.Background(), -5002, id); err != nil {
 			t.Fatalf("DeleteRecord failed: %v", err)
 		}
 	})
@@ -292,7 +292,7 @@ func TestMongoAccountingRepositoryDeleteRecord(t *testing.T) {
 		))
 
 		id := primitive.NewObjectID().Hex()
-		err := repo.DeleteRecord(context.Background(), id)
+		err := repo.DeleteRecord(context.Background(), -5003, id)
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}
@@ -310,7 +310,7 @@ func TestMongoAccountingRepositoryDeleteRecord(t *testing.T) {
 		}))
 
 		id := primitive.NewObjectID().Hex()
-		err := repo.DeleteRecord(context.Background(), id)
+		err := repo.DeleteRecord(context.Background(), -5004, id)
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}

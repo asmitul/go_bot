@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,14 @@ type accountingRangeCall struct {
 type stubAccountingRepository struct {
 	created        *models.AccountingRecord
 	dateRangeCalls []accountingRangeCall
+	recentRecords  []*models.AccountingRecord
+	recentErr      error
+	deleteChatID   int64
+	deleteRecordID string
+	deleteErr      error
+	deleteAllChat  int64
+	deleteAllCount int64
+	deleteAllErr   error
 }
 
 func (s *stubAccountingRepository) CreateRecord(ctx context.Context, record *models.AccountingRecord) error {
@@ -52,15 +61,24 @@ func (s *stubAccountingRepository) GetRecordsByDateRange(
 }
 
 func (s *stubAccountingRepository) GetRecentRecords(ctx context.Context, chatID int64, days int) ([]*models.AccountingRecord, error) {
-	return nil, nil
+	if s.recentErr != nil {
+		return nil, s.recentErr
+	}
+	return s.recentRecords, nil
 }
 
-func (s *stubAccountingRepository) DeleteRecord(ctx context.Context, recordID string) error {
-	return nil
+func (s *stubAccountingRepository) DeleteRecord(ctx context.Context, chatID int64, recordID string) error {
+	s.deleteChatID = chatID
+	s.deleteRecordID = recordID
+	return s.deleteErr
 }
 
 func (s *stubAccountingRepository) DeleteAllByChatID(ctx context.Context, chatID int64) (int64, error) {
-	return 0, nil
+	s.deleteAllChat = chatID
+	if s.deleteAllErr != nil {
+		return 0, s.deleteAllErr
+	}
+	return s.deleteAllCount, nil
 }
 
 func (s *stubAccountingRepository) EnsureIndexes(ctx context.Context) error {
@@ -143,5 +161,92 @@ func TestAccountingServiceAddRecordUsesBeijingTime(t *testing.T) {
 	_, offset := repo.created.RecordedAt.Zone()
 	if offset != 8*3600 {
 		t.Fatalf("expected recorded_at in UTC+8, got offset=%d", offset)
+	}
+}
+
+func TestAccountingServiceAddRecordRejectsNonPositiveAmount(t *testing.T) {
+	repo := &stubAccountingRepository{}
+	loc := time.FixedZone("CST", 8*3600)
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       loc,
+	}
+
+	if err := svc.AddRecord(context.Background(), -10004, 9002, "出1-2Y"); err == nil {
+		t.Fatalf("expected error for negative expression result, got nil")
+	}
+
+	if repo.created != nil {
+		t.Fatal("record should not be created when amount is non-positive")
+	}
+}
+
+func TestAccountingServiceDeleteRecordPassesChatID(t *testing.T) {
+	repo := &stubAccountingRepository{}
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       time.FixedZone("CST", 8*3600),
+	}
+
+	if err := svc.DeleteRecord(context.Background(), -20001, "abc123"); err != nil {
+		t.Fatalf("DeleteRecord failed: %v", err)
+	}
+
+	if repo.deleteChatID != -20001 {
+		t.Fatalf("unexpected chat id: got %d want %d", repo.deleteChatID, -20001)
+	}
+	if repo.deleteRecordID != "abc123" {
+		t.Fatalf("unexpected record id: got %q want %q", repo.deleteRecordID, "abc123")
+	}
+}
+
+func TestAccountingServiceDeleteRecordReturnsError(t *testing.T) {
+	repo := &stubAccountingRepository{deleteErr: errors.New("delete failed")}
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       time.FixedZone("CST", 8*3600),
+	}
+
+	if err := svc.DeleteRecord(context.Background(), -20002, "abc456"); err == nil {
+		t.Fatal("expected error but got nil")
+	}
+}
+
+func TestAccountingServiceClearAllRecordsPassesChatID(t *testing.T) {
+	repo := &stubAccountingRepository{deleteAllCount: 7}
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       time.FixedZone("CST", 8*3600),
+	}
+
+	deleted, err := svc.ClearAllRecords(context.Background(), -30001)
+	if err != nil {
+		t.Fatalf("ClearAllRecords failed: %v", err)
+	}
+	if deleted != 7 {
+		t.Fatalf("unexpected deleted count: got %d want %d", deleted, 7)
+	}
+	if repo.deleteAllChat != -30001 {
+		t.Fatalf("unexpected chat id: got %d want %d", repo.deleteAllChat, -30001)
+	}
+}
+
+func TestAccountingServiceGetRecentRecordsForDeletion(t *testing.T) {
+	repo := &stubAccountingRepository{
+		recentRecords: []*models.AccountingRecord{
+			{ChatID: -40001, Amount: 10},
+		},
+	}
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       time.FixedZone("CST", 8*3600),
+	}
+
+	records, err := svc.GetRecentRecordsForDeletion(context.Background(), -40001)
+	if err != nil {
+		t.Fatalf("GetRecentRecordsForDeletion failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("unexpected records count: got %d want %d", len(records), 1)
 	}
 }

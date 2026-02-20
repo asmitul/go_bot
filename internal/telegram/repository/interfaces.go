@@ -118,7 +118,7 @@ type AccountingRepository interface {
 	GetRecentRecords(ctx context.Context, chatID int64, days int) ([]*models.AccountingRecord, error)
 
 	// DeleteRecord 删除单条记录
-	DeleteRecord(ctx context.Context, recordID string) error
+	DeleteRecord(ctx context.Context, chatID int64, recordID string) error
 
 	// DeleteAllByChatID 清空群组所有记录
 	DeleteAllByChatID(ctx context.Context, chatID int64) (int64, error)

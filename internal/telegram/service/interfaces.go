@@ -163,7 +163,7 @@ type AccountingService interface {
 	GetRecentRecordsForDeletion(ctx context.Context, chatID int64) ([]*models.AccountingRecord, error)
 
 	// DeleteRecord 删除记录
-	DeleteRecord(ctx context.Context, recordID string) error
+	DeleteRecord(ctx context.Context, chatID int64, recordID string) error
 
 	// ClearAllRecords 清空所有记录
 	ClearAllRecords(ctx context.Context, chatID int64) (int64, error)

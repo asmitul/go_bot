@@ -1506,8 +1506,24 @@ func (b *Bot) handleAccountingDeleteCallback(ctx context.Context, botInstance *b
 	}
 
 	query := update.CallbackQuery
+	if query.Message.Message == nil {
+		b.answerCallback(ctx, botInstance, query.ID, "无法识别来源消息，删除失败", true)
+		return
+	}
+
 	chatID := query.Message.Message.Chat.ID
 	data := query.Data
+
+	isAdmin, err := b.userService.CheckAdminPermission(ctx, query.From.ID)
+	if err != nil {
+		logger.L().Errorf("Failed to check admin permission for accounting delete callback: user_id=%d, err=%v", query.From.ID, err)
+		b.answerCallback(ctx, botInstance, query.ID, "权限校验失败，请稍后再试", true)
+		return
+	}
+	if !isAdmin {
+		b.answerCallback(ctx, botInstance, query.ID, "此操作需要管理员权限", true)
+		return
+	}
 
 	// 解析 callback data: acc_del:<record_id>
 	if !strings.HasPrefix(data, "acc_del:") {
@@ -1515,9 +1531,13 @@ func (b *Bot) handleAccountingDeleteCallback(ctx context.Context, botInstance *b
 	}
 
 	recordID := strings.TrimPrefix(data, "acc_del:")
+	if strings.TrimSpace(recordID) == "" {
+		b.answerCallback(ctx, botInstance, query.ID, "无效的删除请求", true)
+		return
+	}
 
 	// 删除记录
-	if err := b.accountingService.DeleteRecord(ctx, recordID); err != nil {
+	if err := b.accountingService.DeleteRecord(ctx, chatID, recordID); err != nil {
 		// 回答 callback query
 		if _, err := botInstance.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: query.ID,
