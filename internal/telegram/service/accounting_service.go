@@ -135,15 +135,14 @@ func (s *AccountingServiceImpl) QueryRecords(ctx context.Context, chatID int64) 
 	now := time.Now().In(s.location)
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.location)
 	todayEnd := todayStart.Add(24 * time.Hour)
-	yesterdayStart := todayStart.Add(-24 * time.Hour)
 
-	// 查询昨日结余（历史累计）
-	usdYesterdayBalance, err := s.calculateBalance(ctx, chatID, time.Time{}, yesterdayStart, models.CurrencyUSD)
+	// 查询昨日结余（截至今日 00:00 的历史累计）
+	usdYesterdayBalance, err := s.calculateBalance(ctx, chatID, time.Time{}, todayStart, models.CurrencyUSD)
 	if err != nil {
 		return "", err
 	}
 
-	cnyYesterdayBalance, err := s.calculateBalance(ctx, chatID, time.Time{}, yesterdayStart, models.CurrencyCNY)
+	cnyYesterdayBalance, err := s.calculateBalance(ctx, chatID, time.Time{}, todayStart, models.CurrencyCNY)
 	if err != nil {
 		return "", err
 	}

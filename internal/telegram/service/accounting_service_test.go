@@ -146,6 +146,54 @@ func TestAccountingServiceQueryRecordsUsesBeijingDayWindow(t *testing.T) {
 	}
 }
 
+func TestAccountingServiceQueryRecordsUsesTodayStartForYesterdayBalance(t *testing.T) {
+	repo := &stubAccountingRepository{}
+	loc := time.FixedZone("CST", 8*3600)
+	svc := &AccountingServiceImpl{
+		accountingRepo: repo,
+		location:       loc,
+	}
+
+	_, err := svc.QueryRecords(context.Background(), -10022)
+	if err != nil {
+		t.Fatalf("QueryRecords failed: %v", err)
+	}
+
+	todayStarts := make(map[string]time.Time)
+	yesterdayBalanceEnds := make(map[string]time.Time)
+
+	for _, call := range repo.dateRangeCalls {
+		if call.start.IsZero() {
+			yesterdayBalanceEnds[call.currency] = call.end
+			continue
+		}
+		if call.end.Sub(call.start) == 24*time.Hour {
+			todayStarts[call.currency] = call.start
+		}
+	}
+
+	for _, currency := range []string{models.CurrencyUSD, models.CurrencyCNY} {
+		todayStart, ok := todayStarts[currency]
+		if !ok {
+			t.Fatalf("missing today range call for currency %s", currency)
+		}
+
+		yesterdayBalanceEnd, ok := yesterdayBalanceEnds[currency]
+		if !ok {
+			t.Fatalf("missing yesterday balance range call for currency %s", currency)
+		}
+
+		if !yesterdayBalanceEnd.Equal(todayStart) {
+			t.Fatalf(
+				"expected yesterday balance end to equal today start for %s, got end=%s start=%s",
+				currency,
+				yesterdayBalanceEnd.Format(time.RFC3339),
+				todayStart.Format(time.RFC3339),
+			)
+		}
+	}
+}
+
 func TestAccountingServiceAddRecordUsesBeijingTime(t *testing.T) {
 	repo := &stubAccountingRepository{}
 	loc := time.FixedZone("CST", 8*3600)
