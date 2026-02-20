@@ -13,6 +13,7 @@ import (
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
+	"go_bot/internal/version"
 
 	"github.com/go-telegram/bot"
 	botModels "github.com/go-telegram/bot/models"
@@ -25,6 +26,8 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.handleStart))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/ping", bot.MatchTypeExact,
 		b.asyncHandler(b.handlePing))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/version", bot.MatchTypeExact,
+		b.asyncHandler(b.handleVersion))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireAdmin(b.handleHelp)))
 
@@ -186,7 +189,7 @@ func (b *Bot) handleStart(ctx context.Context, botInstance *bot.Bot, update *bot
 	}
 
 	welcomeText := fmt.Sprintf(
-		"👋 你好, %s!\n\n欢迎使用本 Bot。\n\n可用命令:\n/start - 开始\n/ping - 测试连接\n/admins - 查看管理员列表（需要管理员权限）",
+		"👋 你好, %s!\n\n欢迎使用本 Bot。\n\n可用命令:\n/start - 开始\n/ping - 测试连接\n/version - 查看版本\n/admins - 查看管理员列表（需要管理员权限）",
 		update.Message.From.FirstName,
 	)
 
@@ -208,6 +211,21 @@ func (b *Bot) handlePing(ctx context.Context, botInstance *bot.Bot, update *botM
 	b.sendMessage(ctx, update.Message.Chat.ID, message)
 }
 
+// handleVersion 处理 /version 命令
+func (b *Bot) handleVersion(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	message := fmt.Sprintf(
+		"🏷 版本: %s\n🔖 Commit: %s\n🕒 构建时间: %s",
+		version.Version,
+		version.GitCommit,
+		version.BuildTime,
+	)
+	b.sendMessage(ctx, update.Message.Chat.ID, message)
+}
+
 // handleHelp 处理 /help 命令（仅 Admin+）
 func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
 	if update.Message == nil {
@@ -219,7 +237,8 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 
 	text.WriteString("<b>通用命令（所有成员）</b>\n")
 	text.WriteString("/start - 与机器人建立会话并登记用户信息\n")
-	text.WriteString("/ping - 测试机器人连接状态\n\n")
+	text.WriteString("/ping - 测试机器人连接状态\n")
+	text.WriteString("/version - 查看当前版本信息\n\n")
 
 	text.WriteString("<b>管理员命令（Admin+）</b>\n")
 	text.WriteString("/help - 查看本帮助\n")

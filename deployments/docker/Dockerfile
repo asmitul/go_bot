@@ -6,6 +6,11 @@ RUN apk add --no-cache git make
 
 WORKDIR /app
 
+# 构建元信息（由外部注入）
+ARG APP_VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
+
 # 复制依赖文件
 COPY go.mod go.sum ./
 RUN go mod download
@@ -15,12 +20,22 @@ COPY . .
 
 # 构建应用
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s" \
+    -ldflags="-w -s \
+    -X go_bot/internal/version.Version=${APP_VERSION} \
+    -X go_bot/internal/version.GitCommit=${GIT_COMMIT} \
+    -X go_bot/internal/version.BuildTime=${BUILD_TIME}" \
     -o /app/bin/bot \
     ./cmd/bot
 
 # 运行阶段
 FROM alpine:latest
+
+ARG APP_VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
 
 # 安装 ca-certificates（HTTPS 需要）
 RUN apk --no-cache add ca-certificates tzdata

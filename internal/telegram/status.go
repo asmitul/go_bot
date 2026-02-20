@@ -7,13 +7,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"go_bot/internal/version"
 )
 
 const defaultNetworkProbeURL = "https://api.telegram.org"
 
 // buildPingMessage 构建 /ping 命令的响应文本
 func (b *Bot) buildPingMessage(ctx context.Context) string {
-	lines := []string{"🏓 Pong!"}
+	lines := []string{"🏓 Pong!", fmt.Sprintf("🏷 版本: %s", version.Version)}
 
 	if !b.startTime.IsZero() {
 		uptime := time.Since(b.startTime)

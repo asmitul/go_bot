@@ -33,6 +33,12 @@ jobs:
       - name: Checkout code  # ✅ 拉取当前仓库代码
         uses: actions/checkout@v4
 
+      - name: Prepare build metadata
+        id: build_meta
+        run: |
+          echo "app_version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx  # ✅ 启用 Buildx，用于构建多平台 Docker 镜像
         uses: docker/setup-buildx-action@v3
 
@@ -63,6 +69,10 @@ jobs:
           push: true  # ✅ 构建完成后推送镜像
           tags: ${{ steps.meta.outputs.tags }}  # ✅ 应用自动生成的 tags
           labels: ${{ steps.meta.outputs.labels }}  # ✅ 应用镜像标签
+          build-args: |
+            APP_VERSION=${{ steps.build_meta.outputs.app_version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
           cache-from: type=gha  # ✅ 使用 GitHub Actions 缓存加速构建
           cache-to: type=gha,mode=max  # ✅ 保存缓存供下次构建复用
 

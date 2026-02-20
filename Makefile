@@ -1,9 +1,17 @@
-.PHONY: local-up local-down local-logs local-restart local-clean local-mongo test-ttl help
+.PHONY: local-up local-down local-logs local-restart local-clean local-mongo local-build build test-ttl version bump-major bump-minor bump-patch help
 .DEFAULT_GOAL := help
 
 COMPOSE_FILE := docker-compose.local.yml
 DOCKER_COMPOSE := $(if $(shell command -v docker-compose >/dev/null 2>&1 && echo yes),docker-compose,docker compose)
 COMPOSE := $(DOCKER_COMPOSE) -f $(COMPOSE_FILE)
+VERSION_FILE := VERSION
+VERSION := $(strip $(shell cat $(VERSION_FILE) 2>/dev/null || echo dev))
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS := -w -s \
+	-X go_bot/internal/version.Version=$(VERSION) \
+	-X go_bot/internal/version.GitCommit=$(GIT_COMMIT) \
+	-X go_bot/internal/version.BuildTime=$(BUILD_TIME)
 
 # 默认目标：显示帮助信息
 help:
@@ -13,7 +21,13 @@ help:
 	@echo "  make <command>"
 	@echo ""
 	@echo "可用命令:"
+	@echo "  version        查看当前版本号"
+	@echo "  bump-patch     升级补丁版本 (x.y.z -> x.y.z+1)"
+	@echo "  bump-minor     升级次版本 (x.y.z -> x.y+1.0)"
+	@echo "  bump-major     升级主版本 (x.y.z -> x+1.0.0)"
+	@echo "  build          构建带版本信息的二进制 (bin/bot)"
 	@echo "  local-up       启动本地测试环境（MongoDB + Bot）"
+	@echo "  local-build    仅重建本地 bot 镜像（带版本信息）"
 	@echo "  local-down     停止本地测试环境"
 	@echo "  local-logs     查看 Bot 实时日志"
 	@echo "  local-restart  重启 Bot（保留数据库）"
@@ -26,6 +40,27 @@ help:
 	@echo "  2. 编辑 .env.local 填入 Bot Token 和 Owner ID"
 	@echo "  3. make local-up"
 
+# 查看版本
+version:
+	@echo "$(VERSION)"
+
+# 升级版本号
+bump-major:
+	@./scripts/bump_version.sh major $(VERSION_FILE)
+
+bump-minor:
+	@./scripts/bump_version.sh minor $(VERSION_FILE)
+
+bump-patch:
+	@./scripts/bump_version.sh patch $(VERSION_FILE)
+
+# 构建二进制（包含版本、commit、构建时间）
+build:
+	@echo "🔨 构建 bot 二进制..."
+	@mkdir -p bin
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/bot ./cmd/bot
+	@echo "✅ 构建完成: bin/bot (version=$(VERSION), commit=$(GIT_COMMIT))"
+
 # 启动本地测试环境
 local-up:
 	@echo "🚀 启动本地测试环境..."
@@ -35,9 +70,17 @@ local-up:
 		echo "然后编辑 .env.local 填入你的配置"; \
 		exit 1; \
 	fi
+	APP_VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) \
 	$(COMPOSE) --env-file .env.local up -d
 	@echo "✅ 环境已启动！"
 	@echo "📝 查看日志: make local-logs"
+
+# 重建本地 bot 镜像（带版本信息）
+local-build:
+	@echo "🔨 重建本地 bot 镜像..."
+	APP_VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) \
+	$(COMPOSE) --env-file .env.local build bot
+	@echo "✅ 镜像重建完成 (version=$(VERSION), commit=$(GIT_COMMIT))"
 
 # 停止本地测试环境
 local-down:

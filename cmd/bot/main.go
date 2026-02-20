@@ -10,6 +10,7 @@ import (
 	"go_bot/internal/app"
 	"go_bot/internal/config"
 	"go_bot/internal/logger"
+	"go_bot/internal/version"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger.L().Info("Application started successfully")
+	logger.L().Infof("Application started successfully: %s", version.Full())
 
 	// 使用数据库
 	db := application.MongoDB.Database()

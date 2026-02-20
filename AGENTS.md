@@ -23,6 +23,11 @@ Welcome to the `go_bot` repository. This document captures the house rules that 
 - Run `go test ./... -cover` before every commit. When focused on Telegram features, `go test ./internal/telegram/...` is a quick subset.
 - Keep coverage steady or increasing; call out any gaps in your PR if something cannot be reasonably tested.
 
+## Versioning Rules
+- The canonical app version lives in the root `VERSION` file and must follow SemVer (`major.minor.patch`).
+- Every commit + push that changes behavior must include an explicit version action: bump `VERSION` via `make bump-patch`, `make bump-minor`, or `make bump-major`.
+- Build outputs must inject version metadata using ldflags (`Version`, `GitCommit`, `BuildTime`), and runtime logs/commands should expose it.
+
 ## Git & PR Etiquette
 - Use Conventional Commit prefixes (`feat:`, `fix:`, `chore:`, `docs:`). Squash trivial fixups locally so every commit is green.
 - PR descriptions must include: a concise summary, context/issue link if applicable, explicit test command output (e.g., `go test ./...` or `make local-up` smoke check), and screenshots/log excerpts when altering bot interactions or UX.

@@ -17,6 +17,18 @@ cd go_bot
 
 ---
 
+## 🏷️ 版本管理
+
+- 项目版本统一维护在根目录 `VERSION`（SemVer：`major.minor.patch`）。
+- 提交代码前请根据变更级别执行版本升级：
+  - 补丁变更：`make bump-patch`
+  - 功能新增：`make bump-minor`
+  - 破坏性变更：`make bump-major`
+- 查看当前版本：`make version`
+- 构建时会自动注入版本元信息（版本号、commit、构建时间），可通过 `/version` 或 `/ping` 查看运行中的版本。
+
+---
+
 ## 🔐 2. 配置 GitHub Actions Secrets
 
 在项目的 **GitHub 仓库** 中，依次进入：
@@ -156,6 +168,7 @@ cd go_bot
 |------|----------|----------|
 | `/start` | 所有用户 | 欢迎消息，自动注册用户到数据库 |
 | `/ping` | 所有用户 | 测试 Bot 连接状态 |
+| `/version` | 所有用户 | 查看当前运行版本、commit 和构建时间 |
 | `/grant <user_id>` | Owner | 授予指定用户管理员权限 |
 | `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
 | `/admins` | Admin+ | 查看所有管理员列表 |

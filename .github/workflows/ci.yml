@@ -111,6 +111,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare build metadata
+        id: build_meta
+        run: |
+          echo "app_version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -118,7 +124,9 @@ jobs:
 
       - name: Build binary
         run: |
-          go build -v -o bin/bot ./cmd/bot
+          go build -v \
+            -ldflags "-w -s -X go_bot/internal/version.Version=${{ steps.build_meta.outputs.app_version }} -X go_bot/internal/version.GitCommit=${{ github.sha }} -X go_bot/internal/version.BuildTime=${{ steps.build_meta.outputs.build_time }}" \
+            -o bin/bot ./cmd/bot
 
   docker-build:
     name: Docker构建测试
@@ -127,6 +135,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Prepare build metadata
+        id: build_meta
+        run: |
+          echo "app_version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -138,6 +152,10 @@ jobs:
           file: ./deployments/docker/Dockerfile
           push: false  # ✅ 只构建不推送
           tags: telegram-bot:test
+          build-args: |
+            APP_VERSION=${{ steps.build_meta.outputs.app_version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
