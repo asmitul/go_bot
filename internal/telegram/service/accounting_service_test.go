@@ -105,6 +105,10 @@ func TestAccountingServiceQueryRecordsFormatsRecordTimeInBeijing(t *testing.T) {
 	if strings.Contains(report, "05:29 +100") {
 		t.Fatalf("expected report not to show UTC time, got:\n%s", report)
 	}
+
+	if !strings.Contains(report, "<blockquote>13:29 +100</blockquote>") {
+		t.Fatalf("expected report to render daily details in blockquote, got:\n%s", report)
+	}
 }
 
 func TestAccountingServiceQueryRecordsUsesBeijingDayWindow(t *testing.T) {

@@ -211,9 +211,8 @@ func (s *AccountingServiceImpl) formatAccountingReport(
 	sb.WriteString(fmt.Sprintf("昨日结余: %s\n", formatAmount(usdYesterdayBalance)))
 	if len(usdTodayRecords) > 0 {
 		sb.WriteString("今日明细:\n")
-		for _, r := range usdTodayRecords {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.In(s.location).Format("15:04"), formatAmount(r.Amount)))
-		}
+		sb.WriteString(s.formatTodayDetailsBlockquote(usdTodayRecords))
+		sb.WriteString("\n")
 	} else {
 		sb.WriteString("今日明细: 无\n")
 	}
@@ -224,15 +223,25 @@ func (s *AccountingServiceImpl) formatAccountingReport(
 	sb.WriteString(fmt.Sprintf("昨日结余: %s\n", formatAmount(cnyYesterdayBalance)))
 	if len(cnyTodayRecords) > 0 {
 		sb.WriteString("今日明细:\n")
-		for _, r := range cnyTodayRecords {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", r.RecordedAt.In(s.location).Format("15:04"), formatAmount(r.Amount)))
-		}
+		sb.WriteString(s.formatTodayDetailsBlockquote(cnyTodayRecords))
+		sb.WriteString("\n")
 	} else {
 		sb.WriteString("今日明细: 无\n")
 	}
 	sb.WriteString(fmt.Sprintf("总余额: <b>%s</b>\n", formatAmount(cnyBalance)))
 
 	return sb.String()
+}
+
+func (s *AccountingServiceImpl) formatTodayDetailsBlockquote(records []*models.AccountingRecord) string {
+	var sb strings.Builder
+
+	sb.WriteString("<blockquote>")
+	for _, r := range records {
+		sb.WriteString(fmt.Sprintf("%s %s\n", r.RecordedAt.In(s.location).Format("15:04"), formatAmount(r.Amount)))
+	}
+
+	return strings.TrimRight(sb.String(), "\n") + "</blockquote>"
 }
 
 // formatAmount 格式化金额（整数去掉.0，正数显示+号）
