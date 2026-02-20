@@ -36,7 +36,7 @@ var (
 )
 
 const (
-	SendMoneyConfirmTTL     = 3 * time.Minute
+	SendMoneyConfirmTTL     = 24 * time.Hour
 	SendMoneyCallbackPrefix = "sifang:sendmoney:"
 	sendMoneyActionConfirm  = "confirm"
 	sendMoneyActionCancel   = "cancel"
