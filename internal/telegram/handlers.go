@@ -218,9 +218,8 @@ func (b *Bot) handleVersion(ctx context.Context, botInstance *bot.Bot, update *b
 	}
 
 	message := fmt.Sprintf(
-		"🏷 版本: %s\n🔖 Commit: %s\n🕒 构建时间: %s",
+		"🏷 版本: %s\n🕒 构建时间: %s",
 		version.Version,
-		version.GitCommit,
 		version.BuildTime,
 	)
 	b.sendMessage(ctx, update.Message.Chat.ID, message)
