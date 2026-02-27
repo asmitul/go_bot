@@ -180,7 +180,8 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 
 	telegramBot.initUpstreamBalanceMonitor()
 	telegramBot.initDailySummaryScheduler(cfg.DailyBillPushEnabled)
-	telegramBot.initUpstreamSettlementScheduler(cfg.DailyBillPushEnabled)
+	// Temporary disable auto upstream settlement scheduler, keep manual /日结 available.
+	telegramBot.initUpstreamSettlementScheduler(false)
 
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
