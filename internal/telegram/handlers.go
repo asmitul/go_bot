@@ -935,16 +935,42 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 		return
 	}
 
+	followupReplyTo := 0
+	if msg := query.Message.Message; msg != nil {
+		followupReplyTo = msg.ID
+	}
+
 	if result != nil && result.ShouldEdit {
 		if msg := query.Message.Message; msg != nil {
-			b.editMessage(ctx, msg.Chat.ID, msg.ID, result.Text, result.Markup)
+			if shouldKeepSifangQuoteMessage(action) {
+				if _, markupErr := botInstance.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+					ChatID:    msg.Chat.ID,
+					MessageID: msg.ID,
+				}); markupErr != nil {
+					logger.L().Errorf("clear sifang send money keyboard failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, markupErr)
+				}
+				if text := strings.TrimSpace(result.Text); text != "" {
+					notifyMsg, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, text, nil, msg.ID)
+					if sendErr != nil {
+						logger.L().Errorf("send sifang send money result failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, sendErr)
+					} else if notifyMsg != nil {
+						followupReplyTo = notifyMsg.ID
+					}
+				}
+			} else {
+				b.editMessage(ctx, msg.Chat.ID, msg.ID, result.Text, result.Markup)
+			}
 		}
 	}
 
 	if result != nil {
 		if followup := strings.TrimSpace(result.FollowupText); followup != "" {
 			if msg := query.Message.Message; msg != nil {
-				if _, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, followup, nil, msg.ID); sendErr != nil {
+				replyTo := msg.ID
+				if followupReplyTo > 0 {
+					replyTo = followupReplyTo
+				}
+				if _, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, followup, nil, replyTo); sendErr != nil {
 					logger.L().Errorf("send sifang send money followup failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, sendErr)
 				}
 			}
@@ -953,6 +979,10 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 	} else {
 		b.answerCallback(ctx, botInstance, query.ID, "", false)
 	}
+}
+
+func shouldKeepSifangQuoteMessage(action string) bool {
+	return action == "confirm" || action == "cancel"
 }
 
 func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
