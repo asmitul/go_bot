@@ -640,6 +640,86 @@ func TestHandleSendMoneyCreatesPendingFromQuoteCommand(t *testing.T) {
 	}
 }
 
+func TestHandleSendMoneyQuoteCommandZ0Cancel(t *testing.T) {
+	ctx := context.Background()
+	fakeSvc := &fakePaymentService{}
+	stubUser := &stubUserService{isAdmin: true}
+	feature := New(fakeSvc, stubUser)
+
+	originalFetch := fetchC2COrders
+	fetchC2COrders = func(ctx context.Context, paymentMethod string) ([]cryptofeature.C2COrder, error) {
+		if paymentMethod != "aliPay" {
+			t.Fatalf("unexpected payment method: %s", paymentMethod)
+		}
+		return []cryptofeature.C2COrder{
+			{Price: "7.10", NickName: "M1"},
+			{Price: "7.20", NickName: "M2"},
+			{Price: "7.30", NickName: "M3"},
+		}, nil
+	}
+	t.Cleanup(func() {
+		fetchC2COrders = originalFetch
+	})
+
+	msg := &botModels.Message{
+		Chat: botModels.Chat{ID: -1, Type: "group"},
+		From: &botModels.User{ID: 123},
+		Text: "下发 z0 100",
+	}
+
+	resp, handled, err := feature.handleSendMoney(ctx, msg, 2023100, 0.12, msg.Text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handled {
+		t.Fatalf("expected handled true")
+	}
+	if resp == nil || resp.ReplyMarkup == nil {
+		t.Fatalf("expected inline keyboard response")
+	}
+	if !strings.Contains(resp.Text, "是否确认下发 742 元 | 2023100") {
+		t.Fatalf("unexpected confirmation text: %s", resp.Text)
+	}
+
+	token := ""
+	for data := range feature.pending {
+		token = data
+		break
+	}
+	if token == "" {
+		t.Fatalf("expected pending token stored")
+	}
+	if pending := feature.pending[token]; pending == nil || pending.amount != 742 {
+		t.Fatalf("expected pending amount 742, got %#v", pending)
+	}
+
+	query := &botModels.CallbackQuery{
+		From:    botModels.User{ID: 123},
+		Message: botModels.MaybeInaccessibleMessage{Message: &botModels.Message{Chat: botModels.Chat{ID: -1}, ID: 88}},
+	}
+
+	result, err := feature.HandleSendMoneyCallback(ctx, query, sendMoneyActionCancel, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.ShouldEdit {
+		t.Fatalf("expected edit result for cancel")
+	}
+	expected := sendMoneyCancelText
+	if result.Text != expected {
+		t.Fatalf("unexpected cancel text: %s", result.Text)
+	}
+	if result.Answer != "已取消" {
+		t.Fatalf("expected cancel answer, got %s", result.Answer)
+	}
+	if _, ok := feature.pending[token]; ok {
+		t.Fatalf("expected pending cleared")
+	}
+	if fakeSvc.lastSendAmount != 0 {
+		t.Fatalf("expected no send call during cancel, got %.2f", fakeSvc.lastSendAmount)
+	}
+}
+
 func TestHandleSendMoneyQuoteCommandRequiresUSDTAmount(t *testing.T) {
 	ctx := context.Background()
 	fakeSvc := &fakePaymentService{}
@@ -827,7 +907,7 @@ func TestHandleSendMoneyCallbackCancel(t *testing.T) {
 	if result == nil || !result.ShouldEdit {
 		t.Fatalf("expected edit result for cancel")
 	}
-	if !strings.Contains(result.Text, "已取消下发") {
+	if result.Text != sendMoneyCancelText {
 		t.Fatalf("unexpected cancel text: %s", result.Text)
 	}
 	if result.FollowupText != "" {

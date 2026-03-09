@@ -949,17 +949,12 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 				}); markupErr != nil {
 					logger.L().Errorf("clear sifang send money keyboard failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, markupErr)
 				}
-				if shouldRewriteSifangQuoteOnCancel(action) {
-					updatedQuote := buildCanceledSendMoneyQuoteText(msg.Text, result.Text)
-					b.editMessage(ctx, msg.Chat.ID, msg.ID, updatedQuote, nil)
-				} else {
-					if text := strings.TrimSpace(result.Text); text != "" {
-						notifyMsg, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, text, nil, msg.ID)
-						if sendErr != nil {
-							logger.L().Errorf("send sifang send money result failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, sendErr)
-						} else if notifyMsg != nil {
-							followupReplyTo = notifyMsg.ID
-						}
+				if text := strings.TrimSpace(result.Text); text != "" {
+					notifyMsg, sendErr := b.sendMessageWithMarkupAndMessage(ctx, msg.Chat.ID, text, nil, msg.ID)
+					if sendErr != nil {
+						logger.L().Errorf("send sifang send money result failed: chat_id=%d message_id=%d err=%v", msg.Chat.ID, msg.ID, sendErr)
+					} else if notifyMsg != nil {
+						followupReplyTo = notifyMsg.ID
 					}
 				}
 			} else {
@@ -987,34 +982,7 @@ func (b *Bot) handleSifangSendMoneyCallback(ctx context.Context, botInstance *bo
 }
 
 func shouldKeepSifangQuoteMessage(action string) bool {
-	return action == "confirm" || action == "cancel"
-}
-
-func shouldRewriteSifangQuoteOnCancel(action string) bool {
-	return action == "cancel"
-}
-
-func buildCanceledSendMoneyQuoteText(originalText, cancelText string) string {
-	cancelText = strings.TrimSpace(cancelText)
-	if cancelText == "" {
-		cancelText = "已取消下发"
-	}
-	cancelLine := "❌ " + cancelText
-
-	originalText = strings.TrimSpace(originalText)
-	if originalText == "" {
-		return cancelLine
-	}
-
-	lines := strings.Split(originalText, "\n")
-	for i := range lines {
-		if strings.Contains(strings.TrimSpace(lines[i]), "是否确认下发") {
-			lines[i] = cancelLine
-			return strings.Join(lines, "\n")
-		}
-	}
-
-	return originalText + "\n" + cancelLine
+	return action == "confirm"
 }
 
 func (b *Bot) handleOrderCascadeCallback(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {

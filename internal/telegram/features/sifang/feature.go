@@ -40,6 +40,7 @@ const (
 	SendMoneyCallbackPrefix = "sifang:sendmoney:"
 	sendMoneyActionConfirm  = "confirm"
 	sendMoneyActionCancel   = "cancel"
+	sendMoneyCancelText     = "下发已取消，再次下发重新获取欧易费率"
 )
 
 type pendingSendMoney struct {
@@ -1405,11 +1406,7 @@ func (f *Feature) HandleSendMoneyCallback(ctx context.Context, query *botModels.
 	case sendMoneyActionCancel:
 		f.deletePending(token)
 		result.ShouldEdit = true
-		merchantText := strconv.FormatInt(pending.merchantID, 10)
-		result.Text = fmt.Sprintf("已取消下发 <code>%s</code> 元给商户 <code>%s</code>",
-			html.EscapeString(formatFloat(pending.amount)),
-			html.EscapeString(merchantText),
-		)
+		result.Text = sendMoneyCancelText
 		result.Answer = "已取消"
 		return result, nil
 	case sendMoneyActionConfirm:
