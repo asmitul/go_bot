@@ -3,6 +3,8 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -34,6 +36,11 @@ type Config struct {
 	ChannelID            int64   // 源频道 ID（用于转发功能）
 	DailyBillPushEnabled bool    // 是否启用每日账单自动推送
 }
+
+const (
+	telegramPollTimeout    = 55 * time.Second
+	telegramRequestTimeout = 75 * time.Second
+)
 
 // Bot Telegram Bot 服务
 type Bot struct {
@@ -126,6 +133,23 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	if cfg.Debug {
 		opts = append(opts, bot.WithDebug())
 	}
+
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   50,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   telegramRequestTimeout,
+	}
+	opts = append(opts, bot.WithHTTPClient(telegramPollTimeout, httpClient))
 
 	b, err := bot.New(cfg.Token, opts...)
 	if err != nil {

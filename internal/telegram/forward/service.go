@@ -20,8 +20,10 @@ import (
 
 const (
 	forwardRatePerSecond         = 20
+	forwardMaxConcurrency        = 8
 	recallRatePerSecond          = 20
 	forwardMaxRetryAttempts      = 5
+	forwardRequestTimeout        = 15 * time.Second
 	defaultForwardRetryDelay     = 2 * time.Second
 	maxForwardExponentialBackoff = 10 * time.Second
 )
@@ -125,6 +127,7 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 	startTime := time.Now()
 	limiter := NewRateLimiter(forwardRatePerSecond)
 	defer limiter.Close()
+	requestSlots := make(chan struct{}, forwardMaxConcurrency)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -138,7 +141,14 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 		go func(g *models.Group) {
 			defer wg.Done()
 
-			forwardedMsgID, targetGroupID, err := s.forwardToGroup(ctx, botInstance, message, g.TelegramID, limiter)
+			forwardedMsgID, targetGroupID, err := s.forwardToGroup(
+				ctx,
+				botInstance,
+				message,
+				g.TelegramID,
+				limiter,
+				requestSlots,
+			)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -183,7 +193,14 @@ func (s *Service) forwardTask(ctx context.Context, botInstance *bot.Bot, message
 }
 
 // forwardToGroup 转发到单个群组（带重试）
-func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, message *botModels.Message, groupID int64, limiter *RateLimiter) (int64, int64, error) {
+func (s *Service) forwardToGroup(
+	ctx context.Context,
+	botInstance *bot.Bot,
+	message *botModels.Message,
+	groupID int64,
+	limiter *RateLimiter,
+	requestSlots chan struct{},
+) (int64, int64, error) {
 	currentGroupID := groupID
 	var lastErr error
 	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
@@ -192,12 +209,19 @@ func (s *Service) forwardToGroup(ctx context.Context, botInstance *bot.Bot, mess
 			return 0, currentGroupID, fmt.Errorf("rate limiter wait error: %w", err)
 		}
 
-		// 尝试转发消息
-		msg, err := botInstance.ForwardMessage(ctx, &bot.ForwardMessageParams{
+		// 限制并发请求数，避免网络抖动时大量请求同时超时。
+		if err := acquireForwardSlot(ctx, requestSlots); err != nil {
+			return 0, currentGroupID, fmt.Errorf("forward slot acquire error: %w", err)
+		}
+
+		attemptCtx, cancel := context.WithTimeout(ctx, forwardRequestTimeout)
+		msg, err := botInstance.ForwardMessage(attemptCtx, &bot.ForwardMessageParams{
 			ChatID:     currentGroupID,
 			FromChatID: message.Chat.ID,
 			MessageID:  message.ID,
 		})
+		cancel()
+		releaseForwardSlot(requestSlots)
 
 		if err == nil {
 			return int64(msg.ID), currentGroupID, nil
@@ -380,6 +404,7 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 	startTime := time.Now()
 	limiter := NewRateLimiter(forwardRatePerSecond)
 	defer limiter.Close()
+	requestSlots := make(chan struct{}, forwardMaxConcurrency)
 
 	// 提取消息 ID 列表
 	messageIDs := make([]int, len(messages))
@@ -400,7 +425,15 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 		go func(g *models.Group) {
 			defer wg.Done()
 
-			forwardedMsgIDs, targetGroupID, err := s.forwardMediaGroupToGroup(ctx, botInstance, messages[0].Chat.ID, messageIDs, g.TelegramID, limiter)
+			forwardedMsgIDs, targetGroupID, err := s.forwardMediaGroupToGroup(
+				ctx,
+				botInstance,
+				messages[0].Chat.ID,
+				messageIDs,
+				g.TelegramID,
+				limiter,
+				requestSlots,
+			)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -445,7 +478,15 @@ func (s *Service) forwardMediaGroup(ctx context.Context, botInstance *bot.Bot, m
 }
 
 // forwardMediaGroupToGroup 转发媒体组到单个群组（带重试）
-func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot.Bot, fromChatID int64, messageIDs []int, groupID int64, limiter *RateLimiter) ([]int, int64, error) {
+func (s *Service) forwardMediaGroupToGroup(
+	ctx context.Context,
+	botInstance *bot.Bot,
+	fromChatID int64,
+	messageIDs []int,
+	groupID int64,
+	limiter *RateLimiter,
+	requestSlots chan struct{},
+) ([]int, int64, error) {
 	currentGroupID := groupID
 	var lastErr error
 	for attempt := 1; attempt <= forwardMaxRetryAttempts; attempt++ {
@@ -454,12 +495,19 @@ func (s *Service) forwardMediaGroupToGroup(ctx context.Context, botInstance *bot
 			return nil, currentGroupID, fmt.Errorf("rate limiter wait error: %w", err)
 		}
 
-		// 使用 ForwardMessages API 批量转发
-		result, err := botInstance.ForwardMessages(ctx, &bot.ForwardMessagesParams{
+		// 限制并发请求数，避免网络抖动时大量请求同时超时。
+		if err := acquireForwardSlot(ctx, requestSlots); err != nil {
+			return nil, currentGroupID, fmt.Errorf("forward slot acquire error: %w", err)
+		}
+
+		attemptCtx, cancel := context.WithTimeout(ctx, forwardRequestTimeout)
+		result, err := botInstance.ForwardMessages(attemptCtx, &bot.ForwardMessagesParams{
 			ChatID:     currentGroupID,
 			FromChatID: fromChatID,
 			MessageIDs: messageIDs,
 		})
+		cancel()
+		releaseForwardSlot(requestSlots)
 
 		if err == nil {
 			// 提取转发后的消息 ID
@@ -609,5 +657,21 @@ func sleepWithContext(ctx context.Context, delay time.Duration) error {
 		return ctx.Err()
 	case <-timer.C:
 		return nil
+	}
+}
+
+func acquireForwardSlot(ctx context.Context, slots chan struct{}) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case slots <- struct{}{}:
+		return nil
+	}
+}
+
+func releaseForwardSlot(slots chan struct{}) {
+	select {
+	case <-slots:
+	default:
 	}
 }
