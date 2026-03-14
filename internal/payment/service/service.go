@@ -186,6 +186,11 @@ const (
 const orderDetailTimeout = 8 * time.Second
 const orderChannelLookupTimeout = 6 * time.Second
 
+var (
+	errOrderDetailEmpty    = errors.New("order detail is empty")
+	errOrderPayDetailEmpty = errors.New("order pay detail is empty")
+)
+
 // NewSifangService 创建基于四方支付的服务实现
 func NewSifangService(client *sifang.Client) Service {
 	return &sifangService{client: client}
@@ -498,53 +503,32 @@ func (s *sifangService) GetOrderDetail(ctx context.Context, merchantID int64, or
 	var lastErr error
 
 	for idx, kind := range lookupOrder {
-		business := map[string]string{
-			"with_notify_logs": "1",
+		detail, err := s.getOrderDetailByNumberType(ctx, merchantID, orderNo, kind)
+		if err == nil {
+			return detail, nil
 		}
 
-		switch kind {
-		case OrderNumberTypeMerchant:
-			business["merchant_order_no"] = orderNo
-		case OrderNumberTypePlatform:
-			business["platform_order_no"] = orderNo
-		default:
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("get order detail timed out (%s number)", describeOrderNumberType(kind))
+		}
+
+		lastErr = err
+		if shouldFallbackToOrderPayDetail(kind, err) {
+			fallbackDetail, fallbackErr := s.getOrderPayDetail(ctx, merchantID, orderNo)
+			if fallbackErr == nil {
+				return fallbackDetail, nil
+			}
+			if errors.Is(fallbackErr, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("get order pay detail timed out (%s number)", describeOrderNumberType(kind))
+			}
+			lastErr = fallbackErr
+		}
+
+		if idx < len(lookupOrder)-1 {
 			continue
 		}
 
-		reqCtx, cancel := context.WithTimeout(ctx, orderDetailTimeout)
-		raw := make(map[string]interface{})
-		err := s.client.Post(reqCtx, "orderdetail", merchantID, business, &raw)
-		cancel()
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return nil, fmt.Errorf("get order detail timed out (%s number)", describeOrderNumberType(kind))
-			}
-
-			var apiErr *sifang.APIError
-			if errors.As(err, &apiErr) {
-				lastErr = fmt.Errorf("get order detail failed with sifang error (%s number): %w", describeOrderNumberType(kind), err)
-			} else {
-				lastErr = fmt.Errorf("get order detail failed (%s number): %w", describeOrderNumberType(kind), err)
-			}
-
-			if idx < len(lookupOrder)-1 {
-				continue
-			}
-
-			return nil, lastErr
-		}
-
-		detail := decodeOrderDetail(raw)
-		if detail == nil || detail.Order == nil {
-			lastErr = fmt.Errorf("order detail is empty (%s number)", describeOrderNumberType(kind))
-			if idx < len(lookupOrder)-1 {
-				continue
-			}
-
-			return nil, lastErr
-		}
-
-		return detail, nil
+		return nil, lastErr
 	}
 
 	if lastErr != nil {
@@ -552,6 +536,84 @@ func (s *sifangService) GetOrderDetail(ctx context.Context, merchantID int64, or
 	}
 
 	return nil, fmt.Errorf("order detail lookup failed")
+}
+
+func (s *sifangService) getOrderDetailByNumberType(
+	ctx context.Context,
+	merchantID int64,
+	orderNo string,
+	numberType OrderNumberType,
+) (*OrderDetail, error) {
+	business := map[string]string{
+		"with_notify_logs": "1",
+	}
+
+	switch numberType {
+	case OrderNumberTypeMerchant:
+		business["merchant_order_no"] = orderNo
+	case OrderNumberTypePlatform:
+		business["platform_order_no"] = orderNo
+	default:
+		return nil, fmt.Errorf("unsupported order number type: %s", numberType)
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, orderDetailTimeout)
+	raw := make(map[string]interface{})
+	err := s.client.Post(reqCtx, "orderdetail", merchantID, business, &raw)
+	cancel()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, context.DeadlineExceeded
+		}
+
+		var apiErr *sifang.APIError
+		if errors.As(err, &apiErr) {
+			return nil, fmt.Errorf("get order detail failed with sifang error (%s number): %w", describeOrderNumberType(numberType), err)
+		}
+		return nil, fmt.Errorf("get order detail failed (%s number): %w", describeOrderNumberType(numberType), err)
+	}
+
+	detail := decodeOrderDetail(raw)
+	if detail == nil || detail.Order == nil {
+		return nil, fmt.Errorf("%w (%s number)", errOrderDetailEmpty, describeOrderNumberType(numberType))
+	}
+
+	return detail, nil
+}
+
+func shouldFallbackToOrderPayDetail(numberType OrderNumberType, err error) bool {
+	if numberType != OrderNumberTypeMerchant || err == nil {
+		return false
+	}
+
+	return IsOrderNotFoundError(err) || errors.Is(err, errOrderDetailEmpty)
+}
+
+func (s *sifangService) getOrderPayDetail(ctx context.Context, merchantID int64, orderNo string) (*OrderDetail, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, orderDetailTimeout)
+	raw := make(map[string]interface{})
+	err := s.client.Post(reqCtx, "orderpaydetail", merchantID, map[string]string{
+		"merchant_order_no": orderNo,
+	}, &raw)
+	cancel()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, context.DeadlineExceeded
+		}
+
+		var apiErr *sifang.APIError
+		if errors.As(err, &apiErr) {
+			return nil, fmt.Errorf("get order pay detail failed with sifang error (merchant number): %w", err)
+		}
+		return nil, fmt.Errorf("get order pay detail failed (merchant number): %w", err)
+	}
+
+	detail := decodeOrderPayDetail(raw)
+	if detail == nil || detail.Order == nil {
+		return nil, fmt.Errorf("%w (merchant number)", errOrderPayDetailEmpty)
+	}
+
+	return detail, nil
 }
 
 func (s *sifangService) FindOrderChannelBinding(ctx context.Context, merchantID int64, orderNo string, numberType OrderNumberType) (*OrderChannelBinding, error) {
@@ -807,6 +869,222 @@ func decodeOrderDetail(raw map[string]interface{}) *OrderDetail {
 	}
 
 	return detail
+}
+
+func decodeOrderPayDetail(raw map[string]interface{}) *OrderDetail {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	items := extractMapItems(raw["items"])
+	latestItem := pickLatestOrderPayDetailItem(items)
+
+	orderPayload := map[string]interface{}{
+		"merchant_order_no":            pickString(raw, "merchant_order_no", "order_no"),
+		"merchant_order_no_full":       pickString(raw, "merchant_order_no_full"),
+		"merchant_id":                  pickString(raw, "merchant_id"),
+		"notify_times":                 pickString(raw, "total"),
+		"orderpaydetail_total_log_cnt": pickString(raw, "total"),
+		"orderpaydetail_source":        "orderpaydetail",
+	}
+
+	if latestItem != nil {
+		if amount := pickString(latestItem, "amount"); amount != "" {
+			orderPayload["amount"] = amount
+		}
+		if channelCode := pickString(latestItem, "channel_code", "fxpay"); channelCode != "" {
+			orderPayload["channel_code"] = channelCode
+		}
+		if sourceIP := pickString(latestItem, "source_ip", "ip"); sourceIP != "" {
+			orderPayload["client_ip"] = sourceIP
+		}
+		if createdAt := pickString(latestItem, "created_at", "create_time", "time"); createdAt != "" {
+			orderPayload["created_at"] = createdAt
+		}
+
+		status := strings.TrimSpace(pickString(latestItem, "status"))
+		if status != "" {
+			orderPayload["status"] = "access_log_only"
+			orderPayload["status_text"] = buildOrderPayDetailOrderStatusText(status)
+			orderPayload["notify_status"] = status
+			if notifyStatusText := buildOrderPayDetailNotifyStatusText(
+				pickString(latestItem, "status_code"),
+				status,
+			); notifyStatusText != "" {
+				orderPayload["notify_status_text"] = notifyStatusText
+			}
+			if isOrderPayDetailFailureStatus(status) {
+				if result := pickString(latestItem, "result"); result != "" {
+					orderPayload["notify_last_error"] = result
+				}
+			}
+		}
+
+		if sourceURL := pickString(latestItem, "source_url"); sourceURL != "" {
+			orderPayload["orderpaydetail_latest_source_url"] = sourceURL
+		}
+		if sourceIP := pickString(latestItem, "source_ip", "ip"); sourceIP != "" {
+			orderPayload["orderpaydetail_latest_source_ip"] = sourceIP
+		}
+		if result := pickString(latestItem, "result"); result != "" {
+			orderPayload["orderpaydetail_latest_result"] = result
+		}
+		if statusCode := pickString(latestItem, "status_code"); statusCode != "" {
+			orderPayload["orderpaydetail_latest_status_code"] = statusCode
+		}
+		if logID := pickString(latestItem, "log_id"); logID != "" {
+			orderPayload["orderpaydetail_latest_log_id"] = logID
+		}
+	}
+
+	notifyLogs := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		if logPayload := buildOrderPayDetailNotifyLog(item); len(logPayload) > 0 {
+			notifyLogs = append(notifyLogs, logPayload)
+		}
+	}
+
+	payload := map[string]interface{}{
+		"order": orderPayload,
+	}
+
+	merchantID := strings.TrimSpace(pickString(raw, "merchant_id"))
+	if merchantID != "" {
+		payload["extended"] = map[string]interface{}{
+			"merchant_id": merchantID,
+			"remark":      "data source: orderpaydetail",
+		}
+	}
+	if len(notifyLogs) > 0 {
+		payload["notify_logs"] = notifyLogs
+	}
+
+	return decodeOrderDetail(payload)
+}
+
+func extractMapItems(value interface{}) []map[string]interface{} {
+	switch v := value.(type) {
+	case []interface{}:
+		items := make([]map[string]interface{}, 0, len(v))
+		for _, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok || len(m) == 0 {
+				continue
+			}
+			items = append(items, m)
+		}
+		return items
+	case []map[string]interface{}:
+		items := make([]map[string]interface{}, 0, len(v))
+		for _, item := range v {
+			if len(item) == 0 {
+				continue
+			}
+			items = append(items, item)
+		}
+		return items
+	case map[string]interface{}:
+		if len(v) == 0 {
+			return nil
+		}
+		return []map[string]interface{}{v}
+	default:
+		return nil
+	}
+}
+
+func pickLatestOrderPayDetailItem(items []map[string]interface{}) map[string]interface{} {
+	var (
+		latest   map[string]interface{}
+		latestAt string
+	)
+
+	for _, item := range items {
+		if len(item) == 0 {
+			continue
+		}
+
+		currentAt := strings.TrimSpace(pickString(item, "created_at", "create_time", "time"))
+		if latest == nil {
+			latest = item
+			latestAt = currentAt
+			continue
+		}
+
+		if currentAt == "" || (latestAt != "" && currentAt <= latestAt) {
+			continue
+		}
+
+		latest = item
+		latestAt = currentAt
+	}
+
+	return latest
+}
+
+func buildOrderPayDetailNotifyLog(item map[string]interface{}) map[string]interface{} {
+	if len(item) == 0 {
+		return nil
+	}
+
+	status := strings.TrimSpace(pickString(item, "status"))
+	statusText := buildOrderPayDetailNotifyStatusText(pickString(item, "status_code"), status)
+	request := stringifyJSONValue(item["request_payload"])
+	response := strings.TrimSpace(pickString(item, "result"))
+	url := strings.TrimSpace(pickString(item, "source_url"))
+	attemptedAt := strings.TrimSpace(pickString(item, "created_at", "create_time", "time"))
+
+	if status == "" && statusText == "" && request == "" && response == "" && url == "" && attemptedAt == "" {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"status":       status,
+		"status_text":  statusText,
+		"request":      request,
+		"response":     response,
+		"url":          url,
+		"attempted_at": attemptedAt,
+	}
+}
+
+func buildOrderPayDetailOrderStatusText(status string) string {
+	trimmed := strings.TrimSpace(status)
+	if trimmed == "" {
+		return "仅接入日志"
+	}
+
+	return fmt.Sprintf("仅接入日志（%s）", trimmed)
+}
+
+func buildOrderPayDetailNotifyStatusText(statusCode, status string) string {
+	switch strings.TrimSpace(statusCode) {
+	case "1":
+		return "接入成功"
+	case "0":
+		return "接入失败"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success":
+		return "接入成功"
+	case "failed", "fail":
+		return "接入失败"
+	default:
+		return ""
+	}
+}
+
+func isOrderPayDetailFailureStatus(status string) bool {
+	lower := strings.ToLower(strings.TrimSpace(status))
+	if lower == "" {
+		return false
+	}
+
+	return strings.Contains(lower, "fail") ||
+		strings.Contains(lower, "error") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "reject")
 }
 
 func buildOrder(value interface{}) *Order {

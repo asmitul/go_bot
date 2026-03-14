@@ -34,6 +34,16 @@ func TestIsOrderNotFoundError(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "order detail empty sentinel",
+			err:  fmt.Errorf("wrapped: %w", errOrderDetailEmpty),
+			want: true,
+		},
+		{
+			name: "order pay detail empty sentinel",
+			err:  fmt.Errorf("wrapped: %w", errOrderPayDetailEmpty),
+			want: true,
+		},
+		{
 			name: "api other error",
 			err:  fmt.Errorf("wrapped: %w", &sifang.APIError{Code: 500, Message: "server error"}),
 			want: false,

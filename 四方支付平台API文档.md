@@ -56,6 +56,7 @@
 | 经营概览              | `/stats`                        |
 | 订单详情              | `/orderdetail`                  |
 | 查询订单渠道配置      | `/findpzidbyorder`              |
+| 订单接入日志          | `/orderpaydetail`               |
 | 手动补单              | `/manualcompleteorder`          |
 | 手动撤单              | `/manualcancelorder`            |
 | 回调日志              | `/notifylogs`                   |
@@ -1188,6 +1189,82 @@
     }
 }
 ```
+
+### 7.5 订单接入日志 `/orderpaydetail`
+
+**说明**：查询 `fx_dingdan_pay` 下游接入日志（同一订单最多返回最近 20 条）。
+
+**参数**（至少提供一个）：
+
+| 参数                | 说明                                                                 |
+|---------------------|----------------------------------------------------------------------|
+| `merchant_order_no` | 商户订单号（不带商户号前缀）                                         |
+| `order_no`          | `merchant_order_no` 别名                                             |
+| `fxddh`             | 完整订单号（数据库 `fx_dingdan_pay.fxddh`，通常为“商户号+商户订单号”） |
+
+**返回字段**：
+
+| 字段                    | 说明                                                      |
+|-------------------------|-----------------------------------------------------------|
+| `merchant_id`           | 商户号                                                    |
+| `merchant_order_no`     | 去前缀后的商户订单号                                      |
+| `merchant_order_no_full`| 完整订单号（数据库原值）                                  |
+| `total`                 | 返回日志条数（最大 20）                                   |
+| `items`                 | 日志数组                                                  |
+
+`items` 每条记录字段：
+
+| 字段                    | 说明                                               |
+|-------------------------|----------------------------------------------------|
+| `log_id`                | 日志 ID                                            |
+| `merchant_order_no`     | 去前缀后的商户订单号                               |
+| `merchant_order_no_full`| 完整订单号                                         |
+| `amount`                | 订单金额                                           |
+| `channel_code`          | 支付方式/通道代码（`fxpay`）                       |
+| `source_url`            | 来源 URL（`http referer`）                         |
+| `source_ip`             | 请求来源 IP                                        |
+| `status_code`           | 状态码：`0=failed`，`1=success`                    |
+| `status`                | 状态英文：`failed` / `success`                     |
+| `request_payload`       | 请求参数（自动反序列化/解析后的对象）              |
+| `result`                | 提交结果文本                                       |
+| `created_at`            | 记录时间                                           |
+
+> 查询顺序：优先按传入订单号精确匹配；未命中时会自动尝试“商户号 + 订单号”再匹配一次。
+
+**返回示例**：
+
+```json
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "merchant_id": "2023100",
+        "merchant_order_no": "202511170232492682",
+        "merchant_order_no_full": "2023100202511170232492682",
+        "total": 1,
+        "items": [
+            {
+                "log_id": 912345,
+                "merchant_order_no": "202511170232492682",
+                "merchant_order_no_full": "2023100202511170232492682",
+                "amount": "50.00",
+                "channel_code": "wxhftest",
+                "source_url": "https://demo.example.com/pay",
+                "source_ip": "127.0.0.1",
+                "status_code": 1,
+                "status": "success",
+                "request_payload": {
+                    "fxid": "2023100",
+                    "fxddh": "202511170232492682",
+                    "fxfee": "50.00",
+                    "fxpay": "wxhftest"
+                },
+                "result": "ok",
+                "created_at": "2025-11-17 02:32:49"
+            }
+        ]
+    }
+}
 
 ---
 

@@ -13,6 +13,10 @@ func IsOrderNotFoundError(err error) bool {
 		return false
 	}
 
+	if errors.Is(err, errOrderDetailEmpty) || errors.Is(err, errOrderPayDetailEmpty) {
+		return true
+	}
+
 	var apiErr *sifang.APIError
 	if !errors.As(err, &apiErr) {
 		return false

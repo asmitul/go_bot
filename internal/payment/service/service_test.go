@@ -437,6 +437,79 @@ func TestDecodeOrderDetail_Empty(t *testing.T) {
 	}
 }
 
+func TestDecodeOrderPayDetail(t *testing.T) {
+	raw := map[string]interface{}{
+		"merchant_id":            "2023100",
+		"merchant_order_no":      "202511170232492682",
+		"merchant_order_no_full": "2023100202511170232492682",
+		"total":                  2,
+		"items": []interface{}{
+			map[string]interface{}{
+				"log_id":       912344,
+				"amount":       "50.00",
+				"channel_code": "wxhftest",
+				"source_url":   "https://demo.example.com/pay",
+				"source_ip":    "127.0.0.1",
+				"status_code":  0,
+				"status":       "failed",
+				"request_payload": map[string]interface{}{
+					"fxid":  "2023100",
+					"fxddh": "202511170232492682",
+				},
+				"result":     "invalid sign",
+				"created_at": "2025-11-17 02:32:48",
+			},
+			map[string]interface{}{
+				"log_id":       912345,
+				"amount":       "50.00",
+				"channel_code": "wxhftest",
+				"source_url":   "https://demo.example.com/pay",
+				"source_ip":    "127.0.0.1",
+				"status_code":  1,
+				"status":       "success",
+				"request_payload": map[string]interface{}{
+					"fxid":  "2023100",
+					"fxddh": "202511170232492682",
+				},
+				"result":     "ok",
+				"created_at": "2025-11-17 02:32:49",
+			},
+		},
+	}
+
+	detail := decodeOrderPayDetail(raw)
+	if detail == nil {
+		t.Fatalf("expected detail, got nil")
+	}
+	if detail.Order == nil {
+		t.Fatalf("expected order, got nil")
+	}
+	if detail.Order.MerchantOrderNo != "202511170232492682" {
+		t.Fatalf("unexpected merchant order no: %#v", detail.Order)
+	}
+	if detail.Order.StatusText != "仅接入日志（success）" {
+		t.Fatalf("unexpected status text: %#v", detail.Order)
+	}
+	if detail.Order.Amount != "50.00" || detail.Order.ChannelCode != "wxhftest" {
+		t.Fatalf("unexpected amount/channel: %#v", detail.Order)
+	}
+	if detail.Order.Extra == nil || detail.Order.Extra["merchant_order_no_full"] != "2023100202511170232492682" {
+		t.Fatalf("expected merchant_order_no_full in extra, got %#v", detail.Order.Extra)
+	}
+	if detail.Extended == nil || detail.Extended.MerchantID != "2023100" {
+		t.Fatalf("unexpected extended: %#v", detail.Extended)
+	}
+	if len(detail.NotifyLogs) != 2 {
+		t.Fatalf("expected 2 notify logs, got %d", len(detail.NotifyLogs))
+	}
+	if detail.NotifyLogs[0].StatusText != "接入失败" {
+		t.Fatalf("unexpected first notify status text: %#v", detail.NotifyLogs[0])
+	}
+	if !strings.Contains(detail.NotifyLogs[0].Request, "\"fxid\":\"2023100\"") {
+		t.Fatalf("unexpected notify request payload: %s", detail.NotifyLogs[0].Request)
+	}
+}
+
 func TestSifangService_GetOrderDetail_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -479,23 +552,35 @@ func TestSifangService_GetOrderDetail_Success(t *testing.T) {
 }
 
 func TestSifangService_GetOrderDetail_Fallback(t *testing.T) {
-	requestCount := 0
+	orderDetailRequests := 0
+	orderPayDetailRequests := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("parse form: %v", err)
 		}
 
-		if r.Form.Get("merchant_order_no") != "" {
+		switch r.URL.Path {
+		case "/orderdetail":
+			orderDetailRequests++
+			if r.Form.Get("merchant_order_no") != "" {
+				fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+				return
+			}
+
+			if r.Form.Get("platform_order_no") != "PLAT-1" {
+				t.Fatalf("unexpected platform order number: %s", r.Form.Get("platform_order_no"))
+			}
+
+			fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"platform_order_no":"PLAT-1","status":"1"}}}`)
+		case "/orderpaydetail":
+			orderPayDetailRequests++
+			if got := r.Form.Get("merchant_order_no"); got != "PLAT-1" {
+				t.Fatalf("unexpected merchant order number for orderpaydetail: %s", got)
+			}
 			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
-			return
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-
-		if r.Form.Get("platform_order_no") != "PLAT-1" {
-			t.Fatalf("unexpected platform order number: %s", r.Form.Get("platform_order_no"))
-		}
-
-		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"platform_order_no":"PLAT-1","status":"1"}}}`)
 	}))
 	defer ts.Close()
 
@@ -519,8 +604,73 @@ func TestSifangService_GetOrderDetail_Fallback(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", detail.Order)
 	}
 
-	if requestCount != 2 {
-		t.Fatalf("expected 2 requests, got %d", requestCount)
+	if orderDetailRequests != 2 {
+		t.Fatalf("expected 2 orderdetail requests, got %d", orderDetailRequests)
+	}
+	if orderPayDetailRequests != 1 {
+		t.Fatalf("expected 1 orderpaydetail request, got %d", orderPayDetailRequests)
+	}
+}
+
+func TestSifangService_GetOrderDetail_FallbackToOrderPayDetail(t *testing.T) {
+	orderDetailRequests := 0
+	orderPayDetailRequests := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+
+		switch r.URL.Path {
+		case "/orderdetail":
+			orderDetailRequests++
+			if got := r.Form.Get("merchant_order_no"); got != "MER-ONLY-IN-PAY-LOG" {
+				t.Fatalf("unexpected merchant order no: %s", got)
+			}
+			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+		case "/orderpaydetail":
+			orderPayDetailRequests++
+			if got := r.Form.Get("merchant_order_no"); got != "MER-ONLY-IN-PAY-LOG" {
+				t.Fatalf("unexpected merchant order no for orderpaydetail: %s", got)
+			}
+			fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"merchant_id":"1001","merchant_order_no":"MER-ONLY-IN-PAY-LOG","merchant_order_no_full":"1001000MER-ONLY-IN-PAY-LOG","total":1,"items":[{"log_id":912345,"amount":"88.80","channel_code":"wxhftest","source_url":"https://demo.example.com/pay","source_ip":"127.0.0.1","status_code":1,"status":"success","request_payload":{"fxid":"1001","fxddh":"MER-ONLY-IN-PAY-LOG"},"result":"ok","created_at":"2025-11-17 02:32:49"}]}}`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := config.SifangConfig{
+		BaseURL:            ts.URL,
+		DefaultMerchantKey: "secret",
+		Timeout:            2 * time.Second,
+	}
+	client, err := sifang.NewClient(cfg, sifang.WithHTTPClient(ts.Client()), sifang.WithNowFunc(func() time.Time { return time.Unix(1700000000, 0) }))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	svc := NewSifangService(client)
+	detail, err := svc.GetOrderDetail(context.Background(), 1001, "MER-ONLY-IN-PAY-LOG", OrderNumberTypeMerchant)
+	if err != nil {
+		t.Fatalf("GetOrderDetail returned error: %v", err)
+	}
+
+	if detail.Order == nil {
+		t.Fatalf("expected order, got nil")
+	}
+	if detail.Order.MerchantOrderNo != "MER-ONLY-IN-PAY-LOG" || detail.Order.Amount != "88.80" {
+		t.Fatalf("unexpected order detail: %#v", detail.Order)
+	}
+	if len(detail.NotifyLogs) != 1 || detail.NotifyLogs[0].StatusText != "接入成功" {
+		t.Fatalf("unexpected notify logs: %#v", detail.NotifyLogs)
+	}
+
+	if orderDetailRequests != 1 {
+		t.Fatalf("expected 1 orderdetail request, got %d", orderDetailRequests)
+	}
+	if orderPayDetailRequests != 1 {
+		t.Fatalf("expected 1 orderpaydetail request, got %d", orderPayDetailRequests)
 	}
 }
 
