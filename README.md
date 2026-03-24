@@ -5,7 +5,7 @@
 你可以直接从 GitHub 克隆或下载本项目到本地：
 
 ```bash
-git clone https://github.com/asmitul/go_bot.git
+git clone https://github.com/{your_name}/go_bot.git
 cd go_bot
 ```
 
