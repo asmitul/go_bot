@@ -63,3 +63,45 @@ func TestIsOrderNotFoundError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsMerchantNotFoundOrDisabledError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "api merchant not found or disabled",
+			err:  fmt.Errorf("wrapped: %w", &sifang.APIError{Code: 1, Message: "商户号不存在或已停用。"}),
+			want: true,
+		},
+		{
+			name: "api merchant english",
+			err:  fmt.Errorf("wrapped: %w", &sifang.APIError{Code: 1, Message: "merchant does not exist or disabled"}),
+			want: true,
+		},
+		{
+			name: "api order not found",
+			err:  fmt.Errorf("wrapped: %w", &sifang.APIError{Code: 1, Message: "订单不存在。"}),
+			want: false,
+		},
+		{
+			name: "non api error",
+			err:  fmt.Errorf("network timeout"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsMerchantNotFoundOrDisabledError(tt.err); got != tt.want {
+				t.Fatalf("IsMerchantNotFoundOrDisabledError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

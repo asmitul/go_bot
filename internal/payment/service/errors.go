@@ -43,3 +43,34 @@ func IsOrderNotFoundError(err error) bool {
 
 	return false
 }
+
+// IsMerchantNotFoundOrDisabledError reports whether err means merchant does not exist or is disabled on Sifang.
+func IsMerchantNotFoundOrDisabledError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *sifang.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+
+	message := strings.TrimSpace(strings.TrimSuffix(apiErr.Message, "。"))
+	if message == "" {
+		return false
+	}
+
+	messageLower := strings.ToLower(message)
+	if strings.Contains(message, "商户号不存在或已停用") {
+		return true
+	}
+	if strings.Contains(message, "商户号不存在") && strings.Contains(message, "停用") {
+		return true
+	}
+	if strings.Contains(messageLower, "merchant") &&
+		(strings.Contains(messageLower, "not exist") || strings.Contains(messageLower, "disabled")) {
+		return true
+	}
+
+	return false
+}

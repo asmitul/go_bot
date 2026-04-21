@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go_bot/internal/logger"
+	paymentservice "go_bot/internal/payment/service"
 	sifangfeature "go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/forward"
 	"go_bot/internal/telegram/models"
@@ -40,6 +43,10 @@ func (b *Bot) registerHandlers() {
 		b.asyncHandler(b.RequireOwner(b.handleValidateGroupsCommand)))
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/repair", bot.MatchTypeExact,
 		b.asyncHandler(b.RequireOwner(b.handleRepairGroupsCommand)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/scan_invalid_merchants", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireOwner(b.handleScanInvalidMerchantsCommand)))
+	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/downgrade_merchants", bot.MatchTypePrefix,
+		b.asyncHandler(b.RequireOwner(b.handleDowngradeMerchantsCommand)))
 
 	// 上游余额相关（Admin+）
 	b.bot.RegisterHandler(bot.HandlerTypeMessageText, "/余额", bot.MatchTypePrefix,
@@ -252,6 +259,9 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("/revoke &lt;user_id&gt; - 撤销管理员权限\n\n")
 	text.WriteString("/validate - 校验数据库中的群组配置状态\n")
 	text.WriteString("/repair - 自动修复可识别的群组配置问题（例如缺少 tier）\n\n")
+	text.WriteString("/scan_invalid_merchants - 私聊扫描无效商户号并列出对应群\n")
+	text.WriteString("/scan_invalid_merchants apply - 私聊扫描后直接降级无效商户对应群\n")
+	text.WriteString("/downgrade_merchants &lt;merchant_id...&gt; - 私聊手动指定商户号批量降级（示例：/downgrade_merchants 2024336 2024347）\n\n")
 
 	text.WriteString("<b>商户号管理（Admin+，群组）</b>\n")
 	text.WriteString("绑定 <code>[商户号]</code> - 绑定当前群组的四方商户号\n")
@@ -532,6 +542,441 @@ func (b *Bot) handleRepairGroupsCommand(ctx context.Context, botInstance *bot.Bo
 	text.WriteString("\n如需查看详细列表，请先执行“校验”命令。")
 
 	b.sendMessage(ctx, update.Message.Chat.ID, text.String())
+}
+
+func (b *Bot) handleScanInvalidMerchantsCommand(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+	if update.Message.Chat.Type != "private" {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, "请在与机器人的私聊中执行该命令。")
+		return
+	}
+	if b.paymentService == nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, "四方支付服务未配置，无法扫描商户状态。")
+		return
+	}
+
+	applyChanges, err := parseScanInvalidMerchantsArgs(update.Message.Text)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID,
+			"用法: /scan_invalid_merchants [apply]\n示例: /scan_invalid_merchants 或 /scan_invalid_merchants apply")
+		return
+	}
+
+	groups, err := b.groupService.ListActiveGroups(ctx)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, fmt.Sprintf("获取群组失败：%v", err))
+		return
+	}
+
+	merchantGroups := make(map[int64][]*models.Group)
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		merchantID := int64(group.Settings.MerchantID)
+		if merchantID <= 0 {
+			continue
+		}
+		merchantGroups[merchantID] = append(merchantGroups[merchantID], group)
+	}
+
+	if len(merchantGroups) == 0 {
+		b.sendMessage(ctx, update.Message.Chat.ID, "ℹ️ 当前没有已绑定商户号的活跃群组。")
+		return
+	}
+
+	merchantIDs := make([]int64, 0, len(merchantGroups))
+	for merchantID := range merchantGroups {
+		merchantIDs = append(merchantIDs, merchantID)
+	}
+	sort.Slice(merchantIDs, func(i, j int) bool {
+		return merchantIDs[i] < merchantIDs[j]
+	})
+
+	now := time.Now().In(mustLoadChinaLocation())
+	targetDate := previousBillingDate(now, now.Location())
+
+	const workerLimit = 8
+	const requestTimeout = 12 * time.Second
+
+	invalidSet := make(map[int64]struct{}, 16)
+	queryFailures := make([]string, 0, 16)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workerLimit)
+
+	for _, merchantID := range merchantIDs {
+		merchantID := merchantID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			queryCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+
+			_, scanErr := b.paymentService.GetSummaryByDay(queryCtx, merchantID, targetDate)
+			if scanErr == nil {
+				return
+			}
+
+			if paymentservice.IsMerchantNotFoundOrDisabledError(scanErr) {
+				mu.Lock()
+				invalidSet[merchantID] = struct{}{}
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			if len(queryFailures) < 20 {
+				queryFailures = append(queryFailures, fmt.Sprintf("merchant_id=%d err=%v", merchantID, scanErr))
+			}
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	invalidMerchantIDs := make([]int64, 0, len(invalidSet))
+	for merchantID := range invalidSet {
+		invalidMerchantIDs = append(invalidMerchantIDs, merchantID)
+	}
+	sort.Slice(invalidMerchantIDs, func(i, j int) bool {
+		return invalidMerchantIDs[i] < invalidMerchantIDs[j]
+	})
+
+	invalidDetails := make([]string, 0, len(invalidMerchantIDs))
+	for _, merchantID := range invalidMerchantIDs {
+		boundGroups := merchantGroups[merchantID]
+		if len(boundGroups) == 0 {
+			continue
+		}
+		invalidDetails = append(invalidDetails, formatInvalidMerchantDetail(merchantID, boundGroups))
+	}
+
+	downgradeResult := merchantDowngradeResult{}
+	if applyChanges && len(invalidMerchantIDs) > 0 {
+		downgradeResult = b.downgradeGroupsByMerchantIDs(ctx, groups, invalidMerchantIDs)
+	}
+
+	var text strings.Builder
+	text.WriteString("🔎 无效商户扫描完成\n")
+	text.WriteString(fmt.Sprintf("目标日期：%s\n", targetDate.Format("2006-01-02")))
+	text.WriteString(fmt.Sprintf("活跃群组：%d\n", len(groups)))
+	text.WriteString(fmt.Sprintf("已绑定商户群：%d\n", countGroupsWithMerchant(groups)))
+	text.WriteString(fmt.Sprintf("扫描商户号：%d\n", len(merchantIDs)))
+	text.WriteString(fmt.Sprintf("识别无效商户号：%d\n", len(invalidMerchantIDs)))
+	text.WriteString(fmt.Sprintf("其他查询失败：%d\n", len(queryFailures)))
+
+	if len(invalidMerchantIDs) > 0 {
+		text.WriteString("无效商户号：")
+		for i, id := range invalidMerchantIDs {
+			if i > 0 {
+				text.WriteString(",")
+			}
+			text.WriteString(strconv.FormatInt(id, 10))
+		}
+		text.WriteString("\n")
+	}
+
+	if len(invalidDetails) > 0 {
+		text.WriteString("\n无效商户对应群（最多 20 条）：\n")
+		limit := len(invalidDetails)
+		if limit > 20 {
+			limit = 20
+		}
+		for i := 0; i < limit; i++ {
+			text.WriteString("• ")
+			text.WriteString(invalidDetails[i])
+			text.WriteString("\n")
+		}
+		if len(invalidDetails) > limit {
+			text.WriteString(fmt.Sprintf("... 还有 %d 条未展示\n", len(invalidDetails)-limit))
+		}
+	}
+
+	if applyChanges {
+		text.WriteString("\n自动降级结果：\n")
+		text.WriteString(fmt.Sprintf("命中群组：%d\n", downgradeResult.MatchedGroups))
+		text.WriteString(fmt.Sprintf("成功降级：%d\n", downgradeResult.ChangedGroups))
+		text.WriteString(fmt.Sprintf("失败：%d\n", len(downgradeResult.Failures)))
+	} else {
+		text.WriteString("\n如需直接处理，请在私聊发送：/scan_invalid_merchants apply")
+	}
+
+	if len(queryFailures) > 0 {
+		text.WriteString("\n\n查询失败明细（最多 10 条）：\n")
+		limit := len(queryFailures)
+		if limit > 10 {
+			limit = 10
+		}
+		for i := 0; i < limit; i++ {
+			text.WriteString("• ")
+			text.WriteString(queryFailures[i])
+			text.WriteString("\n")
+		}
+	}
+
+	if applyChanges && len(downgradeResult.Failures) > 0 {
+		text.WriteString("\n降级失败明细（最多 10 条）：\n")
+		limit := len(downgradeResult.Failures)
+		if limit > 10 {
+			limit = 10
+		}
+		for i := 0; i < limit; i++ {
+			text.WriteString("• ")
+			text.WriteString(downgradeResult.Failures[i])
+			text.WriteString("\n")
+		}
+	}
+
+	b.sendMessage(ctx, update.Message.Chat.ID, strings.TrimRight(text.String(), "\n"))
+}
+
+// handleDowngradeMerchantsCommand 处理 Owner 私聊批量降级商户群命令
+func (b *Bot) handleDowngradeMerchantsCommand(ctx context.Context, botInstance *bot.Bot, update *botModels.Update) {
+	if update.Message == nil {
+		return
+	}
+	if update.Message.Chat.Type != "private" {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, "请在与机器人的私聊中执行该命令。")
+		return
+	}
+
+	merchantIDs, err := parseMerchantIDsFromCommand(update.Message.Text)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID,
+			"用法: /downgrade_merchants <merchant_id...>\n示例: /downgrade_merchants 2024336 2024347")
+		return
+	}
+
+	groups, err := b.groupService.ListActiveGroups(ctx)
+	if err != nil {
+		b.sendErrorMessage(ctx, update.Message.Chat.ID, fmt.Sprintf("获取群组失败：%v", err))
+		return
+	}
+
+	result := b.downgradeGroupsByMerchantIDs(ctx, groups, merchantIDs)
+
+	var text strings.Builder
+	text.WriteString("✅ 商户群降级任务完成\n")
+	text.WriteString(fmt.Sprintf("输入商户号：%d 个\n", len(merchantIDs)))
+	text.WriteString(fmt.Sprintf("命中群组：%d 个\n", result.MatchedGroups))
+	text.WriteString(fmt.Sprintf("成功降级：%d 个\n", result.ChangedGroups))
+	text.WriteString(fmt.Sprintf("失败：%d 个\n", len(result.Failures)))
+
+	if len(result.UnmatchedMerchantIDs) > 0 {
+		text.WriteString("未命中商户号：")
+		for i, id := range result.UnmatchedMerchantIDs {
+			if i > 0 {
+				text.WriteString(", ")
+			}
+			text.WriteString(strconv.FormatInt(id, 10))
+		}
+		text.WriteString("\n")
+	}
+
+	if len(result.Details) > 0 {
+		text.WriteString("\n已降级明细（最多 30 条）：\n")
+		for _, detail := range result.Details {
+			text.WriteString("• ")
+			text.WriteString(detail)
+			text.WriteString("\n")
+		}
+	}
+
+	if len(result.Failures) > 0 {
+		text.WriteString("\n失败明细（最多 10 条）：\n")
+		limit := len(result.Failures)
+		if limit > 10 {
+			limit = 10
+		}
+		for i := 0; i < limit; i++ {
+			text.WriteString("• ")
+			text.WriteString(result.Failures[i])
+			text.WriteString("\n")
+		}
+		if len(result.Failures) > limit {
+			text.WriteString(fmt.Sprintf("... 还有 %d 条失败记录\n", len(result.Failures)-limit))
+		}
+	}
+
+	b.sendMessage(ctx, update.Message.Chat.ID, strings.TrimRight(text.String(), "\n"))
+}
+
+type merchantDowngradeResult struct {
+	MatchedGroups        int
+	ChangedGroups        int
+	UnmatchedMerchantIDs []int64
+	Details              []string
+	Failures             []string
+}
+
+func (b *Bot) downgradeGroupsByMerchantIDs(ctx context.Context, groups []*models.Group, merchantIDs []int64) merchantDowngradeResult {
+	targetSet := make(map[int64]struct{}, len(merchantIDs))
+	for _, id := range merchantIDs {
+		targetSet[id] = struct{}{}
+	}
+
+	result := merchantDowngradeResult{
+		Details:  make([]string, 0, 16),
+		Failures: make([]string, 0, 8),
+	}
+	matchedMerchantSet := make(map[int64]struct{}, len(merchantIDs))
+
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+
+		merchantID := int64(group.Settings.MerchantID)
+		if merchantID <= 0 {
+			continue
+		}
+		if _, ok := targetSet[merchantID]; !ok {
+			continue
+		}
+
+		result.MatchedGroups++
+		matchedMerchantSet[merchantID] = struct{}{}
+
+		settings := group.Settings
+		settings.MerchantID = 0
+		settings.SifangEnabled = false
+		settings.SifangAutoLookupEnabled = false
+
+		if err := b.groupService.UpdateGroupSettings(ctx, group.TelegramID, settings); err != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("chat_id=%d merchant_id=%d err=%v", group.TelegramID, merchantID, err))
+			continue
+		}
+
+		result.ChangedGroups++
+		if len(result.Details) < 30 {
+			result.Details = append(result.Details, fmt.Sprintf("chat_id=%d title=%s merchant_id=%d",
+				group.TelegramID, sanitizeGroupTitle(group.Title), merchantID))
+		}
+	}
+
+	result.UnmatchedMerchantIDs = make([]int64, 0)
+	for _, id := range merchantIDs {
+		if _, ok := matchedMerchantSet[id]; !ok {
+			result.UnmatchedMerchantIDs = append(result.UnmatchedMerchantIDs, id)
+		}
+	}
+	sort.Slice(result.UnmatchedMerchantIDs, func(i, j int) bool {
+		return result.UnmatchedMerchantIDs[i] < result.UnmatchedMerchantIDs[j]
+	})
+
+	return result
+}
+
+func parseScanInvalidMerchantsArgs(text string) (bool, error) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 1 {
+		return false, nil
+	}
+	if len(fields) == 2 {
+		option := strings.ToLower(strings.TrimSpace(fields[1]))
+		if option == "apply" || option == "--apply" {
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("invalid args")
+}
+
+func formatInvalidMerchantDetail(merchantID int64, groups []*models.Group) string {
+	if len(groups) == 0 {
+		return fmt.Sprintf("merchant_id=%d groups=0", merchantID)
+	}
+
+	chatIDs := make([]string, 0, 3)
+	for i, group := range groups {
+		if i >= 3 {
+			break
+		}
+		chatIDs = append(chatIDs, strconv.FormatInt(group.TelegramID, 10))
+	}
+	extra := ""
+	if len(groups) > 3 {
+		extra = fmt.Sprintf(" (+%d more)", len(groups)-3)
+	}
+
+	return fmt.Sprintf("merchant_id=%d groups=%d sample_chat_ids=%s%s",
+		merchantID, len(groups), strings.Join(chatIDs, ","), extra)
+}
+
+func countGroupsWithMerchant(groups []*models.Group) int {
+	count := 0
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		if group.Settings.MerchantID > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func parseMerchantIDsFromCommand(text string) ([]int64, error) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) < 2 {
+		return nil, fmt.Errorf("missing merchant ids")
+	}
+
+	ids := make([]int64, 0, len(fields)-1)
+	seen := make(map[int64]struct{}, len(fields)-1)
+
+	for _, field := range fields[1:] {
+		for _, token := range strings.FieldsFunc(field, func(r rune) bool {
+			return r == ',' || r == '，' || r == ';' || r == '；' || r == '|'
+		}) {
+			token = strings.TrimSpace(token)
+			if token == "" {
+				continue
+			}
+
+			id, err := strconv.ParseInt(token, 10, 64)
+			if err != nil || id <= 0 {
+				return nil, fmt.Errorf("invalid merchant id: %s", token)
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("missing merchant ids")
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	return ids, nil
+}
+
+func sanitizeGroupTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "(empty)"
+	}
+	title = strings.ReplaceAll(title, "\n", " ")
+	title = strings.ReplaceAll(title, "\r", " ")
+	if len(title) > 48 {
+		return title[:48] + "..."
+	}
+	return title
 }
 
 // handleListAdmins 处理 /admins 命令（列出所有管理员）

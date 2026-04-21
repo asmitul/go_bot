@@ -312,6 +312,36 @@
 - **Service**: GroupService
 - **数据库**: 读取并按需更新 `groups` 集合
 
+### 1.21 `/scan_invalid_merchants` - 扫描无效商户（Owner，私聊）
+
+- **文件位置**: `internal/telegram/handlers.go`（`handleScanInvalidMerchantsCommand`）
+- **权限**: Owner only（且仅限私聊）
+- **触发**:
+  - `/scan_invalid_merchants`（仅扫描）
+  - `/scan_invalid_merchants apply`（扫描并直接执行降级）
+- **主要功能**:
+  - 遍历活跃群中已绑定商户号的群组，按商户号去重后并发调用四方 `/summarybyday`
+  - 识别四方返回“商户号不存在或已停用”错误，汇总为无效商户清单
+  - 返回无效商户号与对应群样例，附带查询失败明细（网络异常/超时等）
+  - 当参数为 `apply` 时，自动对命中群执行降级（与 `/downgrade_merchants` 共用降级逻辑）
+- **Service**: GroupService, PaymentService
+- **数据库**: 读取 `groups`；`apply` 模式下按需更新 `groups.settings` 与 `tier`
+
+### 1.22 `/downgrade_merchants` - 按商户号手工降级（Owner，私聊）
+
+- **文件位置**: `internal/telegram/handlers.go`（`handleDowngradeMerchantsCommand`）
+- **权限**: Owner only（且仅限私聊）
+- **触发**: `/downgrade_merchants <merchant_id...>`
+- **参数格式**:
+  - 空格分隔：`/downgrade_merchants 2024336 2024347`
+  - 逗号分隔：`/downgrade_merchants 2024336,2024347`
+- **主要功能**:
+  - 仅处理活跃群中命中的商户号
+  - 将群组降级为普通群：`settings.merchant_id=0`、`settings.sifang_enabled=false`、`settings.sifang_auto_lookup_enabled=false`
+  - 回传命中数量、成功/失败统计与失败明细
+- **Service**: GroupService
+- **数据库**: 读取并更新 `groups` 集合
+
 ---
 
 ## 2. 配置回调处理器（Callback Handler）

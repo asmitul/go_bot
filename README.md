@@ -171,6 +171,9 @@ cd go_bot
 | `/version` | 所有用户 | 查看当前运行版本和构建时间 |
 | `/grant <user_id>` | Owner | 授予指定用户管理员权限 |
 | `/revoke <user_id>` | Owner | 撤销指定用户的管理员权限 |
+| `/scan_invalid_merchants` | Owner（私聊） | 扫描所有已绑定商户号的活跃群，识别“商户号不存在或已停用”的无效商户并列出对应群 |
+| `/scan_invalid_merchants apply` | Owner（私聊） | 扫描并直接降级无效商户对应群（清空商户号，降级为普通群，并关闭四方相关开关） |
+| `/downgrade_merchants <merchant_id...>` | Owner（私聊） | 按指定商户号手动批量降级群（兜底命令，支持空格或逗号分隔） |
 | `/admins` | Admin+ | 查看所有管理员列表 |
 | `/userinfo <user_id>` | Admin+ | 查看指定用户的详细信息 |
 | `/configs` | Admin+ | 打开群组功能配置菜单（计算器、支付查询、USDT 价格、自动查单等） |
