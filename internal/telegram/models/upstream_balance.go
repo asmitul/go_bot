@@ -42,6 +42,18 @@ type UpstreamBalanceLog struct {
 	Metadata    map[string]string    `bson:"metadata,omitempty"`
 }
 
+// UpstreamSettlementSnapshot 记录每次日结后的不可变快照
+type UpstreamSettlementSnapshot struct {
+	ID               primitive.ObjectID `bson:"_id,omitempty"`
+	GroupID          int64              `bson:"group_id"`
+	Date             string             `bson:"date"`
+	OpeningPrepaid   float64            `bson:"opening_prepaid"`
+	SettlementAmount float64            `bson:"settlement_amount"`
+	ClosingPrepaid   float64            `bson:"closing_prepaid"`
+	OperationID      string             `bson:"operation_id,omitempty"`
+	CreatedAt        time.Time          `bson:"created_at"`
+}
+
 // UpstreamBalanceEvent 用于监控告警
 type UpstreamBalanceEvent struct {
 	GroupID           int64

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go_bot/internal/logger"
+	paymentservice "go_bot/internal/payment/service"
 	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
 	"go_bot/internal/telegram/service"
@@ -25,15 +26,21 @@ var (
 // BalanceFeature 处理上游余额相关命令
 type BalanceFeature struct {
 	balanceService service.UpstreamBalanceService
+	paymentService paymentservice.Service
 	userService    service.UserService
 	groupService   service.GroupService
 	nowFunc        func() time.Time
 }
 
 // NewBalanceFeature 创建余额功能
-func NewBalanceFeature(balanceSvc service.UpstreamBalanceService, userSvc service.UserService, groupSvc service.GroupService) *BalanceFeature {
+func NewBalanceFeature(balanceSvc service.UpstreamBalanceService, userSvc service.UserService, groupSvc service.GroupService, paymentSvc ...paymentservice.Service) *BalanceFeature {
+	var upstreamPaymentSvc paymentservice.Service
+	if len(paymentSvc) > 0 {
+		upstreamPaymentSvc = paymentSvc[0]
+	}
 	return &BalanceFeature{
 		balanceService: balanceSvc,
+		paymentService: upstreamPaymentSvc,
 		userService:    userSvc,
 		groupService:   groupSvc,
 		nowFunc: func() time.Time {
@@ -108,7 +115,7 @@ func (f *BalanceFeature) Process(ctx context.Context, msg *botModels.Message, gr
 		return respond(resp), true, handlerErr
 	default:
 		if adjustCommandPattern.MatchString(text) {
-			resp, handlerErr := f.handleAdjust(ctx, msg, text)
+			resp, handlerErr := f.handleAdjust(ctx, msg, group, text)
 			return respond(resp), true, handlerErr
 		}
 	}
@@ -185,7 +192,7 @@ func (f *BalanceFeature) handleSetAlertLimit(ctx context.Context, msg *botModels
 func (f *BalanceFeature) handleSettlement(ctx context.Context, msg *botModels.Message) (string, error) {
 	now := f.currentTime()
 	target := previousBillingDate(now, upstreamChinaLocation)
-	operationID := fmt.Sprintf("settle:%s", target.Format("2006-01-02"))
+	operationID := fmt.Sprintf("settle:%d:%s", msg.Chat.ID, target.Format("2006-01-02"))
 
 	result, err := f.balanceService.SettleDaily(ctx, msg.Chat.ID, target, msg.From.ID, operationID)
 	if err != nil {
@@ -196,7 +203,7 @@ func (f *BalanceFeature) handleSettlement(ctx context.Context, msg *botModels.Me
 	return result.Report, nil
 }
 
-func (f *BalanceFeature) handleAdjust(ctx context.Context, msg *botModels.Message, text string) (string, error) {
+func (f *BalanceFeature) handleAdjust(ctx context.Context, msg *botModels.Message, group *models.Group, text string) (string, error) {
 	matches := adjustCommandPattern.FindStringSubmatch(text)
 	if len(matches) < 3 {
 		return "❌ 调整格式错误", nil
@@ -214,11 +221,11 @@ func (f *BalanceFeature) handleAdjust(ctx context.Context, msg *botModels.Messag
 		return "❌ 金额必须大于 0", nil
 	}
 
-	delta := amount
-	action := "加款"
+	delta := -amount
+	action := "减少预付"
 	if sign == "-" {
-		delta = -delta
-		action = "扣款"
+		delta = amount
+		action = "增加预付"
 	}
 
 	result, below, err := f.balanceService.Adjust(ctx, msg.Chat.ID, delta, msg.From.ID, remark, "")
@@ -232,12 +239,44 @@ func (f *BalanceFeature) handleAdjust(ctx context.Context, msg *botModels.Messag
 		status = "⚠️ 已" + action + "（余额低于阈值）"
 	}
 
-	return fmt.Sprintf("%s：%s CNY\n当前余额：%s CNY\n最低余额：%s CNY",
+	diffLine := ""
+	if settlementDiff, ok := f.currentSettlementDiff(ctx, msg, group, result.Balance); ok {
+		diffLine = fmt.Sprintf("\n结算差额：%s CNY", formatAmount(settlementDiff))
+	}
+
+	return fmt.Sprintf("%s：%s CNY\n当前预付：%s CNY%s",
 		status,
 		formatAmount(amount),
 		formatAmount(result.Balance),
-		formatAmount(result.MinBalance),
+		diffLine,
 	), nil
+}
+
+func (f *BalanceFeature) currentSettlementDiff(ctx context.Context, msg *botModels.Message, group *models.Group, prepaid float64) (float64, bool) {
+	if f.paymentService == nil || msg == nil || group == nil {
+		return 0, false
+	}
+
+	targetDate := f.currentTime().In(upstreamChinaLocation)
+	start := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), 0, 0, 0, 0, upstreamChinaLocation)
+	end := start.Add(24*time.Hour - time.Second)
+
+	totalSettlement := 0.0
+	for _, binding := range group.Settings.InterfaceBindings {
+		summary, err := f.paymentService.GetSummaryByDayByPZID(ctx, binding.ID, start, end)
+		if err != nil {
+			logger.L().Warnf("Query settlement diff failed: chat_id=%d pzid=%s err=%v", msg.Chat.ID, binding.ID, err)
+			return 0, false
+		}
+		row, err := buildUpstreamSummaryRow(binding, pickSummaryItem(summary, start))
+		if err != nil {
+			logger.L().Warnf("Build settlement diff failed: chat_id=%d pzid=%s err=%v", msg.Chat.ID, binding.ID, err)
+			return 0, false
+		}
+		totalSettlement += row.Settlement
+	}
+
+	return totalSettlement - prepaid, true
 }
 
 func (f *BalanceFeature) currentTime() time.Time {

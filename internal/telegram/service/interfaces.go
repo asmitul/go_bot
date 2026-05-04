@@ -177,6 +177,7 @@ type UpstreamBalanceService interface {
 	Get(ctx context.Context, groupID int64) (*UpstreamBalanceResult, error)
 	ListAll(ctx context.Context) ([]*UpstreamBalanceResult, error)
 	SettleDaily(ctx context.Context, groupID int64, targetDate time.Time, operatorID int64, operationID string) (*SettlementResult, error)
+	GetSettlementSnapshot(ctx context.Context, groupID int64, date time.Time) (*UpstreamSettlementSnapshotResult, error)
 	SubscribeEvents() <-chan *models.UpstreamBalanceEvent
 }
 
@@ -197,4 +198,15 @@ type SettlementResult struct {
 	Balance        float64
 	BelowMin       bool
 	Report         string
+}
+
+// UpstreamSettlementSnapshotResult 返回指定日期日结快照
+type UpstreamSettlementSnapshotResult struct {
+	GroupID          int64
+	Date             string
+	OpeningPrepaid   float64
+	SettlementAmount float64
+	ClosingPrepaid   float64
+	OperationID      string
+	CreatedAt        time.Time
 }

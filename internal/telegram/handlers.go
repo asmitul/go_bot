@@ -274,7 +274,10 @@ func (b *Bot) handleHelp(ctx context.Context, botInstance *bot.Bot, update *botM
 	text.WriteString("接口ID / 接口状态 - 查看当前已绑定的接口列表\n\n")
 
 	text.WriteString("<b>上游账单查询（Admin+，上游群）</b>\n")
-	text.WriteString("上游账单 <code>[接口ID或名称] [可选日期]</code> - 查询指定接口的跑量、商户实收、代理收益和订单数，日期默认为当天\n\n")
+	text.WriteString("ye <code>[接口ID或名称] [可选日期]</code> - 查询供应商账单，包含昨日结余、跑量、应结算、当前预付和结算差额，日期默认为当天\n")
+	text.WriteString("<code>-1000</code> - 增加上游预付；<code>+1000</code> - 减少上游预付，可附备注\n")
+	text.WriteString("/余额 - 查询当前预付、最低预付和告警频率\n")
+	text.WriteString("/日结 - 手动扣减昨日应结算并写入日结快照；每日00:00:05自动日结并推送报告\n\n")
 
 	text.WriteString("<b>四方支付查询（需开启“🏦 四方支付查询”功能并完成商户号绑定）</b>\n")
 	text.WriteString("余额[可选日期] - 查询余额，例如：余额、余额10月26\n")
@@ -392,7 +395,7 @@ func (b *Bot) handleUpstreamSettlement(ctx context.Context, botInstance *bot.Bot
 
 	loc := mustLoadChinaLocation()
 	target := previousBillingDate(time.Now().In(loc), loc)
-	operationID := fmt.Sprintf("settle:%s", target.Format("2006-01-02"))
+	operationID := fmt.Sprintf("settle:%d:%s", msg.Chat.ID, target.Format("2006-01-02"))
 
 	result, err := b.balanceService.SettleDaily(ctx, msg.Chat.ID, target, msg.From.ID, operationID)
 	if err != nil {

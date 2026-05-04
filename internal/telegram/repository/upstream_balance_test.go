@@ -417,6 +417,7 @@ func TestMongoUpstreamBalanceRepositoryEnsureIndexes(t *testing.T) {
 		mt.AddMockResponses(
 			mtest.CreateSuccessResponse(),
 			mtest.CreateSuccessResponse(),
+			mtest.CreateSuccessResponse(),
 		)
 
 		if err := repo.EnsureIndexes(context.Background()); err != nil {
@@ -457,6 +458,27 @@ func TestMongoUpstreamBalanceRepositoryEnsureIndexes(t *testing.T) {
 			t.Fatalf("expected error but got nil")
 		}
 		if !strings.Contains(err.Error(), "create balance log indexes") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	mt.Run("snapshot indexes error", func(mt *mtest.T) {
+		repo := newUpstreamRepoForTest(mt)
+		mt.AddMockResponses(
+			mtest.CreateSuccessResponse(),
+			mtest.CreateSuccessResponse(),
+			mtest.CreateCommandErrorResponse(mtest.CommandError{
+				Code:    85,
+				Name:    "IndexOptionsConflict",
+				Message: "mock snapshot index error",
+			}),
+		)
+
+		err := repo.EnsureIndexes(context.Background())
+		if err == nil {
+			t.Fatalf("expected error but got nil")
+		}
+		if !strings.Contains(err.Error(), "create settlement snapshot indexes") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -601,8 +623,9 @@ func TestUpstreamBalanceHelpers(t *testing.T) {
 
 func newUpstreamRepoForTest(mt *mtest.T) *MongoUpstreamBalanceRepository {
 	return &MongoUpstreamBalanceRepository{
-		balanceColl: mt.DB.Collection("upstream_balances"),
-		logColl:     mt.DB.Collection("upstream_balance_logs"),
+		balanceColl:  mt.DB.Collection("upstream_balances"),
+		logColl:      mt.DB.Collection("upstream_balance_logs"),
+		snapshotColl: mt.DB.Collection("upstream_settlement_snapshots"),
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,8 +14,16 @@ import (
 	sifangfeature "go_bot/internal/telegram/features/sifang"
 	"go_bot/internal/telegram/features/types"
 	"go_bot/internal/telegram/models"
+	telegramservice "go_bot/internal/telegram/service"
 
 	botModels "github.com/go-telegram/bot/models"
+)
+
+const defaultSupplierName = "上游供应商"
+
+const (
+	summaryCommand       = "ye"
+	legacySummaryCommand = "上游账单"
 )
 
 var upstreamChinaLocation = loadChinaLocation()
@@ -29,13 +39,19 @@ func loadChinaLocation() *time.Location {
 // SummaryFeature 处理上游账单查询
 type SummaryFeature struct {
 	paymentService paymentservice.Service
+	balanceService telegramservice.UpstreamBalanceService
 	nowFunc        func() time.Time
 }
 
 // NewSummaryFeature 创建上游账单功能
-func NewSummaryFeature(paymentSvc paymentservice.Service) *SummaryFeature {
+func NewSummaryFeature(paymentSvc paymentservice.Service, balanceSvc ...telegramservice.UpstreamBalanceService) *SummaryFeature {
+	var upstreamBalanceSvc telegramservice.UpstreamBalanceService
+	if len(balanceSvc) > 0 {
+		upstreamBalanceSvc = balanceSvc[0]
+	}
 	return &SummaryFeature{
 		paymentService: paymentSvc,
+		balanceService: upstreamBalanceSvc,
 		nowFunc: func() time.Time {
 			return time.Now().In(upstreamChinaLocation)
 		},
@@ -59,7 +75,7 @@ func (f *SummaryFeature) Enabled(ctx context.Context, group *models.Group) bool 
 	return len(group.Settings.InterfaceBindings) > 0
 }
 
-// Match 匹配「上游账单」指令
+// Match 匹配「ye」指令
 func (f *SummaryFeature) Match(ctx context.Context, msg *botModels.Message) bool {
 	if msg == nil || msg.Text == "" {
 		return false
@@ -68,7 +84,8 @@ func (f *SummaryFeature) Match(ctx context.Context, msg *botModels.Message) bool
 		return false
 	}
 	text := strings.TrimSpace(msg.Text)
-	return strings.HasPrefix(text, "上游账单")
+	_, ok := summaryCommandPayload(text)
+	return ok
 }
 
 // Process 处理指令
@@ -85,7 +102,7 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 	}
 
 	now := f.currentTime()
-	targetDate, err := sifangfeature.ParseSummaryDate(dateSuffix, now, "上游账单")
+	targetDate, err := sifangfeature.ParseSummaryDate(dateSuffix, now, summaryCommand)
 	if err != nil {
 		return respond(fmt.Sprintf("❌ %v", err)), true, nil
 	}
@@ -94,16 +111,25 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 	end := start.Add(24*time.Hour - time.Second)
 
 	targetBindings := f.buildTargetBindings(bindings, selectedBinding)
-	responses := make([]string, 0, len(targetBindings))
+	rows := make([]upstreamSummaryRow, 0, len(targetBindings))
 	for _, binding := range targetBindings {
-		responseText, err := f.queryUpstreamSummary(ctx, msg, binding, start, end, targetDate)
+		row, err := f.queryUpstreamSummary(ctx, msg, binding, start, end, targetDate)
 		if err != nil {
 			return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
 		}
-		responses = append(responses, responseText)
+		rows = append(rows, row)
 	}
 
-	return respond(strings.Join(responses, "\n\n")), true, nil
+	prepaid, err := f.queryPrepaidBalance(ctx, msg.Chat.ID)
+	if err != nil {
+		return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
+	}
+	yesterdayBalance, err := f.queryYesterdayBalance(ctx, msg.Chat.ID, targetDate)
+	if err != nil {
+		return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
+	}
+
+	return respond(formatSupplierBill(defaultSupplierName, start, end, rows, prepaid, yesterdayBalance)), true, nil
 }
 
 // Priority 在接口管理之后执行
@@ -129,7 +155,11 @@ func (f *SummaryFeature) buildTargetBindings(bindings []models.InterfaceBinding,
 }
 
 func (f *SummaryFeature) resolveTarget(bindings []models.InterfaceBinding, text string) (selectedBinding *models.InterfaceBinding, dateSuffix string, err error) {
-	payload := strings.TrimSpace(strings.TrimPrefix(text, "上游账单"))
+	payload, ok := summaryCommandPayload(text)
+	if !ok {
+		return nil, "", fmt.Errorf("命令格式错误，请使用「%s」", summaryCommand)
+	}
+	payload = strings.TrimSpace(payload)
 	if payload == "" {
 		return nil, "", nil
 	}
@@ -152,6 +182,24 @@ func (f *SummaryFeature) resolveTarget(bindings []models.InterfaceBinding, text 
 	}
 
 	return nil, payload, nil
+}
+
+func summaryCommandPayload(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+	if lower == summaryCommand {
+		return "", true
+	}
+	if strings.HasPrefix(lower, summaryCommand) && len(trimmed) > len(summaryCommand) {
+		next := trimmed[len(summaryCommand)]
+		if next == ' ' || next == '\t' || (next >= '0' && next <= '9') {
+			return trimmed[len(summaryCommand):], true
+		}
+	}
+	if strings.HasPrefix(trimmed, legacySummaryCommand) {
+		return strings.TrimPrefix(trimmed, legacySummaryCommand), true
+	}
+	return "", false
 }
 
 func matchInterfaceBinding(bindings []models.InterfaceBinding, candidate string) *models.InterfaceBinding {
@@ -178,7 +226,7 @@ func (f *SummaryFeature) queryUpstreamSummary(
 	msg *botModels.Message,
 	binding models.InterfaceBinding,
 	start, end, targetDate time.Time,
-) (string, error) {
+) (upstreamSummaryRow, error) {
 	logger.L().Infof("Requesting upstream summary: chat_id=%d pzid=%s start=%s end=%s user=%d",
 		msg.Chat.ID, binding.ID,
 		start.Format("2006-01-02 15:04:05"),
@@ -189,16 +237,47 @@ func (f *SummaryFeature) queryUpstreamSummary(
 	if err != nil {
 		logger.L().Errorf("Upstream summary query failed: chat_id=%d pzid=%s start=%s err=%v",
 			msg.Chat.ID, binding.ID, start.Format("2006-01-02"), err)
-		return "", err
+		return upstreamSummaryRow{}, err
 	}
 
 	item := pickSummaryItem(summary, targetDate)
-	message := formatUpstreamSummary(binding, summary, targetDate, item)
+	row, err := buildUpstreamSummaryRow(binding, item)
+	if err != nil {
+		return upstreamSummaryRow{}, err
+	}
 
 	logger.L().Infof("Upstream summary queried: chat_id=%d pzid=%s date=%s user=%d",
 		msg.Chat.ID, binding.ID, targetDate.Format("2006-01-02"), msg.From.ID)
 
-	return message, nil
+	return row, nil
+}
+
+func (f *SummaryFeature) queryPrepaidBalance(ctx context.Context, chatID int64) (float64, error) {
+	if f.balanceService == nil {
+		return 0, nil
+	}
+	balance, err := f.balanceService.Get(ctx, chatID)
+	if err != nil {
+		return 0, fmt.Errorf("获取供应商预付失败：%w", err)
+	}
+	if balance == nil {
+		return 0, nil
+	}
+	return balance.Balance, nil
+}
+
+func (f *SummaryFeature) queryYesterdayBalance(ctx context.Context, chatID int64, targetDate time.Time) (*float64, error) {
+	if f.balanceService == nil {
+		return nil, nil
+	}
+	snapshot, err := f.balanceService.GetSettlementSnapshot(ctx, chatID, targetDate.AddDate(0, 0, -1))
+	if err != nil {
+		return nil, fmt.Errorf("获取昨日结余失败：%w", err)
+	}
+	if snapshot == nil {
+		return nil, nil
+	}
+	return &snapshot.ClosingPrepaid, nil
 }
 
 func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time) *paymentservice.SummaryByPZIDItem {
@@ -221,67 +300,125 @@ func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time
 	return nil
 }
 
-func formatUpstreamSummary(binding models.InterfaceBinding, summary *paymentservice.SummaryByPZID, date time.Time, item *paymentservice.SummaryByPZIDItem) string {
-	dateStr := date.Format("2006-01-02")
+type upstreamSummaryRow struct {
+	Binding    models.InterfaceBinding
+	Gross      float64
+	Settlement float64
+}
+
+func buildUpstreamSummaryRow(binding models.InterfaceBinding, item *paymentservice.SummaryByPZIDItem) (upstreamSummaryRow, error) {
+	row := upstreamSummaryRow{Binding: binding}
 	if item == nil {
-		return fmt.Sprintf("ℹ️ %s 暂无上游账单数据（接口 %s）",
-			dateStr, formatInterfaceDescriptor(binding))
+		return row, nil
 	}
 
-	orderCount := safeValue(item.OrderCount, "0")
-	grossAmount := safeValue(item.GrossAmount, "0")
-	merchantIncome := safeValue(item.MerchantIncome, "0")
-	upstreamFee := strings.TrimSpace(item.UpstreamFee)
-	netAfterUpstream := strings.TrimSpace(item.NetAfterUpstream)
-
-	pzName := ""
-	if summary != nil {
-		pzName = strings.TrimSpace(summary.PZName)
-	}
-	nameLine := fmt.Sprintf("接口：%s", formatInterfaceDescriptor(binding))
-	transactionAmount := netAfterUpstream
-	if transactionAmount == "" {
-		transactionAmount = merchantIncome
+	gross, err := parseSummaryAmount(item.GrossAmount)
+	if err != nil {
+		return upstreamSummaryRow{}, fmt.Errorf("接口 %s 跑量金额格式错误: %w", binding.ID, err)
 	}
 
-	message := fmt.Sprintf("📈 上游账单 - %s\n%s%s\n跑量: %s\n成交: %s\n笔数: %s",
-		dateStr,
-		nameLine,
-		formatChannelLine(pzName),
-		html.EscapeString(grossAmount),
-		html.EscapeString(transactionAmount),
-		html.EscapeString(orderCount))
+	settlementRaw := strings.TrimSpace(item.NetAfterUpstream)
+	if settlementRaw == "" {
+		settlementRaw = item.MerchantIncome
+	}
+	settlement, err := parseSummaryAmount(settlementRaw)
+	if err != nil {
+		return upstreamSummaryRow{}, fmt.Errorf("接口 %s 应结算金额格式错误: %w", binding.ID, err)
+	}
 
-	_ = upstreamFee // retained for possible future display
-
-	return message
+	row.Gross = gross
+	row.Settlement = settlement
+	return row, nil
 }
 
-func formatChannelLine(pzName string) string {
-	name := strings.TrimSpace(pzName)
-	if name == "" {
-		return ""
+func formatSupplierBill(supplierName string, start, end time.Time, rows []upstreamSummaryRow, prepaid float64, yesterdayBalance *float64) string {
+	totalGross := 0.0
+	totalSettlement := 0.0
+	for _, row := range rows {
+		totalGross += row.Gross
+		totalSettlement += row.Settlement
 	}
-	return fmt.Sprintf("\n渠道名称：%s", html.EscapeString(name))
+	settlementDiff := totalSettlement - prepaid
+
+	builder := &strings.Builder{}
+	builder.WriteString("<b>📄 供应商账单</b>\n")
+	builder.WriteString(fmt.Sprintf("%s | %s\n", html.EscapeString(supplierName), start.Format("2006/01/02")))
+	builder.WriteString(fmt.Sprintf("%s - %s\n\n", start.Format("15:04:05"), end.Format("15:04:05")))
+
+	builder.WriteString("<b>📊 通道明细</b>\n")
+	for idx, row := range rows {
+		builder.WriteString(fmt.Sprintf("<b>%d. %s</b>\n", idx+1, html.EscapeString(bindingDisplayName(row.Binding.Name))))
+		builder.WriteString(fmt.Sprintf("费率：<code>%s</code>\n", html.EscapeString(displayRate(row.Binding.Rate))))
+		builder.WriteString(fmt.Sprintf("跑量：<code>%s</code>\n", formatCopyAmount(row.Gross)))
+		builder.WriteString(fmt.Sprintf("应结算：<code>%s</code>\n", formatCopyAmount(row.Settlement)))
+		if idx < len(rows)-1 {
+			builder.WriteString("\n")
+		}
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString("<b>📈 汇总</b>\n")
+	if yesterdayBalance != nil {
+		builder.WriteString(fmt.Sprintf("昨日结余 <code>%s</code>\n", formatCopyAmount(*yesterdayBalance)))
+	} else {
+		builder.WriteString("昨日结余 <code>暂无</code>\n")
+	}
+	builder.WriteString(fmt.Sprintf("跑量 <code>%s</code> | 应结算 <code>%s</code>\n",
+		formatCopyAmount(totalGross),
+		formatCopyAmount(totalSettlement)))
+	builder.WriteString(fmt.Sprintf("预付 <code>%s</code> | 结算差额 <code>%s</code>\n", formatCopyAmount(prepaid), formatCopyAmount(settlementDiff)))
+
+	builder.WriteString(fmt.Sprintf("公式：<code>%s</code> - %s = <code>%s</code>",
+		formatCopyAmount(totalSettlement),
+		formatFormulaSubtrahend(prepaid),
+		formatCopyAmount(settlementDiff)))
+
+	return builder.String()
 }
 
-func formatInterfaceDescriptor(binding models.InterfaceBinding) string {
-	descriptor := fmt.Sprintf("%s / <code>%s</code>",
-		html.EscapeString(bindingDisplayName(binding.Name)),
-		html.EscapeString(binding.ID))
-
-	rate := strings.TrimSpace(binding.Rate)
-	if rate != "" {
-		descriptor = fmt.Sprintf("%s（费率：%s）", descriptor, html.EscapeString(rate))
+func displayRate(rate string) string {
+	trimmed := strings.TrimSpace(rate)
+	if trimmed == "" {
+		return "0%"
 	}
-	return descriptor
+	if !strings.HasSuffix(trimmed, "%") {
+		return trimmed + "%"
+	}
+	return trimmed
 }
 
-func safeValue(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
+func parseSummaryAmount(raw string) (float64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, nil
 	}
-	return value
+	value := strings.ReplaceAll(trimmed, ",", "")
+	amount, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	return amount, nil
+}
+
+func formatCopyAmount(value float64) string {
+	rounded := math.Round(value*100) / 100
+	if math.Abs(rounded) == 0 {
+		rounded = 0
+	}
+
+	formatted := strconv.FormatFloat(rounded, 'f', 2, 64)
+	if strings.HasSuffix(formatted, ".00") {
+		return strings.TrimSuffix(formatted, ".00")
+	}
+	return formatted
+}
+
+func formatFormulaSubtrahend(value float64) string {
+	formatted := fmt.Sprintf("<code>%s</code>", formatCopyAmount(value))
+	if value < 0 {
+		return fmt.Sprintf("(%s)", formatted)
+	}
+	return formatted
 }
 
 func normalizeSummaryDate(raw string) string {

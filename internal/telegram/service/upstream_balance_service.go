@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"time"
@@ -206,17 +207,21 @@ func (s *UpstreamBalanceServiceImpl) SettleDaily(ctx context.Context, groupID in
 		summary, sumErr := s.paymentService.GetSummaryByDayByPZID(ctx, binding.ID, start, end)
 		if sumErr != nil {
 			logger.L().Errorf("SettleDaily summary failed: chat_id=%d pzid=%s err=%v", groupID, binding.ID, sumErr)
-			errors = append(errors, fmt.Sprintf("接口 %s 查询失败: %v", binding.ID, sumErr))
+			errors = append(errors, fmt.Sprintf("接口 %s 查询失败: %v", formatCode(binding.ID), sumErr))
 			continue
 		}
 
+		pzName := ""
+		if summary != nil {
+			pzName = trim(summary.PZName)
+		}
 		itemSummary := pickPZIDItem(summary, target)
 		if itemSummary == nil {
 			items = append(items, settlementItem{
 				Binding:     binding,
 				Volume:      0,
 				Rate:        0,
-				PZName:      trim(summary.PZName),
+				PZName:      pzName,
 				Deduction:   0,
 				RawAmount:   "",
 				RawRate:     binding.Rate,
@@ -227,24 +232,26 @@ func (s *UpstreamBalanceServiceImpl) SettleDaily(ctx context.Context, groupID in
 
 		volume, parseVolumeErr := parseAmount(itemSummary.GrossAmount)
 		if parseVolumeErr != nil {
-			errors = append(errors, fmt.Sprintf("接口 %s 跑量解析失败: %v", binding.ID, parseVolumeErr))
+			errors = append(errors, fmt.Sprintf("接口 %s 跑量解析失败: %v", formatCode(binding.ID), parseVolumeErr))
 			continue
 		}
 
-		rate, parseRateErr := parseRate(binding.Rate)
-		if parseRateErr != nil {
-			errors = append(errors, fmt.Sprintf("接口 %s 费率解析失败: %v", binding.ID, parseRateErr))
+		settlementRaw := trim(itemSummary.NetAfterUpstream)
+		if settlementRaw == "" {
+			settlementRaw = itemSummary.MerchantIncome
+		}
+		settlementAmount, parseSettlementErr := parseAmount(settlementRaw)
+		if parseSettlementErr != nil {
+			errors = append(errors, fmt.Sprintf("接口 %s 应结算解析失败: %v", formatCode(binding.ID), parseSettlementErr))
 			continue
 		}
 
-		deduction := volume * rate
-		totalDeduction += deduction
+		totalDeduction += settlementAmount
 		items = append(items, settlementItem{
 			Binding:   binding,
 			Volume:    volume,
-			Rate:      rate,
-			PZName:    trim(summary.PZName),
-			Deduction: deduction,
+			PZName:    pzName,
+			Deduction: settlementAmount,
 			RawAmount: itemSummary.GrossAmount,
 			RawRate:   binding.Rate,
 		})
@@ -269,7 +276,20 @@ func (s *UpstreamBalanceServiceImpl) SettleDaily(ctx context.Context, groupID in
 		below = balanceResult.Balance < balanceResult.MinBalance
 	}
 
-	report := s.buildSettlementReport(group, target, items, totalDeduction, balanceResult, errors)
+	snapshot, snapshotErr := s.repo.CreateSettlementSnapshot(ctx, &models.UpstreamSettlementSnapshot{
+		GroupID:          groupID,
+		Date:             start.Format("2006-01-02"),
+		OpeningPrepaid:   balanceResult.Balance + totalDeduction,
+		SettlementAmount: totalDeduction,
+		ClosingPrepaid:   balanceResult.Balance,
+		OperationID:      operationID,
+		CreatedAt:        time.Now(),
+	})
+	if snapshotErr != nil {
+		return nil, fmt.Errorf("保存日结快照失败: %w", snapshotErr)
+	}
+
+	report := s.buildSettlementReport(group, target, items, totalDeduction, balanceResult, snapshot, errors, operatorID == 0)
 
 	return &SettlementResult{
 		GroupID:        groupID,
@@ -278,6 +298,34 @@ func (s *UpstreamBalanceServiceImpl) SettleDaily(ctx context.Context, groupID in
 		Balance:        balanceResult.Balance,
 		BelowMin:       below,
 		Report:         report,
+	}, nil
+}
+
+// GetSettlementSnapshot 查询指定日期日结快照
+func (s *UpstreamBalanceServiceImpl) GetSettlementSnapshot(ctx context.Context, groupID int64, date time.Time) (*UpstreamSettlementSnapshotResult, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("余额仓储未配置")
+	}
+	loc := s.location
+	if loc == nil {
+		loc = time.Local
+	}
+	target := date.In(loc)
+	snapshot, err := s.repo.GetSettlementSnapshot(ctx, groupID, target.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	if snapshot == nil {
+		return nil, nil
+	}
+	return &UpstreamSettlementSnapshotResult{
+		GroupID:          snapshot.GroupID,
+		Date:             snapshot.Date,
+		OpeningPrepaid:   snapshot.OpeningPrepaid,
+		SettlementAmount: snapshot.SettlementAmount,
+		ClosingPrepaid:   snapshot.ClosingPrepaid,
+		OperationID:      snapshot.OperationID,
+		CreatedAt:        snapshot.CreatedAt,
 	}, nil
 }
 
@@ -324,10 +372,23 @@ func (s *UpstreamBalanceServiceImpl) buildSettlementReport(
 	items []settlementItem,
 	total float64,
 	balance *UpstreamBalanceResult,
+	snapshot *models.UpstreamSettlementSnapshot,
 	errors []string,
+	automatic bool,
 ) string {
 	builder := &strings.Builder{}
-	builder.WriteString(fmt.Sprintf("📊 日结 - %s\n", target.Format("2006-01-02")))
+	beforeBalance := balance.Balance + total
+	afterBalance := balance.Balance
+	if snapshot != nil {
+		beforeBalance = snapshot.OpeningPrepaid
+		afterBalance = snapshot.ClosingPrepaid
+	}
+
+	title := "日结"
+	if automatic {
+		title = "自动日结"
+	}
+	builder.WriteString(fmt.Sprintf("📊 %s - %s\n", title, formatCode(target.Format("2006-01-02"))))
 	builder.WriteString(fmt.Sprintf("群组：%s\n\n", group.Title))
 
 	if len(items) == 0 {
@@ -336,25 +397,23 @@ func (s *UpstreamBalanceServiceImpl) buildSettlementReport(
 		for _, it := range items {
 			desc := it.Description
 			if desc == "" {
-				desc = fmt.Sprintf("跑量：%s，费率：%s%%", formatMoney(it.Volume), formatRatePercent(it.Rate))
+				desc = fmt.Sprintf("跑量：%s，应结算：%s", formatCodeMoney(it.Volume), formatCodeMoney(it.Deduction))
 			}
-			builder.WriteString(fmt.Sprintf("• %s (%s)\n", bindingDisplayName(it.Binding.Name), it.Binding.ID))
+			builder.WriteString(fmt.Sprintf("• %s (%s)\n", bindingDisplayName(it.Binding.Name), formatCode(it.Binding.ID)))
 			if it.PZName != "" {
 				builder.WriteString(fmt.Sprintf("  渠道：%s\n", it.PZName))
 			}
 			builder.WriteString(fmt.Sprintf("  %s\n", desc))
-			if it.Deduction > 0 {
-				builder.WriteString(fmt.Sprintf("  扣减：%s CNY\n", formatMoney(it.Deduction)))
-			}
 		}
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString(fmt.Sprintf("总扣减：%s CNY\n", formatMoney(total)))
-	builder.WriteString(fmt.Sprintf("当前余额：%s CNY\n", formatMoney(balance.Balance)))
-	builder.WriteString(fmt.Sprintf("最低余额：%s CNY\n", formatMoney(balance.MinBalance)))
+	builder.WriteString(fmt.Sprintf("应结算合计：%s CNY\n", formatCodeMoney(total)))
+	builder.WriteString(fmt.Sprintf("日结前预付：%s CNY\n", formatCodeMoney(beforeBalance)))
+	builder.WriteString(fmt.Sprintf("日结后预付：%s CNY\n", formatCodeMoney(afterBalance)))
+	builder.WriteString(fmt.Sprintf("最低预付：%s CNY\n", formatCodeMoney(balance.MinBalance)))
 	if balance.Balance < balance.MinBalance {
-		builder.WriteString("⚠️ 余额低于阈值，请尽快加款。\n")
+		builder.WriteString("⚠️ 余额低于阈值，请尽快增加预付。\n")
 	}
 
 	if len(errors) > 0 {
@@ -449,6 +508,14 @@ func trim(s string) string {
 
 func formatMoney(v float64) string {
 	return fmt.Sprintf("%.2f", v)
+}
+
+func formatCodeMoney(v float64) string {
+	return formatCode(formatMoney(v))
+}
+
+func formatCode(value string) string {
+	return fmt.Sprintf("<code>%s</code>", html.EscapeString(value))
 }
 
 func formatRatePercent(v float64) string {

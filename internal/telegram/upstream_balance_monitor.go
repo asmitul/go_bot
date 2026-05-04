@@ -223,7 +223,7 @@ func (m *upstreamBalanceMonitor) sendAlert(ctx context.Context, group *models.Gr
 	defer cancel()
 
 	text := fmt.Sprintf(
-		"⚠️ 上游余额不足\n当前余额：%s CNY\n最低余额：%s CNY\n建议立即加款，例如发送「+1000」或调整阈值：/set_min_balance 金额",
+		"⚠️ 上游余额不足\n当前余额：%s CNY\n最低余额：%s CNY\n建议立即增加预付，例如发送「-1000」或调整阈值：/set_min_balance 金额",
 		formatAmount(balance),
 		formatAmount(minBalance),
 	)

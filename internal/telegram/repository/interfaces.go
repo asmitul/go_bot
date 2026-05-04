@@ -156,6 +156,12 @@ type UpstreamBalanceRepository interface {
 	// ListAll 列出所有余额记录
 	ListAll(ctx context.Context) ([]*models.UpstreamBalance, error)
 
+	// CreateSettlementSnapshot 保存日结快照，已存在时保持原记录不变
+	CreateSettlementSnapshot(ctx context.Context, snapshot *models.UpstreamSettlementSnapshot) (*models.UpstreamSettlementSnapshot, error)
+
+	// GetSettlementSnapshot 获取指定日期的日结快照
+	GetSettlementSnapshot(ctx context.Context, groupID int64, date string) (*models.UpstreamSettlementSnapshot, error)
+
 	// EnsureIndexes 确保索引存在
 	EnsureIndexes(ctx context.Context) error
 }

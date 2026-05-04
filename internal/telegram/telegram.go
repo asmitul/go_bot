@@ -204,8 +204,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 
 	telegramBot.initUpstreamBalanceMonitor()
 	telegramBot.initDailySummaryScheduler(cfg.DailyBillPushEnabled)
-	// Temporary disable auto upstream settlement scheduler, keep manual /日结 available.
-	telegramBot.initUpstreamSettlementScheduler(false)
+	telegramBot.initUpstreamSettlementScheduler(true)
 
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
@@ -425,8 +424,8 @@ func (b *Bot) registerFeatures() {
 
 	// 注册接口绑定功能
 	b.featureManager.Register(upstream.New(b.groupService, b.userService))
-	b.featureManager.Register(upstream.NewBalanceFeature(b.balanceService, b.userService, b.groupService))
-	b.featureManager.Register(upstream.NewSummaryFeature(b.paymentService))
+	b.featureManager.Register(upstream.NewBalanceFeature(b.balanceService, b.userService, b.groupService, b.paymentService))
+	b.featureManager.Register(upstream.NewSummaryFeature(b.paymentService, b.balanceService))
 
 	// 注册四方支付功能
 	b.sifangFeature = sifangfeature.New(b.paymentService, b.userService)

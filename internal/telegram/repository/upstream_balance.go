@@ -19,15 +19,17 @@ const defaultBalanceAlertLimit = 3
 
 // MongoUpstreamBalanceRepository 上游群余额数据访问层（MongoDB 实现）
 type MongoUpstreamBalanceRepository struct {
-	balanceColl *mongo.Collection
-	logColl     *mongo.Collection
+	balanceColl  *mongo.Collection
+	logColl      *mongo.Collection
+	snapshotColl *mongo.Collection
 }
 
 // NewMongoUpstreamBalanceRepository 创建仓储实例
 func NewMongoUpstreamBalanceRepository(db *mongo.Database) UpstreamBalanceRepository {
 	return &MongoUpstreamBalanceRepository{
-		balanceColl: db.Collection("upstream_balances"),
-		logColl:     db.Collection("upstream_balance_logs"),
+		balanceColl:  db.Collection("upstream_balances"),
+		logColl:      db.Collection("upstream_balance_logs"),
+		snapshotColl: db.Collection("upstream_settlement_snapshots"),
 	}
 }
 
@@ -325,6 +327,65 @@ func (r *MongoUpstreamBalanceRepository) ListAll(ctx context.Context) ([]*models
 	return balances, nil
 }
 
+// CreateSettlementSnapshot 保存日结快照，已存在时返回原记录
+func (r *MongoUpstreamBalanceRepository) CreateSettlementSnapshot(ctx context.Context, snapshot *models.UpstreamSettlementSnapshot) (*models.UpstreamSettlementSnapshot, error) {
+	if snapshot == nil {
+		return nil, errors.New("settlement snapshot is nil")
+	}
+	if snapshot.GroupID == 0 {
+		return nil, errors.New("settlement snapshot group_id is required")
+	}
+	if strings.TrimSpace(snapshot.Date) == "" {
+		return nil, errors.New("settlement snapshot date is required")
+	}
+
+	now := time.Now()
+	if snapshot.CreatedAt.IsZero() {
+		snapshot.CreatedAt = now
+	}
+
+	filter := bson.M{
+		"group_id": snapshot.GroupID,
+		"date":     strings.TrimSpace(snapshot.Date),
+	}
+	update := bson.M{
+		"$setOnInsert": bson.M{
+			"group_id":          snapshot.GroupID,
+			"date":              strings.TrimSpace(snapshot.Date),
+			"opening_prepaid":   snapshot.OpeningPrepaid,
+			"settlement_amount": snapshot.SettlementAmount,
+			"closing_prepaid":   snapshot.ClosingPrepaid,
+			"operation_id":      snapshot.OperationID,
+			"created_at":        snapshot.CreatedAt,
+		},
+	}
+	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
+
+	var saved models.UpstreamSettlementSnapshot
+	if err := r.snapshotColl.FindOneAndUpdate(ctx, filter, update, opts).Decode(&saved); err != nil {
+		return nil, fmt.Errorf("save settlement snapshot: %w", err)
+	}
+	return &saved, nil
+}
+
+// GetSettlementSnapshot 获取指定日期的日结快照
+func (r *MongoUpstreamBalanceRepository) GetSettlementSnapshot(ctx context.Context, groupID int64, date string) (*models.UpstreamSettlementSnapshot, error) {
+	filter := bson.M{
+		"group_id": groupID,
+		"date":     strings.TrimSpace(date),
+	}
+
+	var snapshot models.UpstreamSettlementSnapshot
+	err := r.snapshotColl.FindOne(ctx, filter).Decode(&snapshot)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get settlement snapshot: %w", err)
+	}
+	return &snapshot, nil
+}
+
 // EnsureIndexes 创建需要的索引
 func (r *MongoUpstreamBalanceRepository) EnsureIndexes(ctx context.Context) error {
 	balanceIndexes := []mongo.IndexModel{
@@ -356,6 +417,23 @@ func (r *MongoUpstreamBalanceRepository) EnsureIndexes(ctx context.Context) erro
 
 	if _, err := r.logColl.Indexes().CreateMany(ctx, logIndexes); err != nil {
 		return fmt.Errorf("create balance log indexes: %w", err)
+	}
+
+	snapshotIndexes := []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "group_id", Value: 1},
+				{Key: "date", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{Key: "operation_id", Value: 1}},
+			Options: options.Index().SetUnique(true).SetSparse(true),
+		},
+	}
+	if _, err := r.snapshotColl.Indexes().CreateMany(ctx, snapshotIndexes); err != nil {
+		return fmt.Errorf("create settlement snapshot indexes: %w", err)
 	}
 
 	return nil
