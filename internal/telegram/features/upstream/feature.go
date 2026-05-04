@@ -81,7 +81,7 @@ func (f *Feature) Process(ctx context.Context, msg *botModels.Message, group *mo
 	case strings.HasPrefix(text, "绑定接口 "):
 		respText, handled, handlerErr := f.handleBind(ctx, msg, text)
 		return respond(respText), handled, handlerErr
-	case text == "解绑接口":
+	case text == "解绑接口" || strings.HasPrefix(text, "解绑接口 "):
 		respText, handled, handlerErr := f.handleUnbind(ctx, msg)
 		return respond(respText), handled, handlerErr
 	case text == "接口ID" || text == "接口状态":
