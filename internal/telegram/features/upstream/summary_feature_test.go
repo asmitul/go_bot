@@ -29,7 +29,25 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 		},
 	}
 
-	balanceStub := &stubBalanceService{balance: 4392.05, snapshotClosing: 1884}
+	balanceStub := &stubBalanceService{
+		balance:         4392.05,
+		snapshotClosing: 1884,
+		adjustmentLogs: []*models.UpstreamBalanceLog{
+			{
+				GroupID:   1001,
+				Delta:     -1000,
+				Type:      models.BalanceOpDebit,
+				Remark:    "扣款",
+				CreatedAt: time.Date(2024, 10, 26, 10, 32, 1, 0, upstreamChinaLocation),
+			},
+			{
+				GroupID:   1001,
+				Delta:     1000,
+				Type:      models.BalanceOpCredit,
+				CreatedAt: time.Date(2024, 10, 26, 14, 5, 22, 0, upstreamChinaLocation),
+			},
+		},
+	}
 	feature := NewSummaryFeature(stub, balanceStub)
 	feature.nowFunc = func() time.Time {
 		return time.Date(2024, 10, 26, 12, 0, 0, 0, upstreamChinaLocation)
@@ -76,6 +94,9 @@ func TestSummaryFeature_ProcessWithData(t *testing.T) {
 	}
 	if !strings.Contains(resp.Text, "公式：<code>950</code> - <code>4392.05</code> = <code>-3442.05</code>") {
 		t.Fatalf("expected settlement formula, got %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "💸 出入账记录（总计 0｜2 笔）\n<blockquote>10:32:01      +1000      扣款\n14:05:22      -1000</blockquote>") {
+		t.Fatalf("expected adjustment log section, got %s", resp.Text)
 	}
 	if stub.lastPZID != "1024" {
 		t.Fatalf("expected pzid 1024, got %s", stub.lastPZID)
@@ -131,6 +152,9 @@ func TestSummaryFeature_NegativePrepaidUsesParenthesesInFormula(t *testing.T) {
 	}
 	if !strings.Contains(resp.Text, "公式：<code>950</code> - (<code>-3000</code>) = <code>3950</code>") {
 		t.Fatalf("expected parenthesized negative prepaid formula, got %s", resp.Text)
+	}
+	if !strings.Contains(resp.Text, "💸 出入账记录\n暂无出入账记录") {
+		t.Fatalf("expected empty adjustment log section, got %s", resp.Text)
 	}
 }
 
@@ -308,6 +332,7 @@ type stubBalanceService struct {
 	below           bool
 	snapshotClosing float64
 	hasSnapshot     bool
+	adjustmentLogs  []*models.UpstreamBalanceLog
 }
 
 func (s *stubBalanceService) Adjust(ctx context.Context, groupID int64, delta float64, operatorID int64, remark string, operationID string) (*telegramservice.UpstreamBalanceResult, bool, error) {
@@ -355,6 +380,13 @@ func (s *stubBalanceService) GetSettlementSnapshot(ctx context.Context, groupID 
 
 func (s *stubBalanceService) ListAll(ctx context.Context) ([]*telegramservice.UpstreamBalanceResult, error) {
 	panic("not implemented")
+}
+
+func (s *stubBalanceService) ListAdjustmentLogs(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.adjustmentLogs, nil
 }
 
 func (s *stubBalanceService) SettleDaily(ctx context.Context, groupID int64, targetDate time.Time, operatorID int64, operationID string) (*telegramservice.SettlementResult, error) {

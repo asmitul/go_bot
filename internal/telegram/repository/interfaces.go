@@ -156,6 +156,9 @@ type UpstreamBalanceRepository interface {
 	// ListAll 列出所有余额记录
 	ListAll(ctx context.Context) ([]*models.UpstreamBalance, error)
 
+	// ListAdjustmentLogsByDateRange 查询指定日期范围内的人工出入账日志
+	ListAdjustmentLogsByDateRange(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error)
+
 	// CreateSettlementSnapshot 保存日结快照，已存在时保持原记录不变
 	CreateSettlementSnapshot(ctx context.Context, snapshot *models.UpstreamSettlementSnapshot) (*models.UpstreamSettlementSnapshot, error)
 

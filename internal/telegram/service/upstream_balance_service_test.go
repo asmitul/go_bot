@@ -112,6 +112,10 @@ func (s *stubUpstreamBalanceRepo) ListAll(ctx context.Context) ([]*models.Upstre
 	return []*models.UpstreamBalance{s.balance}, nil
 }
 
+func (s *stubUpstreamBalanceRepo) ListAdjustmentLogsByDateRange(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error) {
+	return nil, nil
+}
+
 func (s *stubUpstreamBalanceRepo) CreateSettlementSnapshot(ctx context.Context, snapshot *models.UpstreamSettlementSnapshot) (*models.UpstreamSettlementSnapshot, error) {
 	if s.lastSnapshot == nil {
 		clone := *snapshot

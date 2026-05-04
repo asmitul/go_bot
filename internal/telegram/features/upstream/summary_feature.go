@@ -128,8 +128,12 @@ func (f *SummaryFeature) Process(ctx context.Context, msg *botModels.Message, gr
 	if err != nil {
 		return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
 	}
+	adjustmentLogs, err := f.queryAdjustmentLogs(ctx, msg.Chat.ID, start)
+	if err != nil {
+		return respond(fmt.Sprintf("❌ 查询上游账单失败：%v", err)), true, nil
+	}
 
-	return respond(formatSupplierBill(defaultSupplierName, start, end, rows, prepaid, yesterdayBalance)), true, nil
+	return respond(formatSupplierBill(defaultSupplierName, start, end, rows, prepaid, yesterdayBalance, adjustmentLogs)), true, nil
 }
 
 // Priority 在接口管理之后执行
@@ -280,6 +284,17 @@ func (f *SummaryFeature) queryYesterdayBalance(ctx context.Context, chatID int64
 	return &snapshot.ClosingPrepaid, nil
 }
 
+func (f *SummaryFeature) queryAdjustmentLogs(ctx context.Context, chatID int64, start time.Time) ([]*models.UpstreamBalanceLog, error) {
+	if f.balanceService == nil {
+		return nil, nil
+	}
+	records, err := f.balanceService.ListAdjustmentLogs(ctx, chatID, start, start.Add(24*time.Hour))
+	if err != nil {
+		return nil, fmt.Errorf("获取出入账记录失败：%w", err)
+	}
+	return records, nil
+}
+
 func pickSummaryItem(summary *paymentservice.SummaryByPZID, targetDate time.Time) *paymentservice.SummaryByPZIDItem {
 	if summary == nil || len(summary.Items) == 0 {
 		return nil
@@ -331,7 +346,7 @@ func buildUpstreamSummaryRow(binding models.InterfaceBinding, item *paymentservi
 	return row, nil
 }
 
-func formatSupplierBill(supplierName string, start, end time.Time, rows []upstreamSummaryRow, prepaid float64, yesterdayBalance *float64) string {
+func formatSupplierBill(supplierName string, start, end time.Time, rows []upstreamSummaryRow, prepaid float64, yesterdayBalance *float64, adjustmentLogs []*models.UpstreamBalanceLog) string {
 	totalGross := 0.0
 	totalSettlement := 0.0
 	for _, row := range rows {
@@ -372,8 +387,55 @@ func formatSupplierBill(supplierName string, start, end time.Time, rows []upstre
 		formatCopyAmount(totalSettlement),
 		formatFormulaSubtrahend(prepaid),
 		formatCopyAmount(settlementDiff)))
+	builder.WriteString("\n\n")
+	builder.WriteString(formatAdjustmentLogMessage(adjustmentLogs, start.Location()))
 
 	return builder.String()
+}
+
+func formatAdjustmentLogMessage(logs []*models.UpstreamBalanceLog, loc *time.Location) string {
+	total := 0.0
+	count := 0
+	for _, log := range logs {
+		if log == nil || log.Delta == 0 {
+			continue
+		}
+		total += -log.Delta
+		count++
+	}
+
+	title := "💸 出入账记录"
+	if count == 0 {
+		return fmt.Sprintf("%s\n暂无出入账记录", title)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s（总计 %s｜%d 笔）\n", title, html.EscapeString(formatSignedCopyAmount(total)), count))
+	sb.WriteString("<blockquote>")
+	for _, log := range logs {
+		if log == nil || log.Delta == 0 {
+			continue
+		}
+		created := log.CreatedAt
+		if loc != nil {
+			created = created.In(loc)
+		}
+		remark := strings.TrimSpace(log.Remark)
+		if remark == "" {
+			sb.WriteString(fmt.Sprintf("%s      %s\n",
+				html.EscapeString(created.Format("15:04:05")),
+				html.EscapeString(formatSignedCopyAmount(-log.Delta)),
+			))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("%s      %s      %s\n",
+			html.EscapeString(created.Format("15:04:05")),
+			html.EscapeString(formatSignedCopyAmount(-log.Delta)),
+			html.EscapeString(remark),
+		))
+	}
+
+	return strings.TrimRight(sb.String(), "\n") + "</blockquote>"
 }
 
 func displayRate(rate string) string {
@@ -411,6 +473,13 @@ func formatCopyAmount(value float64) string {
 		return strings.TrimSuffix(formatted, ".00")
 	}
 	return formatted
+}
+
+func formatSignedCopyAmount(value float64) string {
+	if value > 0 {
+		return "+" + formatCopyAmount(value)
+	}
+	return formatCopyAmount(value)
 }
 
 func formatFormulaSubtrahend(value float64) string {

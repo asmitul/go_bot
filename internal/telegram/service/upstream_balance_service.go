@@ -172,6 +172,14 @@ func (s *UpstreamBalanceServiceImpl) ListAll(ctx context.Context) ([]*UpstreamBa
 	return results, nil
 }
 
+// ListAdjustmentLogs 查询指定时间范围内的人工出入账记录
+func (s *UpstreamBalanceServiceImpl) ListAdjustmentLogs(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error) {
+	if err := s.ensureUpstreamGroup(ctx, groupID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListAdjustmentLogsByDateRange(ctx, groupID, startTime, endTime)
+}
+
 // SettleDaily 日结扣费
 func (s *UpstreamBalanceServiceImpl) SettleDaily(ctx context.Context, groupID int64, targetDate time.Time, operatorID int64, operationID string) (*SettlementResult, error) {
 	if s.paymentService == nil {

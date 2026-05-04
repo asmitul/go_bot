@@ -176,6 +176,7 @@ type UpstreamBalanceService interface {
 	SetAlertLimit(ctx context.Context, groupID int64, limit int, operatorID int64) (*UpstreamBalanceResult, error)
 	Get(ctx context.Context, groupID int64) (*UpstreamBalanceResult, error)
 	ListAll(ctx context.Context) ([]*UpstreamBalanceResult, error)
+	ListAdjustmentLogs(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error)
 	SettleDaily(ctx context.Context, groupID int64, targetDate time.Time, operatorID int64, operationID string) (*SettlementResult, error)
 	GetSettlementSnapshot(ctx context.Context, groupID int64, date time.Time) (*UpstreamSettlementSnapshotResult, error)
 	SubscribeEvents() <-chan *models.UpstreamBalanceEvent

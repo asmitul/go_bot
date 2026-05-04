@@ -327,6 +327,33 @@ func (r *MongoUpstreamBalanceRepository) ListAll(ctx context.Context) ([]*models
 	return balances, nil
 }
 
+// ListAdjustmentLogsByDateRange 查询指定日期范围内的人工出入账日志
+func (r *MongoUpstreamBalanceRepository) ListAdjustmentLogsByDateRange(ctx context.Context, groupID int64, startTime, endTime time.Time) ([]*models.UpstreamBalanceLog, error) {
+	filter := bson.M{
+		"group_id": groupID,
+		"type": bson.M{
+			"$in": []models.BalanceOperationType{models.BalanceOpCredit, models.BalanceOpDebit},
+		},
+		"created_at": bson.M{
+			"$gte": startTime,
+			"$lt":  endTime,
+		},
+	}
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+
+	cursor, err := r.logColl.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("list adjustment logs failed: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var logs []*models.UpstreamBalanceLog
+	if err := cursor.All(ctx, &logs); err != nil {
+		return nil, fmt.Errorf("decode adjustment logs failed: %w", err)
+	}
+	return logs, nil
+}
+
 // CreateSettlementSnapshot 保存日结快照，已存在时返回原记录
 func (r *MongoUpstreamBalanceRepository) CreateSettlementSnapshot(ctx context.Context, snapshot *models.UpstreamSettlementSnapshot) (*models.UpstreamSettlementSnapshot, error) {
 	if snapshot == nil {
@@ -406,6 +433,7 @@ func (r *MongoUpstreamBalanceRepository) EnsureIndexes(ctx context.Context) erro
 		{
 			Keys: bson.D{
 				{Key: "group_id", Value: 1},
+				{Key: "type", Value: 1},
 				{Key: "created_at", Value: -1},
 			},
 		},
