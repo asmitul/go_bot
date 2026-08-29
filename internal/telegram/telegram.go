@@ -29,12 +29,14 @@ import (
 
 // Config Telegram Bot 配置
 type Config struct {
-	Token                string  // Bot Token
-	OwnerIDs             []int64 // Owner 用户 IDs
-	Debug                bool    // 是否开启调试模式
-	MessageRetentionDays int     // 消息保留天数（用于 TTL 索引）
-	ChannelID            int64   // 源频道 ID（用于转发功能）
-	DailyBillPushEnabled bool    // 是否启用每日账单自动推送
+	Token                       string        // Bot Token
+	OwnerIDs                    []int64       // Owner 用户 IDs
+	Debug                       bool          // 是否开启调试模式
+	MessageRetentionDays        int           // 消息保留天数（用于 TTL 索引）
+	ChannelID                   int64         // 源频道 ID（用于转发功能）
+	DailyBillPushEnabled        bool          // 是否启用每日账单自动推送
+	MerchantRateMonitorEnabled  bool          // 是否启用商户费率变化监控
+	MerchantRateMonitorInterval time.Duration // 商户费率轮询间隔
 }
 
 const (
@@ -70,6 +72,7 @@ type Bot struct {
 	dailySummaryScheduler *dailySummaryScheduler
 	upstreamScheduler     *upstreamSettlementScheduler
 	balanceMonitor        *upstreamBalanceMonitor
+	merchantRateMonitor   *merchantRateMonitor
 
 	// Repository 层（仅用于初始化）
 	userRepo            repository.UserRepository
@@ -79,6 +82,7 @@ type Bot struct {
 	accountingRepo      repository.AccountingRepository
 	withdrawQuoteRepo   repository.WithdrawQuoteRepository
 	upstreamBalanceRepo repository.UpstreamBalanceRepository
+	merchantRateRepo    repository.MerchantRateSnapshotRepository
 
 	orderCascadeStates map[string]*orderCascadeState
 	orderCascadeMu     sync.RWMutex
@@ -99,6 +103,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	accountingRepo := repository.NewMongoAccountingRepository(db)
 	withdrawQuoteRepo := repository.NewMongoWithdrawQuoteRepository(db)
 	upstreamBalanceRepo := repository.NewMongoUpstreamBalanceRepository(db)
+	merchantRateRepo := repository.NewMongoMerchantRateSnapshotRepository(db)
 
 	// 创建 services
 	userService := service.NewUserService(userRepo)
@@ -179,6 +184,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 		accountingRepo:       accountingRepo,
 		withdrawQuoteRepo:    withdrawQuoteRepo,
 		upstreamBalanceRepo:  upstreamBalanceRepo,
+		merchantRateRepo:     merchantRateRepo,
 		orderCascadeStates:   make(map[string]*orderCascadeState),
 	}
 
@@ -205,6 +211,7 @@ func New(cfg Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bo
 	telegramBot.initUpstreamBalanceMonitor()
 	telegramBot.initDailySummaryScheduler(cfg.DailyBillPushEnabled)
 	telegramBot.initUpstreamSettlementScheduler(true)
+	telegramBot.initMerchantRateMonitor(cfg.MerchantRateMonitorEnabled, cfg.MerchantRateMonitorInterval)
 
 	logger.L().Info("Telegram bot initialized successfully")
 	return telegramBot, nil
@@ -227,12 +234,14 @@ func (b *Bot) asyncHandler(handler bot.HandlerFunc) bot.HandlerFunc {
 // InitFromConfig 从应用配置初始化 Telegram Bot
 func InitFromConfig(cfg *config.Config, db *mongo.Database, paymentSvc paymentservice.Service) (*Bot, error) {
 	telegramCfg := Config{
-		Token:                cfg.TelegramToken,
-		OwnerIDs:             cfg.BotOwnerIDs,
-		Debug:                false, // 可根据需要从环境变量读取
-		MessageRetentionDays: cfg.MessageRetentionDays,
-		ChannelID:            cfg.ChannelID,
-		DailyBillPushEnabled: cfg.DailyBillPushEnabled,
+		Token:                       cfg.TelegramToken,
+		OwnerIDs:                    cfg.BotOwnerIDs,
+		Debug:                       false, // 可根据需要从环境变量读取
+		MessageRetentionDays:        cfg.MessageRetentionDays,
+		ChannelID:                   cfg.ChannelID,
+		DailyBillPushEnabled:        cfg.DailyBillPushEnabled,
+		MerchantRateMonitorEnabled:  cfg.MerchantRateMonitorEnabled,
+		MerchantRateMonitorInterval: cfg.MerchantRateMonitorInterval,
 	}
 	return New(telegramCfg, db, paymentSvc)
 }
@@ -273,6 +282,11 @@ func (b *Bot) Stop(ctx context.Context) error {
 	if b.balanceMonitor != nil {
 		b.balanceMonitor.stop()
 		b.balanceMonitor = nil
+	}
+
+	if b.merchantRateMonitor != nil {
+		b.merchantRateMonitor.stop()
+		b.merchantRateMonitor = nil
 	}
 
 	// bot.Stop() 通过 context 取消实现
@@ -359,6 +373,13 @@ func (b *Bot) ensureIndexes(ctx context.Context) error {
 		logger.L().Debug("Upstream balance indexes ensured")
 	}
 
+	if b.merchantRateRepo != nil {
+		if err := b.merchantRateRepo.EnsureIndexes(ctx); err != nil {
+			return fmt.Errorf("failed to ensure merchant rate snapshot indexes: %w", err)
+		}
+		logger.L().Debug("Merchant rate snapshot indexes ensured")
+	}
+
 	return nil
 }
 
@@ -412,6 +433,21 @@ func (b *Bot) initUpstreamSettlementScheduler(enabled bool) {
 	scheduler := newUpstreamSettlementScheduler(b)
 	b.upstreamScheduler = scheduler
 	scheduler.start()
+}
+
+func (b *Bot) initMerchantRateMonitor(enabled bool, interval time.Duration) {
+	if !enabled {
+		logger.L().Info("Merchant rate monitor disabled via config")
+		return
+	}
+	if b.paymentService == nil || b.groupService == nil || b.merchantRateRepo == nil {
+		logger.L().Warn("Merchant rate monitor not started: required service is unavailable")
+		return
+	}
+
+	monitor := newMerchantRateMonitor(b, b.groupService, b.paymentService, b.merchantRateRepo, interval)
+	b.merchantRateMonitor = monitor
+	monitor.start()
 }
 
 // registerFeatures 注册所有功能插件

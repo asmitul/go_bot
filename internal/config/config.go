@@ -10,14 +10,16 @@ import (
 
 // Config 应用程序配置
 type Config struct {
-	TelegramToken        string  // Telegram Bot API Token
-	BotOwnerIDs          []int64 // Bot管理员ID列表
-	MongoURI             string  // MongoDB连接URI
-	MongoDBName          string  // MongoDB数据库名称
-	MessageRetentionDays int     // 消息保留天数（过期自动删除）
-	ChannelID            int64   // 源频道 ID（用于转发功能）
-	DailyBillPushEnabled bool    // 是否启用每日账单推送
-	Payment              PaymentConfig
+	TelegramToken               string        // Telegram Bot API Token
+	BotOwnerIDs                 []int64       // Bot管理员ID列表
+	MongoURI                    string        // MongoDB连接URI
+	MongoDBName                 string        // MongoDB数据库名称
+	MessageRetentionDays        int           // 消息保留天数（过期自动删除）
+	ChannelID                   int64         // 源频道 ID（用于转发功能）
+	DailyBillPushEnabled        bool          // 是否启用每日账单推送
+	MerchantRateMonitorEnabled  bool          // 是否启用商户费率变化监控
+	MerchantRateMonitorInterval time.Duration // 商户费率轮询间隔
+	Payment                     PaymentConfig
 }
 
 // PaymentConfig 支付相关配置
@@ -43,10 +45,12 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		TelegramToken:        os.Getenv("TELEGRAM_TOKEN"),
-		MongoURI:             os.Getenv("MONGO_URI"),
-		MongoDBName:          mongoDBName,
-		DailyBillPushEnabled: true,
+		TelegramToken:               os.Getenv("TELEGRAM_TOKEN"),
+		MongoURI:                    os.Getenv("MONGO_URI"),
+		MongoDBName:                 mongoDBName,
+		DailyBillPushEnabled:        true,
+		MerchantRateMonitorEnabled:  true,
+		MerchantRateMonitorInterval: time.Minute,
 	}
 
 	if enabled := strings.TrimSpace(os.Getenv("DAILY_BILL_PUSH_ENABLED")); enabled != "" {
@@ -55,6 +59,22 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("failed to parse DAILY_BILL_PUSH_ENABLED: %w", err)
 		}
 		cfg.DailyBillPushEnabled = value
+	}
+
+	if enabled := strings.TrimSpace(os.Getenv("MERCHANT_RATE_MONITOR_ENABLED")); enabled != "" {
+		value, err := strconv.ParseBool(enabled)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse MERCHANT_RATE_MONITOR_ENABLED: %w", err)
+		}
+		cfg.MerchantRateMonitorEnabled = value
+	}
+
+	if interval := strings.TrimSpace(os.Getenv("MERCHANT_RATE_MONITOR_INTERVAL_MINUTES")); interval != "" {
+		minutes, err := strconv.Atoi(interval)
+		if err != nil || minutes <= 0 {
+			return nil, fmt.Errorf("MERCHANT_RATE_MONITOR_INTERVAL_MINUTES must be a positive integer")
+		}
+		cfg.MerchantRateMonitorInterval = time.Duration(minutes) * time.Minute
 	}
 
 	// 解析BOT_OWNER_IDS
