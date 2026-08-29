@@ -522,7 +522,7 @@ func TestSifangService_GetOrderDetail_Success(t *testing.T) {
 			t.Fatalf("unexpected merchant order no: %s", got)
 		}
 
-		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"merchant_order_no":"MER-1","platform_order_no":"PF-9","amount":"10.00","status":"1"},"extended":{"order_id":"OID-9","channel_fee":"0.50"},"notify_logs":[{"status":"success","notify_url":"https://callback","notify_time":"2024-10-26 12:00:00"}]}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"merchant_order_no":"MER-1","platform_order_no":"PF-9","amount":"10.00","status":"1"},"extended":{"order_id":"OID-9","channel_fee":"0.50"},"notify_logs":[{"status":"success","notify_url":"https://callback","notify_time":"2024-10-26 12:00:00"}]}}`)
 	}))
 	defer ts.Close()
 
@@ -563,7 +563,7 @@ func TestSifangService_GetOrderDetail_Fallback(t *testing.T) {
 		case "/orderdetail":
 			orderDetailRequests++
 			if r.Form.Get("merchant_order_no") != "" {
-				fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+				_, _ = fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
 				return
 			}
 
@@ -571,13 +571,13 @@ func TestSifangService_GetOrderDetail_Fallback(t *testing.T) {
 				t.Fatalf("unexpected platform order number: %s", r.Form.Get("platform_order_no"))
 			}
 
-			fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"platform_order_no":"PLAT-1","status":"1"}}}`)
+			_, _ = fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"order":{"platform_order_no":"PLAT-1","status":"1"}}}`)
 		case "/orderpaydetail":
 			orderPayDetailRequests++
 			if got := r.Form.Get("merchant_order_no"); got != "PLAT-1" {
 				t.Fatalf("unexpected merchant order number for orderpaydetail: %s", got)
 			}
-			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+			_, _ = fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -627,13 +627,13 @@ func TestSifangService_GetOrderDetail_FallbackToOrderPayDetail(t *testing.T) {
 			if got := r.Form.Get("merchant_order_no"); got != "MER-ONLY-IN-PAY-LOG" {
 				t.Fatalf("unexpected merchant order no: %s", got)
 			}
-			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+			_, _ = fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
 		case "/orderpaydetail":
 			orderPayDetailRequests++
 			if got := r.Form.Get("merchant_order_no"); got != "MER-ONLY-IN-PAY-LOG" {
 				t.Fatalf("unexpected merchant order no for orderpaydetail: %s", got)
 			}
-			fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"merchant_id":"1001","merchant_order_no":"MER-ONLY-IN-PAY-LOG","merchant_order_no_full":"1001000MER-ONLY-IN-PAY-LOG","total":1,"items":[{"log_id":912345,"amount":"88.80","channel_code":"wxhftest","source_url":"https://demo.example.com/pay","source_ip":"127.0.0.1","status_code":1,"status":"success","request_payload":{"fxid":"1001","fxddh":"MER-ONLY-IN-PAY-LOG"},"result":"ok","created_at":"2025-11-17 02:32:49"}]}}`)
+			_, _ = fmt.Fprintf(w, `{"code":0,"message":"ok","data":{"merchant_id":"1001","merchant_order_no":"MER-ONLY-IN-PAY-LOG","merchant_order_no_full":"1001000MER-ONLY-IN-PAY-LOG","total":1,"items":[{"log_id":912345,"amount":"88.80","channel_code":"wxhftest","source_url":"https://demo.example.com/pay","source_ip":"127.0.0.1","status_code":1,"status":"success","request_payload":{"fxid":"1001","fxddh":"MER-ONLY-IN-PAY-LOG"},"result":"ok","created_at":"2025-11-17 02:32:49"}]}}`)
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -676,7 +676,7 @@ func TestSifangService_GetOrderDetail_FallbackToOrderPayDetail(t *testing.T) {
 
 func TestSifangService_GetOrderDetail_NoData(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"code":0,"message":"ok","data":{}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"ok","data":{}}`)
 	}))
 	defer ts.Close()
 
@@ -698,7 +698,7 @@ func TestSifangService_GetOrderDetail_NoData(t *testing.T) {
 
 func TestSifangService_GetOrderDetail_APIError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"code":500,"message":"server error","data":null}`)
+		_, _ = fmt.Fprintf(w, `{"code":500,"message":"server error","data":null}`)
 	}))
 	defer ts.Close()
 
@@ -726,7 +726,7 @@ func TestSifangService_FindOrderChannelBinding_Success(t *testing.T) {
 		if got := r.Form.Get("merchant_order_no"); got != "MER-1" {
 			t.Fatalf("unexpected merchant order no: %s", got)
 		}
-		fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","merchant_order_no":"MER-1","pzid":337,"pz_name":"接口A","channel_code":"WX","channel_name":"微信","status_text":"未支付"}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","merchant_order_no":"MER-1","pzid":337,"pz_name":"接口A","channel_code":"WX","channel_name":"微信","status_text":"未支付"}}`)
 	}))
 	defer ts.Close()
 
@@ -759,14 +759,14 @@ func TestSifangService_FindOrderChannelBinding_Fallback(t *testing.T) {
 		}
 
 		if r.Form.Get("merchant_order_no") != "" {
-			fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
+			_, _ = fmt.Fprintf(w, `{"code":404,"message":"not found","data":null}`)
 			return
 		}
 
 		if got := r.Form.Get("platform_order_no"); got != "PLAT-1" {
 			t.Fatalf("unexpected platform order no: %s", got)
 		}
-		fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","platform_order_no":"PLAT-1","pzid":99}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"success","data":{"merchant_id":"1001","platform_order_no":"PLAT-1","pzid":99}}`)
 	}))
 	defer ts.Close()
 
@@ -795,7 +795,7 @@ func TestSifangService_FindOrderChannelBinding_Fallback(t *testing.T) {
 
 func TestSifangService_FindOrderChannelBinding_NoData(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"code":0,"message":"success","data":{}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"success","data":{}}`)
 	}))
 	defer ts.Close()
 
@@ -1039,7 +1039,7 @@ func TestSifangService_CreateOrder(t *testing.T) {
 		if got := r.Form.Get("description"); got != "测试订单" {
 			t.Fatalf("unexpected description: %s", got)
 		}
-		fmt.Fprintf(w, `{"code":0,"message":"订单创建成功","data":{"merchant_id":"2023100","merchant_order_no":"M-2026","amount":"88.80","channel_code":"wxhftest","payment_url":"https://example.com/pay/ok","order_id":123456,"platform_order_no":"P-200","order_md5":"abc123","status":0}}`)
+		_, _ = fmt.Fprintf(w, `{"code":0,"message":"订单创建成功","data":{"merchant_id":"2023100","merchant_order_no":"M-2026","amount":"88.80","channel_code":"wxhftest","payment_url":"https://example.com/pay/ok","order_id":123456,"platform_order_no":"P-200","order_md5":"abc123","status":0}}`)
 	}))
 	defer ts.Close()
 

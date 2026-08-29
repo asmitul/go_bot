@@ -116,7 +116,7 @@ func (r *MongoWithdrawQuoteRepository) ListByMerchantAndDateRange(ctx context.Co
 	if err != nil {
 		return nil, fmt.Errorf("failed to query withdraw quote records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var records []*models.WithdrawQuoteRecord
 	if err := cursor.All(ctx, &records); err != nil {

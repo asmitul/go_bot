@@ -61,7 +61,7 @@ func (r *forwardRecordRepository) GetSuccessRecordsByTaskID(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query forward records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var records []*models.ForwardRecord
 	if err := cursor.All(ctx, &records); err != nil {

@@ -318,7 +318,7 @@ func (r *MongoUpstreamBalanceRepository) ListAll(ctx context.Context) ([]*models
 	if err != nil {
 		return nil, fmt.Errorf("list balances failed: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var balances []*models.UpstreamBalance
 	if err := cursor.All(ctx, &balances); err != nil {
@@ -345,7 +345,7 @@ func (r *MongoUpstreamBalanceRepository) ListAdjustmentLogsByDateRange(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("list adjustment logs failed: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var logs []*models.UpstreamBalanceLog
 	if err := cursor.All(ctx, &logs); err != nil {

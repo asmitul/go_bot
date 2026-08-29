@@ -70,7 +70,7 @@ func (c *Client) Close(ctx context.Context) error {
 	if c.Client == nil {
 		return nil
 	}
-	return c.Client.Disconnect(ctx)
+	return c.Disconnect(ctx)
 }
 
 // Database 返回指定数据库的句柄

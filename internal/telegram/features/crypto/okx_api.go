@@ -70,7 +70,7 @@ func FetchC2COrders(ctx context.Context, paymentMethod string) ([]C2COrder, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OKX API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 检查 HTTP 状态码
 	if resp.StatusCode != http.StatusOK {

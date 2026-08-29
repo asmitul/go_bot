@@ -39,7 +39,7 @@ func New(cfg *config.Config) (*App, error) {
 	if cfg.Payment.Sifang.BaseURL != "" {
 		sifangClient, err := sifang.NewClient(cfg.Payment.Sifang)
 		if err != nil {
-			app.Close(context.Background())
+			_ = app.Close(context.Background())
 			return nil, fmt.Errorf("init Sifang client failed: %w", err)
 		}
 		app.PaymentService = paymentservice.NewSifangService(sifangClient)
@@ -51,7 +51,7 @@ func New(cfg *config.Config) (*App, error) {
 	// 初始化 Telegram Bot
 	app.TelegramBot, err = telegram.InitFromConfig(cfg, app.MongoDB.Database(), app.PaymentService)
 	if err != nil {
-		app.Close(context.Background()) // 清理已初始化的服务
+		_ = app.Close(context.Background()) // 清理已初始化的服务
 		return nil, fmt.Errorf("init Telegram bot failed: %w", err)
 	}
 	logger.L().Info("Telegram bot initialized successfully")

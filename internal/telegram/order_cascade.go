@@ -574,34 +574,6 @@ func buildOrderCascadeFeedbackMessage(state *orderCascadeState, action string, _
 	return buildOrderCascadeCompactResultMessage(state, actionLabel)
 }
 
-func buildOrderCascadeRelayContextMessage(state *orderCascadeState, actor *botModels.User, timestamp time.Time) string {
-	if state == nil {
-		return ""
-	}
-	if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-
-	orderNo := resolveOrderCascadeDisplayOrderNo(state)
-
-	interfaceName := strings.TrimSpace(state.InterfaceName)
-	if interfaceName == "" && strings.TrimSpace(state.InterfaceID) != "" {
-		interfaceName = fmt.Sprintf("接口 %s", strings.TrimSpace(state.InterfaceID))
-	}
-
-	builder := &strings.Builder{}
-	builder.WriteString("📨 <b>回复</b>\n")
-	if orderNo != "" {
-		builder.WriteString(fmt.Sprintf("订单号：<code>%s</code>\n", html.EscapeString(orderNo)))
-	}
-	if interfaceName != "" {
-		builder.WriteString(fmt.Sprintf("接口：%s\n", html.EscapeString(interfaceName)))
-	}
-	builder.WriteString(fmt.Sprintf("反馈人：%s\n", formatCascadeActor(actor)))
-	builder.WriteString(fmt.Sprintf("时间：%s", timestamp.Format("2006-01-02 15:04:05")))
-	return strings.TrimRight(builder.String(), "\n")
-}
-
 func buildOrderCascadeDirectTextReplyMessage(state *orderCascadeState, text string) string {
 	content := strings.TrimSpace(text)
 	if content == "" {

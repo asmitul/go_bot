@@ -64,7 +64,7 @@ func probeNetwork(ctx context.Context, target string) (time.Duration, int, error
 	if err != nil {
 		return 0, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return time.Since(start), resp.StatusCode, nil
