@@ -164,7 +164,7 @@ func (r *MongoUserRepository) ListAdmins(ctx context.Context) ([]*models.User, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to list admins: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var admins []*models.User
 	if err := cursor.All(ctx, &admins); err != nil {

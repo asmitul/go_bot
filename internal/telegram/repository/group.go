@@ -183,7 +183,7 @@ func (r *MongoGroupRepository) ListAllGroups(ctx context.Context) ([]*models.Gro
 	if err != nil {
 		return nil, fmt.Errorf("failed to list groups: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var groups []*models.Group
 	if err := cursor.All(ctx, &groups); err != nil {
@@ -200,7 +200,7 @@ func (r *MongoGroupRepository) ListActiveGroups(ctx context.Context) ([]*models.
 	if err != nil {
 		return nil, fmt.Errorf("failed to list active groups: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var groups []*models.Group
 	if err := cursor.All(ctx, &groups); err != nil {

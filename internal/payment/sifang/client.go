@@ -137,7 +137,7 @@ func (c *Client) Post(ctx context.Context, action string, merchantID int64, busi
 	if err != nil {
 		return fmt.Errorf("request sifang api failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

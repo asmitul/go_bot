@@ -139,6 +139,18 @@ type WithdrawQuoteRepository interface {
 	EnsureIndexes(ctx context.Context) error
 }
 
+// MerchantRateSnapshotRepository 商户费率基线数据访问接口。
+type MerchantRateSnapshotRepository interface {
+	// GetByChatID 获取指定商户群的费率基线；不存在时返回 nil, nil。
+	GetByChatID(ctx context.Context, chatID int64) (*models.MerchantRateSnapshot, error)
+
+	// Upsert 保存或覆盖指定商户群的费率基线。
+	Upsert(ctx context.Context, snapshot *models.MerchantRateSnapshot) error
+
+	// EnsureIndexes 确保索引存在。
+	EnsureIndexes(ctx context.Context) error
+}
+
 // UpstreamBalanceRepository 上游群余额数据访问接口
 type UpstreamBalanceRepository interface {
 	// Get 获取或创建余额记录

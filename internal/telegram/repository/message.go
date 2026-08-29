@@ -133,7 +133,7 @@ func (r *MongoMessageRepository) ListMessagesByChat(ctx context.Context, chatID 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list messages: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var messages []*models.Message
 	if err := cursor.All(ctx, &messages); err != nil {
@@ -161,7 +161,7 @@ func (r *MongoMessageRepository) CountMessagesByType(ctx context.Context, chatID
 	if err != nil {
 		return nil, fmt.Errorf("failed to count messages by type: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	result := make(map[string]int64)
 	for cursor.Next(ctx) {

@@ -453,31 +453,6 @@ func toBalanceResult(balance *models.UpstreamBalance) *UpstreamBalanceResult {
 	}
 }
 
-func parseRate(raw string) (float64, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return 0, fmt.Errorf("费率为空")
-	}
-
-	if strings.HasSuffix(trimmed, "%") {
-		value := strings.TrimSpace(strings.TrimSuffix(trimmed, "%"))
-		rate, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return 0, fmt.Errorf("费率格式错误: %w", err)
-		}
-		return rate / 100, nil
-	}
-
-	rate, err := strconv.ParseFloat(trimmed, 64)
-	if err != nil {
-		return 0, fmt.Errorf("费率格式错误: %w", err)
-	}
-	if rate > 1 {
-		return rate / 100, nil
-	}
-	return rate, nil
-}
-
 func parseAmount(raw string) (float64, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -524,10 +499,6 @@ func formatCodeMoney(v float64) string {
 
 func formatCode(value string) string {
 	return fmt.Sprintf("<code>%s</code>", html.EscapeString(value))
-}
-
-func formatRatePercent(v float64) string {
-	return fmt.Sprintf("%.2f", v*100)
 }
 
 func mustLoadChinaLocation() *time.Location {

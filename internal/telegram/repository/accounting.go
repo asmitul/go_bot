@@ -75,7 +75,7 @@ func (r *MongoAccountingRepository) GetRecordsByDateRange(ctx context.Context, c
 	if err != nil {
 		return nil, fmt.Errorf("failed to query accounting records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var records []*models.AccountingRecord
 	if err = cursor.All(ctx, &records); err != nil {
@@ -103,7 +103,7 @@ func (r *MongoAccountingRepository) GetRecentRecords(ctx context.Context, chatID
 	if err != nil {
 		return nil, fmt.Errorf("failed to query recent accounting records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var records []*models.AccountingRecord
 	if err = cursor.All(ctx, &records); err != nil {
