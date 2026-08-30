@@ -237,7 +237,7 @@ func (m *merchantRateMonitor) processGroup(
 		return
 	}
 
-	messages := buildMerchantRateChangeMessages(merchantID, changes, checkedAt)
+	messages := buildMerchantRateChangeMessages(changes)
 	for _, message := range messages {
 		sendCtx, cancel := context.WithTimeout(ctx, merchantRateSendTimeout)
 		err := m.sendMessage(sendCtx, group.TelegramID, message)
@@ -357,20 +357,12 @@ func formatRatePercentRat(rate *big.Rat) string {
 	return value + "%"
 }
 
-func buildMerchantRateChangeMessages(
-	merchantID int64,
-	changes []merchantRateChange,
-	detectedAt time.Time,
-) []string {
+func buildMerchantRateChangeMessages(changes []merchantRateChange) []string {
 	if len(changes) == 0 {
 		return nil
 	}
 
-	header := fmt.Sprintf(
-		"⚠️ <b>商户费率变更</b>\n商户号：<code>%d</code>\n检测时间：<code>%s（北京时间）</code>\n\n",
-		merchantID,
-		detectedAt.In(mustLoadChinaLocation()).Format("2006-01-02 15:04:05"),
-	)
+	const header = "⚠️<b>商户费率变更</b>\n"
 
 	messages := make([]string, 0, 1)
 	var builder strings.Builder
@@ -385,7 +377,7 @@ func buildMerchantRateChangeMessages(
 		if name != "" {
 			label += " " + name
 		}
-		line := fmt.Sprintf("• %s：<b>%s</b> → <b>%s</b>\n", label, oldRate, newRate)
+		line := fmt.Sprintf("%s ： <b>%s</b> → <b>%s</b>\n", label, oldRate, newRate)
 		if builder.Len()+len(line) > merchantRateMessageLimit && builder.Len() > len(header) {
 			messages = append(messages, strings.TrimRight(builder.String(), "\n"))
 			builder.Reset()
