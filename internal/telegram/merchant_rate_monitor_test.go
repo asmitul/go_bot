@@ -231,7 +231,7 @@ func TestBuildMerchantRateChangeMessagesEscapesAndChunks(t *testing.T) {
 			NewRate:     "8%",
 		})
 	}
-	messages := buildMerchantRateChangeMessages(2024164, changes, time.Unix(0, 0).UTC())
+	messages := buildMerchantRateChangeMessages(changes)
 	if len(messages) < 2 {
 		t.Fatalf("expected long notification to be chunked, got %d chunks", len(messages))
 	}
@@ -242,6 +242,21 @@ func TestBuildMerchantRateChangeMessagesEscapesAndChunks(t *testing.T) {
 		if strings.Contains(message, "a<b>") || !strings.Contains(message, "a&lt;b&gt;") {
 			t.Fatalf("message was not escaped: %s", message)
 		}
+	}
+}
+
+func TestBuildMerchantRateChangeMessagesUsesMerchantFacingCopy(t *testing.T) {
+	messages := buildMerchantRateChangeMessages([]merchantRateChange{{
+		ChannelCode: "68001",
+		ChannelName: "纯原生",
+		OldRate:     "12%",
+		NewRate:     "13%",
+	}})
+
+	want := "⚠️<b>商户费率变更</b>\n" +
+		"<code>68001</code> 纯原生 ： <b>12%</b> → <b>13%</b>"
+	if len(messages) != 1 || messages[0] != want {
+		t.Fatalf("unexpected notification:\nwant: %q\n got: %q", want, messages)
 	}
 }
 
